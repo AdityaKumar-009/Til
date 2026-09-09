@@ -1,158 +1,204 @@
 package com.flivoro.tile8auncher.ui.components
 
+import android.graphics.Matrix
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.flivoro.tile8auncher.data.FlipAnimationMode
+import com.flivoro.tile8auncher.data.TimeCurve
+import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
-import com.flivoro.tile8auncher.ui.theme.WindowsTypography
-import kotlin.math.roundToInt
+import com.flivoro.tile8auncher.ui.animation.LaunchFrame
+import com.flivoro.tile8auncher.ui.animation.Quad
+import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
+import com.flivoro.tile8auncher.ui.animation.AllAppsLaunchMotion
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
+import kotlinx.coroutines.flow.first
+import kotlin.math.min
+import kotlin.math.cbrt
 
-/**
- * Exact replica of Windows 8.1 3D Tile Flip Animation:
- * 1. The clicked tile expands from its screen bounds into a full-screen card.
- * 2. Swings open around the Y-axis from -70° to 0° with camera perspective.
- * 3. Shows the app's solid accent color with the white glyph and splash outline.
- */
+/** A single rotating plane, viewed from the center of the launcher window. */
 @Composable
 fun FlipLaunchOverlay(
     state: FlipAnimationState,
-    onAnimationEnd: () -> Unit
+    onAnimationEnd: () -> Unit,
+    destinationContent: (@Composable () -> Unit)? = null,
 ) {
-    if (!state.isRunning || state.sourceTile == null) return
-
-    val config = LocalConfiguration.current
-    val density = LocalDensity.current
-    val screenWidthPx = with(density) { config.screenWidthDp.dp.toPx() }
-    val screenHeightPx = with(density) { config.screenHeightDp.dp.toPx() }
-
-    val animProgress = remember { Animatable(0f) }
+    val tile = state.sourceTile ?: return
+    if (!state.isRunning) return
+    val modern = state.animationMode == FlipAnimationMode.MODERN
+    val allApps = state.origin == LaunchOrigin.ALL_APPS
+    val progress = remember(state) { Animatable(0f) }
+    val finish by rememberUpdatedState(onAnimationEnd)
+    var finalFrameDrawn by remember(state) { mutableStateOf(false) }
 
     LaunchedEffect(state) {
-        animProgress.snapTo(0f)
-        animProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = 420,
-                easing = CubicBezierEasing(0.08f, 0.92f, 0.15f, 1.0f)
-            )
-        )
-        onAnimationEnd()
+        progress.animateTo(1f, tween(
+            durationMillis = state.timing.durationMillis.coerceIn(100, 2000),
+            easing = LinearEasing,
+        ))
+        // A completed Animatable value is not proof that its final frame was drawn.
+        // Let that frame be submitted before another Activity can cover this window.
+        snapshotFlow { finalFrameDrawn }.first { it }
+        withFrameNanos { }
+        finish()
     }
 
-    val p = animProgress.value
-    val src = state.sourceBounds
-
-    // If coordinates were zero or invalid, provide an authentic tile launch origin
-    val effectiveLeft = if (src.width > 20f) src.left else screenWidthPx * 0.15f
-    val effectiveTop = if (src.height > 20f) src.top else screenHeightPx * 0.35f
-    val effectiveWidth = if (src.width > 20f) src.width else screenWidthPx * 0.40f
-    val effectiveHeight = if (src.height > 20f) src.height else 140f * density.density
-
-    // Interpolate bounds from tile position to full screen
-    val currentLeft = effectiveLeft * (1f - p)
-    val currentTop = effectiveTop * (1f - p)
-    val currentWidth = effectiveWidth + (screenWidthPx - effectiveWidth) * p
-    val currentHeight = effectiveHeight + (screenHeightPx - effectiveHeight) * p
-
-    // 3D rotation swings open around the Y axis: from -70° to 0° (flat)
-    val currentRotationY = -70f * (1f - p)
-
-    // Icon scales smoothly from tile icon size to splash size
-    val iconSizeDp = (42f + 48f * p).dp
-
-    Box(
-        modifier = Modifier.fillMaxSize()
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().clipToBounds()
+            .pointerInput(Unit) {
+                // The launch owns input until its handoff, including taps outside the card.
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    }
+                }
+            },
     ) {
-        Box(
-            modifier = Modifier
-                .offset {
-                    IntOffset(currentLeft.roundToInt(), currentTop.roundToInt())
-                }
-                .size(
-                    width = with(density) { currentWidth.toDp() },
-                    height = with(density) { currentHeight.toDp() }
-                )
-                .graphicsLayer {
-                    this.rotationY = currentRotationY
-                    this.cameraDistance = 14000f * density.density
-                    // Pivot on left-center so right side swings forward towards viewer
-                    this.transformOrigin = TransformOrigin(0.2f, 0.5f)
-                }
-                .background(state.accentColor)
-        ) {
-            // Signature Windows 8.1 Splash screen outlined box (seen in frame 00:06 and 00:34)
-            if (p > 0.3f) {
-                Box(
-                    modifier = Modifier
-                        .size(170.dp, 105.dp)
-                        .align(Alignment.Center)
-                        .alpha(((p - 0.3f) * 1.4f).coerceIn(0f, 0.35f))
-                        .border(1.dp, Color.White)
-                )
+        val density = LocalDensity.current
+        val width = constraints.maxWidth.toFloat()
+        val height = constraints.maxHeight.toFloat()
+        var windowOrigin by remember { mutableStateOf(Offset.Zero) }
+        val source = WindowsLaunchMotion.sourceBounds(
+            state.sourceBounds.translate(-windowOrigin), width, height)
+        val frontMatrix = remember { Matrix() }
+        val backMatrix = remember { Matrix() }
+        val logoMatrix = remember { Matrix() }
+        val frontPoints = remember { FloatArray(8) }
+        val backPoints = remember { FloatArray(8) }
+        val logoPoints = remember { FloatArray(8) }
+        var sourceLogo by remember(state) { mutableStateOf<Rect?>(null) }
+        val sharedLogo = !allApps && destinationContent == null && tile.tileType !in listOf(
+            TileType.CLOCK, TileType.CALENDAR, TileType.DESKTOP)
+        val frontRect = remember(source.width, source.height) {
+            floatArrayOf(0f, 0f, source.width, 0f, source.width, source.height, 0f, source.height)
+        }
+        val backRect = remember(width, height) {
+            floatArrayOf(0f, 0f, width, 0f, width, height, 0f, height)
+        }
+        fun frame(): LaunchFrame {
+            val time = progress.value
+            if (allApps) return AllAppsLaunchMotion.frame(
+                if (state.timing.curve == TimeCurve.REFERENCE) time
+                else AllAppsLaunchMotion.progressForExpansion(state.timing.transform(time)),
+                width, height)
+            val motionProgress = when {
+                state.timing.curve == TimeCurve.REFERENCE -> time
+                modern -> 1f - cbrt(1f - state.timing.transform(time))
+                else -> WindowsLaunchMotion.progressForRotation(state.timing.transform(time))
             }
+            return WindowsLaunchMotion.frame(motionProgress, source, width, height, modern)
+        }
 
-            // Centered App Glyph / Icon
+        Box(Modifier.fillMaxSize().onGloballyPositioned { windowOrigin = it.positionInWindow() }) {
+            // Both faces have fixed layout dimensions. Progress is read only during
+            // drawing, so animation does not remeasure text or icons every frame.
+            WindowsTileFace(tile, state.appIcon,
+                Modifier.requiredSize(with(density) { source.width.toDp() },
+                    with(density) { source.height.toDp() })
+                    .projectedFace(frontMatrix, frontRect, frontPoints,
+                        frame = ::frame, visible = { it.isFrontFace && !modern && !allApps }),
+                logoModifier = if (sharedLogo) Modifier
+                    .onGloballyPositioned {
+                        sourceLogo = it.boundsInWindow().translate(-windowOrigin)
+                    }
+                    .alpha(0f) else Modifier,
+            )
+            val iconSize = with(density) { (min(width, height) * .20f).toDp() }
+                .coerceIn(48.dp, 104.dp)
             Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(iconSizeDp),
-                contentAlignment = Alignment.Center
+                modifier = Modifier.fillMaxSize()
+                    .graphicsLayer { alpha = if (allApps) AllAppsLaunchMotion.opacity(progress.value) else 1f }
+                    .projectedFace(backMatrix, backRect, backPoints,
+                        frame = ::frame, visible = { !it.isFrontFace || modern },
+                        onDrawn = { if (progress.value == 1f) finalFrameDrawn = true })
+                    .background(state.accentColor),
+                contentAlignment = Alignment.Center,
             ) {
-                if (state.sourceTile.iconGlyph.isNotEmpty()) {
-                    MetroIcon(
-                        glyph = state.sourceTile.iconGlyph,
-                        color = Color.White,
-                        size = iconSizeDp
-                    )
-                } else if (state.appIcon != null) {
-                    Image(
-                        bitmap = state.appIcon,
-                        contentDescription = state.sourceTile.title,
-                        modifier = Modifier.size(iconSizeDp)
-                    )
-                } else {
-                    MetroIcon(
-                        glyph = "app",
-                        color = Color.White,
-                        size = iconSizeDp
-                    )
+                if (destinationContent != null) {
+                    destinationContent()
+                } else if (!sharedLogo) when {
+                    tile.iconGlyph.isNotEmpty() -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
+                    state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.size(iconSize))
+                    else -> MetroIcon("app", color = Color.White, size = iconSize)
                 }
             }
-
-            // App title at bottom left during early swing phase
-            if (p < 0.5f) {
-                Text(
-                    text = state.sourceTile.title,
-                    style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-                    color = Color.White.copy(alpha = 1f - (p / 0.5f)),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .offset(x = 10.dp, y = (-8).dp)
-                )
+            if (sharedLogo) {
+                // This is the same drawable for the entire turn. Replacing two
+                // independently scaled face icons at the edge caused a size reset.
+                val logoSizePx = with(density) { iconSize.toPx() }
+                val logoRect = remember(logoSizePx) {
+                    floatArrayOf(0f, 0f, logoSizePx, 0f, logoSizePx, logoSizePx, 0f, logoSizePx)
+                }
+                Box(Modifier.size(iconSize)
+                    .projectedFace(logoMatrix, logoRect, logoPoints,
+                        frame = ::frame, visible = { sourceLogo != null },
+                        quad = { current -> WindowsLaunchMotion.logoQuad(current, source,
+                            width, height, sourceLogo ?: Rect.Zero, logoSizePx) })) {
+                    when {
+                        tile.iconGlyph.isNotEmpty() -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
+                        state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.fillMaxSize())
+                        else -> MetroIcon("app", color = Color.White, size = iconSize)
+                    }
+                }
             }
+        }
+    }
+}
+
+private fun Modifier.projectedFace(
+    matrix: Matrix,
+    sourcePoints: FloatArray,
+    destinationPoints: FloatArray,
+    frame: () -> LaunchFrame,
+    visible: (LaunchFrame) -> Boolean,
+    quad: (LaunchFrame) -> Quad = { it.quad },
+    onDrawn: () -> Unit = {},
+): Modifier = drawWithContent {
+    val current = frame()
+    if (visible(current) && current.quad.bounds.width > .1f) {
+        quad(current).writeTo(destinationPoints)
+        matrix.reset()
+        if (matrix.setPolyToPoly(sourcePoints, 0, destinationPoints, 0, 4)) {
+            val canvas = drawContext.canvas.nativeCanvas
+            val checkpoint = canvas.save()
+            canvas.concat(matrix)
+            drawContent()
+            canvas.restoreToCount(checkpoint)
+            onDrawn()
         }
     }
 }

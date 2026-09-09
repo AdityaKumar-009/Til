@@ -8,13 +8,22 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 class AppsRepository(private val context: Context) {
 
@@ -22,7 +31,35 @@ class AppsRepository(private val context: Context) {
         context.getSharedPreferences("tile8_launcher_prefs_v2", Context.MODE_PRIVATE)
     private val packageManager: PackageManager = context.packageManager
 
-    private val iconCache = mutableMapOf<String, ImageBitmap?>()
+    /**
+     * Package icons can be surprisingly large (adaptive icons are often 512px or more), so
+     * bound this cache by its approximate ARGB byte cost instead of by item count. Access to
+     * Android's LruCache is guarded because icons are read and populated from IO coroutines
+     * while the launcher may read the cache on the main thread.
+     */
+    private val iconCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int {
+            val bytes = value.width.toLong() * value.height.toLong() * BYTES_PER_PIXEL
+            return bytes.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+        }
+    }
+    private val iconCacheLock = Any()
+    private val failedIcons = ConcurrentHashMap.newKeySet<String>()
+    private val iconLoadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val inFlightIconLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+
+    init {
+        iconLoadScope.launch {
+            try {
+                val installed = getInstalledApps()
+                for (app in installed) {
+                    loadAppIcon(app.packageName)
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
 
     fun getInstalledApps(): List<AppInfo> {
         val intent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -65,17 +102,61 @@ class AppsRepository(private val context: Context) {
         }
     }
 
-    fun getAppIcon(packageName: String): ImageBitmap? {
-        if (iconCache.containsKey(packageName)) {
-            return iconCache[packageName]
+    /** Returns an icon only when it is already in memory; this never touches PackageManager. */
+    fun getCachedAppIcon(packageName: String): ImageBitmap? {
+        synchronized(iconCacheLock) {
+            return iconCache.get(packageName)
         }
+    }
+
+    /**
+     * Loads and caches an icon without blocking the caller's thread. Concurrent requests for
+     * the same package share one decode, which matters when a row and the action bar overlap.
+     */
+    suspend fun loadAppIcon(packageName: String): ImageBitmap? {
+        getCachedAppIcon(packageName)?.let { return it }
+        if (failedIcons.contains(packageName)) return null
+
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                decodeAndCacheAppIcon(packageName)
+            } finally {
+                inFlightIconLoads.remove(packageName)
+            }
+        }
+        val active = inFlightIconLoads.putIfAbsent(packageName, candidate)
+        if (active == null) {
+            candidate.start()
+        } else {
+            candidate.cancel()
+        }
+        return (active ?: candidate).await()
+    }
+
+    fun getAppIcon(packageName: String): ImageBitmap? {
+        getCachedAppIcon(packageName)?.let { return it }
+        if (failedIcons.contains(packageName)) return null
+        return decodeAndCacheAppIcon(packageName)
+    }
+
+    private fun decodeAndCacheAppIcon(packageName: String): ImageBitmap? {
+        getCachedAppIcon(packageName)?.let { return it }
+        if (failedIcons.contains(packageName)) return null
+
         val bitmap = try {
             val drawable = packageManager.getApplicationIcon(packageName)
             drawableToBitmap(drawable).asImageBitmap()
         } catch (e: Exception) {
+            failedIcons.add(packageName)
             null
         }
-        iconCache[packageName] = bitmap
+        if (bitmap != null) {
+            synchronized(iconCacheLock) {
+                iconCache.put(packageName, bitmap)
+            }
+        } else {
+            failedIcons.add(packageName)
+        }
         return bitmap
     }
 
@@ -377,5 +458,100 @@ class AppsRepository(private val context: Context) {
                 order = 17
             )
         )
+    }
+
+    fun getFlipAnimationMode(): FlipAnimationMode {
+        val modeStr = prefs.getString("flip_animation_mode", FlipAnimationMode.CLASSIC.name)
+        return try {
+            FlipAnimationMode.valueOf(modeStr ?: FlipAnimationMode.CLASSIC.name)
+        } catch (e: Exception) {
+            FlipAnimationMode.CLASSIC
+        }
+    }
+
+    fun setFlipAnimationMode(mode: FlipAnimationMode) {
+        prefs.edit { putString("flip_animation_mode", mode.name) }
+    }
+
+    fun getWallpaperStyle(): Int = prefs.getInt("wallpaper_style", 0).coerceIn(0, 9)
+
+    fun setWallpaperStyle(style: Int) {
+        prefs.edit().putInt("wallpaper_style", style.coerceIn(0, 9)).apply()
+    }
+
+    fun getWallpaperParallaxEnabled(): Boolean =
+        prefs.getBoolean(WALLPAPER_PARALLAX_ENABLED, true)
+
+    fun setWallpaperParallaxEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(WALLPAPER_PARALLAX_ENABLED, enabled) }
+    }
+
+    fun getLaunchTiming(allApps: Boolean = false): LaunchTiming {
+        fun key(name: String) = if (allApps) "all_apps_$name" else name
+        val defaults = LaunchTiming()
+        val curveName = readPreference(defaults.curve.name) {
+            prefs.getString(key(LAUNCH_TIMING_CURVE), defaults.curve.name) ?: defaults.curve.name
+        }
+        val curve = TimeCurve.values().firstOrNull { it.name == curveName } ?: defaults.curve
+
+        return LaunchTiming(
+            durationMillis = readPreference(defaults.durationMillis) {
+                prefs.getInt(key(LAUNCH_TIMING_DURATION), defaults.durationMillis)
+            },
+            curve = curve,
+            customX1 = readPreference(defaults.customX1) {
+                prefs.getFloat(key(LAUNCH_TIMING_CUSTOM_X1), defaults.customX1)
+            },
+            customY1 = readPreference(defaults.customY1) {
+                prefs.getFloat(key(LAUNCH_TIMING_CUSTOM_Y1), defaults.customY1)
+            },
+            customX2 = readPreference(defaults.customX2) {
+                prefs.getFloat(key(LAUNCH_TIMING_CUSTOM_X2), defaults.customX2)
+            },
+            customY2 = readPreference(defaults.customY2) {
+                prefs.getFloat(key(LAUNCH_TIMING_CUSTOM_Y2), defaults.customY2)
+            },
+            strength = readPreference(defaults.strength) {
+                prefs.getFloat(key(LAUNCH_TIMING_STRENGTH), defaults.strength)
+            },
+            steps = readPreference(defaults.steps) {
+                prefs.getInt(key(LAUNCH_TIMING_STEPS), defaults.steps)
+            },
+        ).sanitized()
+    }
+
+    fun setLaunchTiming(timing: LaunchTiming, allApps: Boolean = false) {
+        fun key(name: String) = if (allApps) "all_apps_$name" else name
+        val safeTiming = timing.sanitized()
+        prefs.edit {
+            putInt(key(LAUNCH_TIMING_DURATION), safeTiming.durationMillis)
+            putString(key(LAUNCH_TIMING_CURVE), safeTiming.curve.name)
+            putFloat(key(LAUNCH_TIMING_CUSTOM_X1), safeTiming.customX1)
+            putFloat(key(LAUNCH_TIMING_CUSTOM_Y1), safeTiming.customY1)
+            putFloat(key(LAUNCH_TIMING_CUSTOM_X2), safeTiming.customX2)
+            putFloat(key(LAUNCH_TIMING_CUSTOM_Y2), safeTiming.customY2)
+            putFloat(key(LAUNCH_TIMING_STRENGTH), safeTiming.strength)
+            putInt(key(LAUNCH_TIMING_STEPS), safeTiming.steps)
+        }
+    }
+
+    private fun <T> readPreference(default: T, read: () -> T): T = try {
+        read()
+    } catch (_: Exception) {
+        default
+    }
+
+    private companion object {
+        const val BYTES_PER_PIXEL = 4L
+        const val ICON_CACHE_MAX_BYTES = 8 * 1024 * 1024
+        const val LAUNCH_TIMING_DURATION = "launch_timing_duration_millis"
+        const val LAUNCH_TIMING_CURVE = "launch_timing_curve"
+        const val LAUNCH_TIMING_CUSTOM_X1 = "launch_timing_custom_x1"
+        const val LAUNCH_TIMING_CUSTOM_Y1 = "launch_timing_custom_y1"
+        const val LAUNCH_TIMING_CUSTOM_X2 = "launch_timing_custom_x2"
+        const val LAUNCH_TIMING_CUSTOM_Y2 = "launch_timing_custom_y2"
+        const val LAUNCH_TIMING_STRENGTH = "launch_timing_strength"
+        const val LAUNCH_TIMING_STEPS = "launch_timing_steps"
+        const val WALLPAPER_PARALLAX_ENABLED = "wallpaper_parallax_enabled"
     }
 }

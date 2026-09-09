@@ -29,6 +29,7 @@ import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 @Composable
 fun PowerDialog(
     onDismiss: () -> Unit,
+    onOpenLauncherSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -52,6 +53,11 @@ fun PowerDialog(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                PowerOptionItem(label = "Launcher Settings (Animations)") {
+                    onDismiss()
+                    onOpenLauncherSettings()
+                }
 
                 PowerOptionItem(label = "System Settings") {
                     onDismiss()

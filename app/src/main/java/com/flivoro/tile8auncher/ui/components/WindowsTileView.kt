@@ -34,7 +34,6 @@ import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.time.Duration.Companion.seconds
 
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 
@@ -46,15 +45,28 @@ fun WindowsTileView(
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val tileColor = tile.colorValue.toTileColor()
-
-    Box(
+    WindowsTileFace(
+        tile = tile,
+        appIcon = appIcon,
         modifier = modifier
             .metroTilePress(
                 onClick = onClick,
                 onLongClick = onLongClick,
-            )
-            .background(tileColor),
+            ),
+    )
+}
+
+@Composable
+internal fun WindowsTileFace(
+    tile: TileModel,
+    appIcon: ImageBitmap?,
+    modifier: Modifier = Modifier,
+    logoModifier: Modifier = Modifier,
+) {
+    val tileColor = tile.colorValue.toTileColor()
+
+    Box(
+        modifier = modifier.background(tileColor),
     ) {
         when (tile.tileType) {
             TileType.DESKTOP -> {
@@ -69,7 +81,8 @@ fun WindowsTileView(
 
             TileType.WEATHER -> {
                 // Weather tile
-                WeatherTileContent(title = tile.title, isWide = tile.size == TileSize.WIDE)
+                WeatherTileContent(title = tile.title, isWide = tile.size == TileSize.WIDE,
+                    logoModifier = logoModifier)
             }
 
             TileType.CALENDAR -> {
@@ -79,7 +92,8 @@ fun WindowsTileView(
 
             TileType.MONEY -> {
                 // Money / Stocks tile
-                MoneyTileContent(title = tile.title, isWide = tile.size == TileSize.WIDE)
+                MoneyTileContent(title = tile.title, isWide = tile.size == TileSize.WIDE,
+                    logoModifier = logoModifier)
             }
 
             else -> {
@@ -87,6 +101,7 @@ fun WindowsTileView(
                 StandardAppTileContent(
                     tile = tile,
                     appIcon = appIcon,
+                    logoModifier = logoModifier,
                 )
             }
         }
@@ -97,6 +112,7 @@ fun WindowsTileView(
 private fun StandardAppTileContent(
     tile: TileModel,
     appIcon: ImageBitmap?,
+    logoModifier: Modifier,
 ) {
     val isSmall = tile.size == TileSize.SMALL
     val iconSize = when (tile.size) {
@@ -118,18 +134,20 @@ private fun StandardAppTileContent(
                     glyph = tile.iconGlyph,
                     color = Color.White,
                     size = iconSize,
+                    modifier = logoModifier,
                 )
             } else if (appIcon != null) {
                 Image(
                     bitmap = appIcon,
                     contentDescription = tile.title,
-                    modifier = Modifier.size(iconSize),
+                    modifier = logoModifier.size(iconSize),
                 )
             } else {
                 MetroIcon(
                     glyph = "app",
                     color = Color.White,
                     size = iconSize,
+                    modifier = logoModifier,
                 )
             }
         }
@@ -195,15 +213,22 @@ private fun DesktopTileContent(title: String) {
 
 @Composable
 private fun ClockTileContent(title: String, isWide: Boolean) {
-    var timeText by remember { mutableStateOf("") }
-    var dateText by remember { mutableStateOf("") }
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()) }
+    var timeText by remember {
+        mutableStateOf(timeFormat.format(Date()))
+    }
+    var dateText by remember {
+        mutableStateOf(dateFormat.format(Date()))
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
             val now = Date()
-            timeText = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
-            dateText = SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now)
-            delay(1.seconds)
+            timeText = timeFormat.format(now)
+            dateText = dateFormat.format(now)
+            // The tile displays minutes. Wake at the next minute, not every second.
+            delay(60_000L - System.currentTimeMillis().mod(60_000L))
         }
     }
 
@@ -232,7 +257,7 @@ private fun ClockTileContent(title: String, isWide: Boolean) {
 }
 
 @Composable
-private fun WeatherTileContent(title: String, isWide: Boolean) {
+private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Modifier) {
     Box(modifier = Modifier.fillMaxSize().padding(10.dp)) {
         if (isWide) {
             Column(modifier = Modifier.align(Alignment.CenterStart)) {
@@ -251,11 +276,11 @@ private fun WeatherTileContent(title: String, isWide: Boolean) {
                 glyph = "weather",
                 color = Color.White,
                 size = 46.dp,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).then(logoModifier)
             )
         } else {
             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                MetroIcon(glyph = "weather", color = Color.White, size = 36.dp)
+                MetroIcon(glyph = "weather", color = Color.White, size = 36.dp, modifier = logoModifier)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "24° Sunny",
@@ -301,7 +326,7 @@ private fun CalendarTileContent(title: String) {
 }
 
 @Composable
-private fun MoneyTileContent(title: String, isWide: Boolean) {
+private fun MoneyTileContent(title: String, isWide: Boolean, logoModifier: Modifier) {
     Box(modifier = Modifier.fillMaxSize().padding(10.dp)) {
         if (isWide) {
             Column(modifier = Modifier.align(Alignment.CenterStart)) {
@@ -320,14 +345,14 @@ private fun MoneyTileContent(title: String, isWide: Boolean) {
                 glyph = "money",
                 color = Color.White,
                 size = 40.dp,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).then(logoModifier)
             )
         } else {
             MetroIcon(
                 glyph = "money",
                 color = Color.White,
                 size = 38.dp,
-                modifier = Modifier.align(Alignment.Center)
+                modifier = Modifier.align(Alignment.Center).then(logoModifier)
             )
         }
         Text(

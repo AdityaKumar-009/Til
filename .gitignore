@@ -13,3 +13,22 @@
 .externalNativeBuild
 .cxx
 local.properties
+/.tools/
+/.gradle-user-home/
+/.kotlin/
+
+# Local build and tool caches created by the development environment
+/.gradle-local/
+/.gradle-dist/
+/.android-local/
+**/build/
+
+# IDE machine metadata
+/.idea/vcs.xml
+
+# Temporary video-analysis captures and recordings
+/flip_highres.mp4
+/flip_test.mp4
+/flip_uniform.mp4
+/flip_test_frames/
+/test_screen.png

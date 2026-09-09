@@ -1,6 +1,9 @@
 package com.flivoro.tile8auncher.ui.components
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,19 +13,34 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.FlipAnimationMode
+import com.flivoro.tile8auncher.data.LaunchTiming
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
+import com.flivoro.tile8auncher.ui.animation.AllAppsLaunchMotion
+import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
@@ -31,22 +49,29 @@ import com.flivoro.tile8auncher.ui.theme.toTileColor
 
 /**
  * Authentic Windows 8.1 App screens matching the video recordings
- * for Reading List (00:19), Help+Tips (01:00), Money (00:37), and Desktop (00:10).
+ * for Reading List (00:19), Help+Tips (01:00), Money (00:37), Desktop (00:10),
+ * and PC settings.
  */
 @Composable
 fun WindowsAppView(
     tile: TileModel,
-    onClose: () -> Unit
+    appsRepository: AppsRepository? = null,
+    onTestFlip: ((TileModel, LaunchOrigin) -> Unit)? = null,
+    onClose: () -> Unit,
+    onWallpaperParallaxChanged: ((Boolean) -> Unit)? = null,
+    onWallpaperStyleChanged: ((Int) -> Unit)? = null,
 ) {
     val accentColor = tile.colorValue.toTileColor()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (tile.tileType == TileType.DESKTOP) Color(0xFF0D254C) else Color(0xFFF0F0F0))
+            .background(Color(0xFF1E1E1E))
             .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()
+            .background(if (tile.tileType == TileType.DESKTOP) Color(0xFF0D254C) else Color(0xFFF0F0F0))) {
             // Top App Bar
             Row(
                 modifier = Modifier
@@ -94,6 +119,16 @@ fun WindowsAppView(
 
                 TileType.MONEY -> {
                     MoneyAppContent()
+                }
+
+                TileType.SETTINGS -> {
+                    PCSettingsAppContent(
+                        appsRepository = appsRepository,
+                        onTestFlip = onTestFlip,
+                        onClose = onClose,
+                        onWallpaperParallaxChanged = onWallpaperParallaxChanged,
+                        onWallpaperStyleChanged = onWallpaperStyleChanged,
+                    )
                 }
 
                 else -> {
@@ -347,5 +382,357 @@ private fun GenericMetroAppContent(tile: TileModel, accentColor: Color) {
             text = "Welcome to ${tile.title}.",
             style = WindowsTypography.bodyMedium.copy(color = Color.Gray, fontSize = 14.sp)
         )
+    }
+}
+
+@Composable
+private fun PCSettingsAppContent(
+    appsRepository: AppsRepository?,
+    onTestFlip: ((TileModel, LaunchOrigin) -> Unit)?,
+    onClose: () -> Unit,
+    onWallpaperParallaxChanged: ((Boolean) -> Unit)?,
+    onWallpaperStyleChanged: ((Int) -> Unit)?,
+) {
+    val context = LocalContext.current
+    var selectedMode by remember {
+        mutableStateOf(appsRepository?.getFlipAnimationMode() ?: FlipAnimationMode.CLASSIC)
+    }
+    var launchTiming by remember {
+        mutableStateOf(appsRepository?.getLaunchTiming() ?: LaunchTiming())
+    }
+    var editingAllApps by remember { mutableStateOf(false) }
+    var allAppsTiming by remember {
+        mutableStateOf(appsRepository?.getLaunchTiming(allApps = true) ?: LaunchTiming())
+    }
+    var wallpaperStyle by remember { mutableStateOf(appsRepository?.getWallpaperStyle() ?: 0) }
+    var wallpaperParallaxEnabled by remember {
+        mutableStateOf(appsRepository?.getWallpaperParallaxEnabled() ?: true)
+    }
+
+    fun updateWallpaperParallax(enabled: Boolean) {
+        wallpaperParallaxEnabled = enabled
+        appsRepository?.setWallpaperParallaxEnabled(enabled)
+        onWallpaperParallaxChanged?.invoke(enabled)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF0F0F0))
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp)
+    ) {
+        // Page Title
+        Text(
+            text = "PC settings",
+            style = WindowsTypography.displayLarge.copy(
+                color = Color(0xFF222222),
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Light
+            )
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Group Header
+        Text(
+            text = "App opening animation",
+            style = WindowsTypography.titleLarge.copy(
+                color = Color(0xFF5133AB),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Normal
+            )
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Select the 3D transition effect when opening apps from tiles",
+            style = WindowsTypography.bodyMedium.copy(
+                color = Color(0xFF666666),
+                fontSize = 13.sp
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Option 1: Classic
+        AnimationModeOptionCard(
+            title = "Classic",
+            tag = "Authentic Windows 8.1",
+            description = "Continuous 3D flip from the tile into the full-screen app view.",
+            duration = "${launchTiming.durationMillis} ms",
+            isSelected = selectedMode == FlipAnimationMode.CLASSIC,
+            onSelect = {
+                selectedMode = FlipAnimationMode.CLASSIC
+                appsRepository?.setFlipAnimationMode(FlipAnimationMode.CLASSIC)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Option 2: Modern
+        AnimationModeOptionCard(
+            title = "Modern",
+            tag = "Expanding Card (No Flip)",
+            description = "Smooth expansion from the tile into the full-screen app view without a flip.",
+            duration = "${launchTiming.durationMillis} ms",
+            isSelected = selectedMode == FlipAnimationMode.MODERN,
+            onSelect = {
+                selectedMode = FlipAnimationMode.MODERN
+                appsRepository?.setFlipAnimationMode(FlipAnimationMode.MODERN)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(false to "Start screen", true to "All Apps").forEach { (allApps, label) ->
+                Text(label, color = if (editingAllApps == allApps) Color.White else Color(0xFF5133AB),
+                    modifier = Modifier.background(if (editingAllApps == allApps) Color(0xFF5133AB) else Color.White)
+                        .clickable { editingAllApps = allApps }.padding(horizontal = 14.dp, vertical = 10.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        AnimationTimingSettings(
+            timing = if (editingAllApps) allAppsTiming else launchTiming,
+            referenceProgress = if (editingAllApps) AllAppsLaunchMotion::expansionFraction
+                else WindowsLaunchMotion::rotationFractionAtProgress,
+            onTimingChange = { timing ->
+                val safeTiming = timing.sanitized()
+                if (editingAllApps) allAppsTiming = safeTiming else launchTiming = safeTiming
+                appsRepository?.setLaunchTiming(safeTiming, allApps = editingAllApps)
+            },
+        )
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFD0D0D0))
+                .background(Color.White)
+                .clickable { updateWallpaperParallax(!wallpaperParallaxEnabled) }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Wallpaper parallax",
+                    style = WindowsTypography.titleMedium.copy(
+                        color = Color(0xFF222222),
+                        fontSize = 15.sp,
+                    ),
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "Move the background as you scroll horizontally.",
+                    style = WindowsTypography.bodyMedium.copy(
+                        color = Color(0xFF666666),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    ),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = wallpaperParallaxEnabled,
+                onCheckedChange = ::updateWallpaperParallax,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        WallpaperPicker(selected = wallpaperStyle, onSelect = { style ->
+            wallpaperStyle = style
+            appsRepository?.setWallpaperStyle(style)
+            onWallpaperStyleChanged?.invoke(style)
+        })
+        Spacer(Modifier.height(20.dp))
+
+        // Test Animation Button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF5133AB))
+                .clickable {
+                    val testTile = TileModel(
+                        id = "test_preview_tile",
+                        title = "PC settings",
+                        colorValue = 0xFF5133AB,
+                        tileType = TileType.SETTINGS,
+                        iconGlyph = "settings"
+                    )
+                    onTestFlip?.invoke(testTile, if (editingAllApps) LaunchOrigin.ALL_APPS else LaunchOrigin.START)
+                }
+                .padding(vertical = 14.dp, horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            MetroIcon(glyph = "settings", color = Color.White, size = 18.dp)
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = if (editingAllApps) "Test All Apps Animation" else "Test ${selectedMode.displayName} Animation",
+                style = WindowsTypography.titleMedium.copy(
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // System Settings Section
+        Text(
+            text = "System",
+            style = WindowsTypography.titleLarge.copy(
+                color = Color(0xFF5133AB),
+                fontSize = 18.sp
+            )
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFCCCCCC))
+                .background(Color.White)
+                .clickable {
+                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                }
+                .padding(vertical = 14.dp, horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MetroIcon(glyph = "desktop", color = Color(0xFF5133AB), size = 20.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "Open Android System Settings",
+                style = WindowsTypography.bodyLarge.copy(
+                    color = Color.Black,
+                    fontSize = 14.sp
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // About Section
+        Text(
+            text = "About Tile8 Launcher",
+            style = WindowsTypography.titleLarge.copy(
+                color = Color(0xFF5133AB),
+                fontSize = 18.sp
+            )
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.White)
+                .border(1.dp, Color(0xFFE0E0E0))
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Windows 8.1 Start Screen for Android",
+                style = WindowsTypography.titleMedium.copy(color = Color.Black, fontSize = 14.sp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Horizontal Start layout • Continuous tile flip",
+                style = WindowsTypography.bodyMedium.copy(color = Color.Gray, fontSize = 12.sp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnimationModeOptionCard(
+    title: String,
+    tag: String,
+    description: String,
+    duration: String,
+    isSelected: Boolean,
+    onSelect: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = if (isSelected) 2.dp else 1.dp,
+                color = if (isSelected) Color(0xFF5133AB) else Color(0xFFD0D0D0)
+            )
+            .background(if (isSelected) Color(0xFFF7F3FF) else Color.White)
+            .clickable(onClick = onSelect)
+            .padding(16.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .border(2.dp, if (isSelected) Color(0xFF5133AB) else Color.Gray)
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(Color(0xFF5133AB))
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Text(
+                        text = title,
+                        style = WindowsTypography.titleMedium.copy(
+                            fontSize = 17.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF5133AB) else Color.Black
+                        )
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .background(if (isSelected) Color(0xFF5133AB) else Color(0xFFE5E5E5))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = tag,
+                        style = WindowsTypography.labelSmall.copy(
+                            color = if (isSelected) Color.White else Color(0xFF555555),
+                            fontSize = 10.sp
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = description,
+                style = WindowsTypography.bodyMedium.copy(
+                    fontSize = 12.sp,
+                    color = Color(0xFF555555),
+                    lineHeight = 17.sp
+                )
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "Duration: $duration",
+                style = WindowsTypography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    color = Color(0xFF888888)
+                )
+            )
+        }
     }
 }

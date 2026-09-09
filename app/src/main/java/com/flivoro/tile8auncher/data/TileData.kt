@@ -23,6 +23,11 @@ enum class TileType {
     MONEY
 }
 
+enum class FlipAnimationMode(val displayName: String, val description: String) {
+    CLASSIC("Classic", "Windows 8.1 continuous tile flip and expansion"),
+    MODERN("Modern", "Smooth expanding card from tile to full screen")
+}
+
 data class TileModel(
     val id: String,
     val title: String,

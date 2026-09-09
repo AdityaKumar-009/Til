@@ -1,10 +1,33 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme for Tile8 Launcher -->
-    <style name="Theme.Tile8Launcher" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.Tile8Launcher" parent="Theme.Tile8Launcher.Base" />
+
+    <style name="Theme.Tile8Launcher.Base" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+
+        <!-- Covers this launcher's windows. Other apps and OEM gesture transitions
+             have their own policies and are not controlled by this theme. -->
+        <item name="android:windowAnimationStyle">@style/NoAnimation.Window</item>
+    </style>
+
+    <style name="NoAnimation.Window" parent="@android:style/Animation">
+        <item name="android:taskOpenEnterAnimation">@anim/no_anim</item>
+        <item name="android:taskOpenExitAnimation">@anim/no_anim</item>
+        <item name="android:taskCloseEnterAnimation">@anim/no_anim</item>
+        <item name="android:taskCloseExitAnimation">@anim/no_anim</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/no_anim</item>
+        <item name="android:taskToFrontExitAnimation">@anim/no_anim</item>
+        <item name="android:taskToBackEnterAnimation">@anim/no_anim</item>
+        <item name="android:taskToBackExitAnimation">@anim/no_anim</item>
+        <item name="android:activityOpenEnterAnimation">@anim/no_anim</item>
+        <item name="android:activityOpenExitAnimation">@anim/no_anim</item>
+        <item name="android:activityCloseEnterAnimation">@anim/no_anim</item>
+        <item name="android:activityCloseExitAnimation">@anim/no_anim</item>
     </style>
 </resources>
