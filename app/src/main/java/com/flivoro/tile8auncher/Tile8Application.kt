@@ -33,7 +33,11 @@ class Tile8Application : Application() {
             this,
             userPresentReceiver,
             IntentFilter(Intent.ACTION_USER_PRESENT),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
+            // USER_PRESENT is sent by Android itself. On recent Android versions
+            // a NOT_EXPORTED dynamic receiver may miss privileged system senders.
+            // This receiver performs no privileged action and consumes no payload;
+            // it only switches the next cosmetic Start entrance profile.
+            ContextCompat.RECEIVER_EXPORTED,
         )
     }
 }
