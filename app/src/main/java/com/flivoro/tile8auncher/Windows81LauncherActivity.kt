@@ -16,9 +16,6 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.layout.Box
@@ -61,6 +58,7 @@ import com.flivoro.tile8auncher.ui.components.Windows81CharmsEdgeDetector
 import com.flivoro.tile8auncher.ui.components.Windows81CharmsOverlay
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
+import com.flivoro.tile8auncher.ui.components.shellLaunchExitFraction
 import com.flivoro.tile8auncher.ui.dialogs.PowerDialog
 import com.flivoro.tile8auncher.ui.start.Windows81StartCustomizationBar
 import com.flivoro.tile8auncher.ui.start.Windows81StartScreen
@@ -233,9 +231,6 @@ class Windows81LauncherActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        // Do not tear down an in-flight flip here. HOME can transiently alter the
-        // lifecycle on some OEM launchers before the HOME intent reaches onNewIntent.
-        // A real external handoff reaches onStop(), which remains the cleanup point.
         launcherResumed = false
         super.onPause()
     }
@@ -266,9 +261,6 @@ class Windows81LauncherActivity : ComponentActivity() {
         suppressLauncherTransitions()
         applyImmersiveShellBars()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
-            // While the launcher still owns the flip, HOME is an interruption,
-            // not an instruction to snap the animation away. Reverse the exact
-            // current launch timeline; the target app must never receive handoff.
             if (flipState.isRunning && !launchHandoffPending) {
                 if (!homeReversePending) {
                     homeReversePending = true
@@ -301,10 +293,6 @@ class Windows81LauncherActivity : ComponentActivity() {
         pendingLaunchIntent = null
         flipState = FlipAnimationState()
         homeIntentPending = false
-
-        // HOME semantics still land on Start. This reset is intentionally kept
-        // separate from homeRequest so a completed reverse does not replay the
-        // Start entrance animation after the source frame has already returned.
         homeSurfaceResetRequest++
         applyImmersiveShellBars()
     }
@@ -369,8 +357,6 @@ class Windows81LauncherActivity : ComponentActivity() {
     }
 
     private fun handleTileLaunch(tile: TileModel) {
-        // HOME may have won the race on the final rendered flip frame before the
-        // Compose reverse effect started. Never hand off while that request exists.
         if (homeReversePending) return
 
         val preparedIntent = pendingLaunchIntent
@@ -427,6 +413,7 @@ private fun Windows81ShellApp(
 ) {
     var currentSurface by remember { mutableStateOf(Windows81ShellSurface.START) }
     val drawerProgress = remember { mutableFloatStateOf(0f) }
+    val launchVisualProgress = remember { mutableFloatStateOf(0f) }
     val startScroll = rememberLazyListState()
     val appsScroll = rememberLazyListState()
     var wallpaperParallaxEnabled by remember { mutableStateOf(appsRepository.getWallpaperParallaxEnabled()) }
@@ -482,17 +469,11 @@ private fun Windows81ShellApp(
         namingGroups = false
         charmsVisible = false
     }
-
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (flipState.isRunning || activeInAppTile != null) 0f else 1f,
-        animationSpec = tween(140, easing = FastOutSlowInEasing),
-        label = "Windows81ShellAlpha",
-    )
-    val contentScale by animateFloatAsState(
-        targetValue = if (flipState.isRunning || activeInAppTile != null) 0.88f else 1f,
-        animationSpec = tween(140, easing = FastOutSlowInEasing),
-        label = "Windows81ShellScale",
-    )
+    LaunchedEffect(flipState.isRunning, activeInAppTile) {
+        if (!flipState.isRunning && activeInAppTile == null) {
+            launchVisualProgress.floatValue = 0f
+        }
+    }
 
     BackHandler(
         enabled = charmsVisible || selectedTileIds.isNotEmpty() || namingGroups || flipState.isRunning ||
@@ -527,10 +508,18 @@ private fun Windows81ShellApp(
 
         Box(
             Modifier.fillMaxSize().graphicsLayer {
-                val exiting = flipState.isRunning || activeInAppTile != null
-                alpha = if (exiting) contentAlpha else 1f
-                scaleX = if (exiting) contentScale else 1f
-                scaleY = if (exiting) contentScale else 1f
+                val exitFraction = when {
+                    activeInAppTile != null -> 1f
+                    flipState.isRunning -> shellLaunchExitFraction(
+                        launchVisualProgress.floatValue,
+                        flipState.timing.durationMillis,
+                    )
+                    else -> 0f
+                }
+                alpha = 1f - exitFraction
+                val shellScale = 1f - 0.12f * exitFraction
+                scaleX = shellScale
+                scaleY = shellScale
             },
         ) {
             FingerFollowingVerticalNavigation(
@@ -750,6 +739,7 @@ private fun Windows81ShellApp(
                 state = flipState,
                 externalReverseRequest = externalLaunchReverseRequest,
                 onExternalReverseComplete = onExternalLaunchReverseComplete,
+                onProgress = { launchVisualProgress.floatValue = it },
                 onAnimationEnd = {
                     if (flipState.isRunning && !flipLaunchDispatched) {
                         flipLaunchDispatched = true
