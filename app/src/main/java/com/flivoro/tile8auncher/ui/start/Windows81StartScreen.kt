@@ -4,8 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,22 +93,32 @@ fun Windows81StartScreen(
     LaunchedEffect(entranceRequest, tiles.isNotEmpty()) {
         if (tiles.isNotEmpty()) {
             entrance.snapTo(0f)
-            entrance.animateTo(1f, tween(StartEntranceMotion.DurationMillis, easing = LinearEasing))
+            entrance.animateTo(
+                1f,
+                tween(StartEntranceMotion.DurationMillis, easing = LinearEasing),
+            )
         }
     }
 
     Box(
-        modifier = modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+        modifier = modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
         ) {
-            Spacer(modifier = Modifier.height(18.dp))
-            Windows81StartHeader(profileName, onPowerClick, onSearchClick)
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(18.dp))
+            StartHeader(profileName, onPowerClick, onSearchClick)
+            Spacer(Modifier.height(12.dp))
 
             BoxWithConstraints(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
             ) {
                 val groupHeaderHeight = 30.dp
                 val metrics = remember(maxWidth, maxHeight) {
@@ -119,19 +127,21 @@ fun Windows81StartScreen(
                         availableHeightDp = (maxHeight - groupHeaderHeight).value,
                     )
                 }
-                val tileSnapshot = tiles.toList()
-                val packed = remember(tileSnapshot, metrics.rows, metrics.columns) {
-                    packStartTiles(tileSnapshot, metrics.rows, metrics.columns)
+                val snapshot = tiles.toList()
+                val packed = remember(snapshot, metrics.rows, metrics.columns) {
+                    packStartTiles(snapshot, metrics.rows, metrics.columns)
                 }
 
                 LazyRow(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().elasticHorizontalScroll(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .elasticHorizontalScroll(),
                     horizontalArrangement = Arrangement.spacedBy(26.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
                     items(packed.bands, key = { it.key }) { band ->
-                        Column(modifier = Modifier.width(metrics.bandWidthDp.dp)) {
+                        Column(Modifier.width(metrics.bandWidthDp.dp)) {
                             GroupHeader(
                                 groupName = band.groupName,
                                 namingGroups = namingGroups,
@@ -139,16 +149,26 @@ fun Windows81StartScreen(
                                 modifier = Modifier.height(groupHeaderHeight),
                             )
                             Box(
-                                modifier = Modifier.width(metrics.bandWidthDp.dp).height(metrics.bandHeightDp.dp),
+                                Modifier
+                                    .width(metrics.bandWidthDp.dp)
+                                    .height(metrics.bandHeightDp.dp),
                             ) {
                                 band.tiles.forEach { placed ->
                                     key(placed.tile.id) {
                                         val tile = placed.tile
                                         val selected = tile.id in selectedTileIds
-                                        val appIcon = tile.packageName?.let { rememberAppIcon(appsRepository, it) }
+                                        val appIcon = tile.packageName?.let {
+                                            rememberAppIcon(appsRepository, it)
+                                        }
                                         val notification = tile.packageName?.let(notifications::get)
-                                        val tileWidth = (placed.columns * metrics.cellDp + (placed.columns - 1) * metrics.gapDp).dp
-                                        val tileHeight = (placed.rows * metrics.cellDp + (placed.rows - 1) * metrics.gapDp).dp
+                                        val tileWidth = (
+                                            placed.columns * metrics.cellDp +
+                                                (placed.columns - 1) * metrics.gapDp
+                                            ).dp
+                                        val tileHeight = (
+                                            placed.rows * metrics.cellDp +
+                                                (placed.rows - 1) * metrics.gapDp
+                                            ).dp
                                         var dragX by remember(tile.id) { mutableFloatStateOf(0f) }
 
                                         Box(
@@ -159,11 +179,15 @@ fun Windows81StartScreen(
                                                 )
                                                 .size(tileWidth, tileHeight)
                                                 .graphicsLayer {
-                                                    val frame = StartEntranceMotion.frame(entrance.value, placed.column)
+                                                    val frame = StartEntranceMotion.frame(
+                                                        entrance.value,
+                                                        placed.column,
+                                                    )
                                                     val cellPx = metrics.cellDp.dp.toPx() + metrics.gapDp.dp.toPx()
                                                     val centerY = placed.row * cellPx + size.height / 2f
                                                     translationX = frame.offsetFraction * metrics.bandWidthDp.dp.toPx() + dragX
-                                                    translationY = (1f - frame.scale) * (metrics.bandHeightDp.dp.toPx() / 2f - centerY)
+                                                    translationY = (1f - frame.scale) *
+                                                        (metrics.bandHeightDp.dp.toPx() / 2f - centerY)
                                                     scaleX = frame.scale
                                                     scaleY = frame.scale
                                                     alpha = frame.alpha
@@ -176,7 +200,10 @@ fun Windows81StartScreen(
                                                                 onDragEnd = {
                                                                     val threshold = size.width * 0.34f
                                                                     if (abs(dragX) >= threshold) {
-                                                                        onMoveTile(tile.id, if (dragX < 0f) -1 else 1)
+                                                                        onMoveTile(
+                                                                            tile.id,
+                                                                            if (dragX < 0f) -1 else 1,
+                                                                        )
                                                                     }
                                                                     dragX = 0f
                                                                 },
@@ -186,7 +213,9 @@ fun Windows81StartScreen(
                                                                 dragX += amount.x
                                                             }
                                                         }
-                                                    } else Modifier,
+                                                    } else {
+                                                        Modifier
+                                                    },
                                                 ),
                                         ) {
                                             Windows81TileView(
@@ -197,8 +226,11 @@ fun Windows81StartScreen(
                                                 selected = selected,
                                                 modifier = Modifier.fillMaxSize(),
                                                 onClick = { bounds ->
-                                                    if (selectedTileIds.isNotEmpty()) onToggleSelection(tile)
-                                                    else onTileClick(tile, bounds)
+                                                    if (selectedTileIds.isNotEmpty()) {
+                                                        onToggleSelection(tile)
+                                                    } else {
+                                                        onTileClick(tile, bounds)
+                                                    }
                                                 },
                                                 onLongClick = { onTileLongClick(tile) },
                                             )
@@ -210,15 +242,13 @@ fun Windows81StartScreen(
                     }
                 }
 
-                AnimatedVisibility(
-                    visible = semanticZoom,
-                    enter = fadeIn(tween(120)),
-                    exit = fadeOut(tween(100)),
-                ) {
+                if (semanticZoom) {
                     StartSemanticZoom(
                         groups = packed.bands.map { it.groupName }.distinct(),
                         onGroupClick = { group ->
-                            val index = packed.bands.indexOfFirst { it.groupName == group }.coerceAtLeast(0)
+                            val index = packed.bands
+                                .indexOfFirst { it.groupName == group }
+                                .coerceAtLeast(0)
                             semanticZoom = false
                             scope.launch { listState.animateScrollToItem(index) }
                         },
@@ -226,9 +256,10 @@ fun Windows81StartScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (newAppCount > 0) {
@@ -242,10 +273,16 @@ fun Windows81StartScreen(
                 SemanticZoomButton { semanticZoom = !semanticZoom }
                 Spacer(Modifier.weight(1f))
                 Box(
-                    modifier = Modifier.size(46.dp).clickable { onNavigateToAllApps() },
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clickable(onClick = onNavigateToAllApps),
                     contentAlignment = Alignment.Center,
                 ) {
-                    MetroIcon("arrow_down", color = Color.White.copy(alpha = 0.92f), size = 40.dp)
+                    MetroIcon(
+                        glyph = "arrow_down",
+                        color = Color.White.copy(alpha = 0.92f),
+                        size = 40.dp,
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 Spacer(Modifier.width(34.dp))
@@ -256,7 +293,11 @@ fun Windows81StartScreen(
 }
 
 @Composable
-private fun Windows81StartHeader(profileName: String, onPowerClick: () -> Unit, onSearchClick: () -> Unit) {
+private fun StartHeader(
+    profileName: String,
+    onPowerClick: () -> Unit,
+    onSearchClick: () -> Unit,
+) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < 400.dp
         val veryNarrow = maxWidth < 290.dp
@@ -265,10 +306,17 @@ private fun Windows81StartHeader(profileName: String, onPowerClick: () -> Unit, 
             compact -> 36.sp
             else -> 42.sp
         }
-        val initials = profileName.split(' ').filter { it.isNotBlank() }.take(2)
-            .joinToString("") { it.first().uppercase() }.ifBlank { "U" }
+        val initials = profileName
+            .split(' ')
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString("") { it.first().uppercase() }
+            .ifBlank { "U" }
 
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = "Start",
                 style = WindowsTypography.displayLarge.copy(fontSize = titleSize),
@@ -286,11 +334,18 @@ private fun Windows81StartHeader(profileName: String, onPowerClick: () -> Unit, 
                 Spacer(Modifier.width(10.dp))
             }
             Box(
-                Modifier.size(if (veryNarrow) 29.dp else 34.dp)
-                    .background(Color(0xFFE6E6E6)).border(1.dp, Color.White),
+                modifier = Modifier
+                    .size(if (veryNarrow) 29.dp else 34.dp)
+                    .background(Color(0xFFE6E6E6))
+                    .border(1.dp, Color.White),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(initials, color = Color(0xFF222222), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = initials,
+                    color = Color(0xFF222222),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             Spacer(Modifier.width(if (compact) 7.dp else 12.dp))
             HeaderIcon("power", onPowerClick)
@@ -302,7 +357,12 @@ private fun Windows81StartHeader(profileName: String, onPowerClick: () -> Unit, 
 
 @Composable
 private fun HeaderIcon(glyph: String, onClick: () -> Unit) {
-    Box(Modifier.size(31.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .size(31.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
         MetroIcon(glyph, color = Color.White, size = 20.dp)
     }
 }
@@ -314,7 +374,10 @@ private fun GroupHeader(
     onNameChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart,
+    ) {
         if (namingGroups) {
             val shown = if (groupName == "Start") "" else groupName
             BasicTextField(
@@ -324,14 +387,20 @@ private fun GroupHeader(
                 cursorBrush = SolidColor(Color.White),
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
                 decorationBox = { inner ->
-                    if (shown.isBlank()) Text("Name group", color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp)
+                    if (shown.isBlank()) {
+                        Text(
+                            text = "Name group",
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 14.sp,
+                        )
+                    }
                     inner()
                 },
                 modifier = Modifier.width(180.dp),
             )
         } else if (groupName != "Start") {
             Text(
-                groupName,
+                text = groupName,
                 style = WindowsTypography.bodyMedium.copy(fontSize = 14.sp),
                 color = Color.White.copy(alpha = 0.88f),
             )
@@ -340,18 +409,25 @@ private fun GroupHeader(
 }
 
 @Composable
-private fun StartSemanticZoom(groups: List<String>, onGroupClick: (String) -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color(0xE72A0A3A))) {
-        Column(
-            modifier = Modifier.align(Alignment.Center).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+private fun StartSemanticZoom(
+    groups: List<String>,
+    onGroupClick: (String) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xE72A0A3A)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             groups.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     row.forEach { group ->
                         Box(
-                            modifier = Modifier.size(width = 112.dp, height = 72.dp)
-                                .background(Color(0xFF5A1780)).clickable { onGroupClick(group) },
+                            modifier = Modifier
+                                .size(width = 112.dp, height = 72.dp)
+                                .background(Color(0xFF5A1780))
+                                .clickable { onGroupClick(group) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -371,7 +447,10 @@ private fun StartSemanticZoom(groups: List<String>, onGroupClick: (String) -> Un
 @Composable
 private fun SemanticZoomButton(onClick: () -> Unit) {
     Box(
-        Modifier.size(34.dp).border(1.dp, Color.White.copy(alpha = 0.6f)).clickable(onClick = onClick),
+        modifier = Modifier
+            .size(34.dp)
+            .border(1.dp, Color.White.copy(alpha = 0.6f))
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text("−", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Light)
@@ -399,37 +478,59 @@ fun Windows81StartCustomizationBar(
         Box(Modifier.fillMaxWidth()) {
             if (resizeMenu && selectedTiles.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.align(Alignment.BottomCenter).offset(y = (-86).dp)
-                        .background(Color(0xFA24102F)).border(1.dp, Color.White.copy(alpha = 0.32f)).padding(10.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = (-86).dp)
+                        .background(Color(0xFA24102F))
+                        .border(1.dp, Color.White.copy(alpha = 0.32f))
+                        .padding(10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     TileSize.entries.forEach { size ->
                         Box(
-                            modifier = Modifier.background(Color(0xFF5A1780)).clickable {
-                                onResize(size); resizeMenu = false
-                            }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .background(Color(0xFF5A1780))
+                                .clickable {
+                                    onResize(size)
+                                    resizeMenu = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                         ) {
-                            Text(size.name.lowercase().replaceFirstChar { it.uppercase() }, color = Color.White, fontSize = 12.sp)
+                            Text(
+                                text = size.name.lowercase().replaceFirstChar { it.uppercase() },
+                                color = Color.White,
+                                fontSize = 12.sp,
+                            )
                         }
                     }
                 }
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth().background(Color(0xF3191024))
-                    .border(1.dp, Color.White.copy(alpha = 0.24f)).padding(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xF3191024))
+                    .border(1.dp, Color.White.copy(alpha = 0.24f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CommandButton("⊖", "Unpin from Start", selectedTiles.isNotEmpty(), onUnpin)
-                CommandButton("□", "Resize", selectedTiles.isNotEmpty()) { resizeMenu = !resizeMenu }
+                CommandButton("□", "Resize", selectedTiles.isNotEmpty()) {
+                    resizeMenu = !resizeMenu
+                }
                 CommandButton(
-                    if (turnLiveOn) "▶" else "■",
-                    if (turnLiveOn) "Turn live tile on" else "Turn live tile off",
-                    selectedTiles.isNotEmpty(),
-                    onToggleLive,
+                    icon = if (turnLiveOn) "▶" else "■",
+                    label = if (turnLiveOn) "Turn live tile on" else "Turn live tile off",
+                    enabled = selectedTiles.isNotEmpty(),
+                    onClick = onToggleLive,
                 )
-                CommandButton("✎", if (namingGroups) "Done naming" else "Name groups", true, onToggleNamingGroups)
+                CommandButton(
+                    "✎",
+                    if (namingGroups) "Done naming" else "Name groups",
+                    true,
+                    onToggleNamingGroups,
+                )
                 CommandButton("×", "Clear selection", selectedTiles.isNotEmpty(), onClearSelection)
             }
         }
@@ -437,13 +538,25 @@ fun Windows81StartCustomizationBar(
 }
 
 @Composable
-private fun CommandButton(icon: String, label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun CommandButton(
+    icon: String,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.alpha(if (enabled) 1f else 0.35f)
-            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 4.dp),
+        modifier = Modifier
+            .alpha(if (enabled) 1f else 0.35f)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 4.dp),
     ) {
-        Box(Modifier.size(34.dp).border(2.dp, Color.White), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .border(2.dp, Color.White),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(icon, color = Color.White, fontSize = 17.sp)
         }
         Spacer(Modifier.height(4.dp))
