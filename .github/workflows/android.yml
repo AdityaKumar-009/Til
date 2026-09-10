@@ -49,18 +49,33 @@ jobs:
       - name: Extract reference timeline
         shell: bash
         run: |
-          mkdir -p reference-frames/overview reference-frames/start-entrance
+          mkdir -p reference-frames/overview \
+                   reference-frames/start-entrance \
+                   reference-frames/start-apps-early \
+                   reference-frames/start-apps-late
           ffprobe -v error -show_streams -show_format test.mp4 > reference-frames/metadata.txt
-          # 25 thumbnails per sheet, 2 fps: every sheet spans 12.5 seconds.
+
+          # Broad timeline: each 5x5 sheet spans 12.5 seconds at 2 fps.
           ffmpeg -hide_banner -loglevel error -i test.mp4 \
             -vf "fps=2,scale=320:-2,tile=5x5:padding=2:margin=2" \
             -q:v 3 -vsync 0 reference-frames/overview/sheet-%02d.jpg
-          # Existing docs identify the Start session entrance around 56.0 s.
-          # Preserve all 30 fps source frames around that transition for visual fitting.
+
+          # Keep individual 30 fps source frames at useful resolution so motion
+          # can be measured frame-by-frame instead of inferred from thumbnails.
           ffmpeg -hide_banner -loglevel error -ss 55.5 -t 2.0 -i test.mp4 \
-            -vf "fps=30,scale=240:-2,tile=10x6:padding=1:margin=1" \
-            -q:v 2 -vsync 0 reference-frames/start-entrance/frames-%02d.jpg
-      - name: Upload reference frame sheets
+            -vf "fps=30,scale=640:-2" -q:v 2 -vsync 0 \
+            reference-frames/start-entrance/frame-%03d.jpg
+
+          # Early Start <-> Apps interaction visible in the opening seconds.
+          ffmpeg -hide_banner -loglevel error -ss 1.5 -t 2.5 -i test.mp4 \
+            -vf "fps=30,scale=640:-2" -q:v 2 -vsync 0 \
+            reference-frames/start-apps-early/frame-%03d.jpg
+
+          # Later Start/Apps interaction before Alarms, useful as a second sample.
+          ffmpeg -hide_banner -loglevel error -ss 48.0 -t 3.5 -i test.mp4 \
+            -vf "fps=30,scale=640:-2" -q:v 2 -vsync 0 \
+            reference-frames/start-apps-late/frame-%03d.jpg
+      - name: Upload reference frames
         uses: actions/upload-artifact@v4
         with:
           name: windows81-reference-frames
