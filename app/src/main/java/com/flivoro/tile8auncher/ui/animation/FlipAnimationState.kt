@@ -9,6 +9,10 @@ import com.flivoro.tile8auncher.data.LaunchTiming
 
 enum class LaunchOrigin { START, ALL_APPS }
 
+enum class FlipAnimationDirection { FORWARD, REVERSE }
+
+enum class FlipReverseReason { BACK, HOME }
+
 data class FlipAnimationState(
     val isRunning: Boolean = false,
     val sourceTile: TileModel? = null,
@@ -19,4 +23,6 @@ data class FlipAnimationState(
     val timing: LaunchTiming = LaunchTiming(),
     val hasInternalWindow: Boolean = false,
     val origin: LaunchOrigin = LaunchOrigin.START,
+    val direction: FlipAnimationDirection = FlipAnimationDirection.FORWARD,
+    val reverseReason: FlipReverseReason? = null,
 )

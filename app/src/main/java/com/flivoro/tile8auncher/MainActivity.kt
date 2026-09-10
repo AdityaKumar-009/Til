@@ -15,6 +15,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -51,7 +52,9 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
+import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
@@ -183,10 +186,10 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
+                    onRequestFlipReverse = { reason -> requestFlipReverse(reason) },
                     onLaunchTile = { tile -> handleTileLaunch(tile) },
                     onDismissFlip = {
-                        // The overlay owns the transient animation state. The destination may
-                        // already be visible underneath it when this callback arrives.
+                        // The reverse overlay reaches its source frame before this clears it.
                         flipState = FlipAnimationState(isRunning = false)
                         pendingLaunchIntent = null
                     },
@@ -219,7 +222,9 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         launcherResumed = false
-        if (!launchHandoffPending && flipState.isRunning) {
+        if (!launchHandoffPending && flipState.isRunning &&
+            flipState.direction != FlipAnimationDirection.REVERSE
+        ) {
             flipState = FlipAnimationState()
             pendingLaunchIntent = null
         }
@@ -243,8 +248,9 @@ class MainActivity : ComponentActivity() {
             entranceRequest++
         }
         launchHandoffPending = false
-        // Clear any animation left by a lifecycle interruption before drawing the launcher.
-        if (flipState.isRunning) {
+        // A deliberate Back/Home reversal remains live across a transient pause/resume.
+        // Other interrupted launches keep the previous cleanup behavior.
+        if (flipState.isRunning && flipState.direction != FlipAnimationDirection.REVERSE) {
             flipState = FlipAnimationState(isRunning = false)
         }
     }
@@ -254,11 +260,21 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
-            activeInAppTile = null
-            flipState = FlipAnimationState()
+            if (flipState.isRunning) {
+                // HOME during the launcher-owned opening animation is cancellation, not a
+                // new Start entrance. Retrace the live frame first, then resolve HOME.
+                requestFlipReverse(FlipReverseReason.HOME)
+                return
+            }
+
             pendingLaunchIntent = null
-            homeIntentPending = !launcherResumed
-            entranceKind = StartEntranceKind.RETURN
+            val returningFromOutside = !launcherResumed
+            homeIntentPending = returningFromOutside
+            if (returningFromOutside) {
+                // Returning from another app uses the measured short Start entrance.
+                entranceKind = StartEntranceKind.RETURN
+                entranceRequest++
+            }
             homeRequest++
         }
     }
@@ -269,6 +285,25 @@ class MainActivity : ComponentActivity() {
             userPresentReceiverRegistered = false
         }
         super.onDestroy()
+    }
+
+    private fun requestFlipReverse(reason: FlipReverseReason) {
+        if (!flipState.isRunning) return
+        pendingLaunchIntent = null
+        launchHandoffPending = false
+        when {
+            flipState.direction == FlipAnimationDirection.FORWARD -> {
+                flipState = flipState.copy(
+                    direction = FlipAnimationDirection.REVERSE,
+                    reverseReason = reason,
+                )
+            }
+            reason == FlipReverseReason.HOME && flipState.reverseReason != FlipReverseReason.HOME -> {
+                // HOME has stronger destination semantics than a prior BACK request, but
+                // changing the reason must not restart the already-running reverse motion.
+                flipState = flipState.copy(reverseReason = FlipReverseReason.HOME)
+            }
+        }
     }
 
     private fun suppressLauncherTransitions() {
@@ -356,6 +391,7 @@ fun Tile8LauncherApp(
     onOpenInAppTile: (TileModel) -> Unit,
     onCloseInAppTile: () -> Unit,
     onTriggerFlip: (tile: TileModel, bounds: Rect, origin: LaunchOrigin) -> Unit,
+    onRequestFlipReverse: (FlipReverseReason) -> Unit,
     onLaunchTile: (tile: TileModel) -> Unit,
     onDismissFlip: () -> Unit,
     onOpenAppInfo: (packageName: String) -> Unit,
@@ -378,7 +414,10 @@ fun Tile8LauncherApp(
     var selectedTileForCustomization by remember { mutableStateOf<TileModel?>(null) }
     var showPowerDialog by remember { mutableStateOf(false) }
     var showPinAppsDialog by remember { mutableStateOf(false) }
-    var flipLaunchDispatched by remember(flipState) { mutableStateOf(false) }
+    var flipLaunchDispatched by remember(flipState.sourceTile?.id, flipState.sourceBounds) {
+        mutableStateOf(false)
+    }
+    val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
     var showCharms by remember { mutableStateOf(false) }
@@ -386,7 +425,9 @@ fun Tile8LauncherApp(
     var drawerResetRequest by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
 
-    val startEntranceRequest = entranceRequest + homeRequest + localStartEntranceRequest
+    // HOME requests are routed explicitly below so repeatedly pressing HOME on an
+    // already-settled Start screen does not manufacture another entrance request.
+    val startEntranceRequest = entranceRequest + localStartEntranceRequest
 
     fun navigateToAllApps() {
         currentScreen = LauncherScreen.ALL_APPS
@@ -423,15 +464,20 @@ fun Tile8LauncherApp(
     }
 
     fun returnToStart() {
+        val wasAwayFromStart = currentScreen != LauncherScreen.START || activeInAppTile != null
         showCharms = false
         selectedTileForCustomization = null
         showPinAppsDialog = false
         showPowerDialog = false
-        onCloseInAppTile()
-        currentScreen = LauncherScreen.START
-        drawerResetRequest++
-        startEntranceKind = StartEntranceKind.RETURN
-        localStartEntranceRequest++
+        if (activeInAppTile != null) onCloseInAppTile()
+        if (currentScreen != LauncherScreen.START) {
+            currentScreen = LauncherScreen.START
+            drawerResetRequest++
+        }
+        if (wasAwayFromStart) {
+            startEntranceKind = StartEntranceKind.RETURN
+            localStartEntranceRequest++
+        }
     }
 
     fun navigateToStart() {
@@ -452,11 +498,7 @@ fun Tile8LauncherApp(
     }
 
     LaunchedEffect(homeRequest) {
-        currentScreen = LauncherScreen.START
-        showCharms = false
-        selectedTileForCustomization = null
-        showPinAppsDialog = false
-        showPowerDialog = false
+        if (homeRequest > 0) returnToStart()
     }
     LaunchedEffect(flipState.isRunning) {
         if (flipState.isRunning) showCharms = false
@@ -472,24 +514,19 @@ fun Tile8LauncherApp(
         value = withContext(Dispatchers.IO) { appsRepository.getCategorizedApps() }
     }
 
-    // Start screen exit and entrance animation matching video (Release / Launch)
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (flipState.isRunning || activeInAppTile != null) 0f else 1f,
+    // Keep the established 140 ms Start/All Apps recession for forward launches.
+    // During a flip, however, derive it from the same raw launch timestamp so a
+    // Back/Home reversal retraces the neighboring tiles at the exact matching time.
+    val activeContentRetreat by animateFloatAsState(
+        targetValue = if (activeInAppTile != null) 1f else 0f,
         animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
-        label = "StartScreenAlpha"
-    )
-    val contentScale by animateFloatAsState(
-        targetValue = if (flipState.isRunning || activeInAppTile != null) 0.88f else 1f,
-        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
-        label = "StartScreenScale"
+        label = "ActiveContentRetreat",
     )
 
     // Back button handling
     BackHandler(enabled = !showCharms && (flipState.isRunning || activeInAppTile != null || currentScreen == LauncherScreen.ALL_APPS)) {
-        if (flipState.isRunning && activeInAppTile != null) {
-            closeInAppTileAndRetriggerEntrance()
-        } else if (flipState.isRunning) {
-            onDismissFlip()
+        if (flipState.isRunning) {
+            onRequestFlipReverse(FlipReverseReason.BACK)
         } else if (activeInAppTile != null) {
             closeInAppTileAndRetriggerEntrance()
         } else if (currentScreen == LauncherScreen.ALL_APPS) {
@@ -531,10 +568,16 @@ fun Tile8LauncherApp(
                 .fillMaxSize()
                 .then(if (showCharms) Modifier.clearAndSetSemantics {} else Modifier)
                 .graphicsLayer {
-                    val exiting = flipState.isRunning || activeInAppTile != null
-                    this.alpha = if (exiting) contentAlpha else 1f
-                    this.scaleX = if (exiting) contentScale else 1f
-                    this.scaleY = if (exiting) contentScale else 1f
+                    val retreat = if (flipState.isRunning) {
+                        val fullDuration = flipState.timing.durationMillis.coerceIn(100, 2000).toFloat()
+                        val elapsedMillis = flipProgress.value.coerceIn(0f, 1f) * fullDuration
+                        FastOutSlowInEasing.transform((elapsedMillis / 140f).coerceIn(0f, 1f))
+                    } else {
+                        activeContentRetreat
+                    }
+                    this.alpha = 1f - retreat
+                    this.scaleX = 1f - 0.12f * retreat
+                    this.scaleY = 1f - 0.12f * retreat
                 }
         ) {
             FingerFollowingVerticalNavigation(
@@ -656,12 +699,24 @@ fun Tile8LauncherApp(
         if (flipState.isRunning) {
             FlipLaunchOverlay(
                 state = flipState,
+                progress = flipProgress,
                 onAnimationEnd = {
-                    if (flipState.isRunning && !flipLaunchDispatched) {
+                    if (flipState.isRunning &&
+                        flipState.direction == FlipAnimationDirection.FORWARD &&
+                        !flipLaunchDispatched
+                    ) {
                         flipLaunchDispatched = true
                         flipState.sourceTile?.let { tile ->
                             onLaunchTile(tile)
                         }
+                    }
+                },
+                onReverseAnimationEnd = { reason ->
+                    onDismissFlip()
+                    if (reason == FlipReverseReason.HOME) {
+                        // A START-origin reverse is already visually home, so do not replay
+                        // another entrance. ALL_APPS/internal origins get the short return.
+                        returnToStart()
                     }
                 },
                 destinationContent = if (flipState.hasInternalWindow) {

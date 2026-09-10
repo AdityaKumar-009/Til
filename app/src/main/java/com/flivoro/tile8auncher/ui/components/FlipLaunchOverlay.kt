@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.ui.components
 
 import android.graphics.Matrix
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -40,7 +41,9 @@ import androidx.compose.ui.unit.dp
 import com.flivoro.tile8auncher.data.FlipAnimationMode
 import com.flivoro.tile8auncher.data.TimeCurve
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
+import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchFrame
 import com.flivoro.tile8auncher.ui.animation.Quad
 import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
@@ -49,32 +52,68 @@ import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import kotlinx.coroutines.flow.first
 import kotlin.math.min
 import kotlin.math.cbrt
+import kotlin.math.roundToInt
 
 /** A single rotating plane, viewed from the center of the launcher window. */
 @Composable
 fun FlipLaunchOverlay(
     state: FlipAnimationState,
+    progress: Animatable<Float, AnimationVector1D>,
     onAnimationEnd: () -> Unit,
+    onReverseAnimationEnd: (FlipReverseReason) -> Unit,
     destinationContent: (@Composable () -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
     val modern = state.animationMode == FlipAnimationMode.MODERN
     val allApps = state.origin == LaunchOrigin.ALL_APPS
-    val progress = remember(state) { Animatable(0f) }
-    val finish by rememberUpdatedState(onAnimationEnd)
-    var finalFrameDrawn by remember(state) { mutableStateOf(false) }
+    val finishForward by rememberUpdatedState(onAnimationEnd)
+    val finishReverse by rememberUpdatedState(onReverseAnimationEnd)
+    val latestReverseReason by rememberUpdatedState(state.reverseReason)
+    var finalFrameDrawn by remember(tile.id, state.sourceBounds) { mutableStateOf(false) }
+    var sourceFrameDrawn by remember(tile.id, state.sourceBounds) { mutableStateOf(false) }
 
-    LaunchedEffect(state) {
-        progress.animateTo(1f, tween(
-            durationMillis = state.timing.durationMillis.coerceIn(100, 2000),
-            easing = LinearEasing,
-        ))
-        // A completed Animatable value is not proof that its final frame was drawn.
-        // Let that frame be submitted before another Activity can cover this window.
-        snapshotFlow { finalFrameDrawn }.first { it }
-        withFrameNanos { }
-        finish()
+    LaunchedEffect(tile.id, state.sourceBounds, state.direction) {
+        val fullDuration = state.timing.durationMillis.coerceIn(100, 2000)
+        when (state.direction) {
+            FlipAnimationDirection.FORWARD -> {
+                finalFrameDrawn = false
+                sourceFrameDrawn = false
+                progress.snapTo(0f)
+                progress.animateTo(
+                    1f,
+                    tween(durationMillis = fullDuration, easing = LinearEasing),
+                )
+                // A completed Animatable value is not proof that its final frame was drawn.
+                // Let that frame be submitted before another Activity can cover this window.
+                snapshotFlow { finalFrameDrawn }.first { it }
+                withFrameNanos { }
+                finishForward()
+            }
+
+            FlipAnimationDirection.REVERSE -> {
+                sourceFrameDrawn = false
+                val currentProgress = progress.value
+                    .takeIf(Float::isFinite)
+                    ?.coerceIn(0f, 1f)
+                    ?: 0f
+                val reverseDuration = (fullDuration * currentProgress).roundToInt()
+                if (reverseDuration <= 0) {
+                    progress.snapTo(0f)
+                } else {
+                    // The raw launch timeline is linear. Running only the elapsed portion
+                    // backward retraces the exact fitted geometry, easing and face change.
+                    progress.animateTo(
+                        0f,
+                        tween(durationMillis = reverseDuration, easing = LinearEasing),
+                    )
+                }
+                // Submit the source frame before revealing the real tile underneath it.
+                snapshotFlow { sourceFrameDrawn }.first { it }
+                withFrameNanos { }
+                finishReverse(latestReverseReason ?: FlipReverseReason.BACK)
+            }
+        }
     }
 
     BoxWithConstraints(
@@ -100,7 +139,7 @@ fun FlipLaunchOverlay(
         val frontPoints = remember { FloatArray(8) }
         val backPoints = remember { FloatArray(8) }
         val logoPoints = remember { FloatArray(8) }
-        var sourceLogo by remember(state) { mutableStateOf<Rect?>(null) }
+        var sourceLogo by remember(state.sourceTile?.id, state.sourceBounds) { mutableStateOf<Rect?>(null) }
         val sharedLogo = !allApps && destinationContent == null && tile.tileType !in listOf(
             TileType.CLOCK, TileType.CALENDAR, TileType.DESKTOP)
         val frontRect = remember(source.width, source.height) {
@@ -130,7 +169,8 @@ fun FlipLaunchOverlay(
                 Modifier.requiredSize(with(density) { source.width.toDp() },
                     with(density) { source.height.toDp() })
                     .projectedFace(frontMatrix, frontRect, frontPoints,
-                        frame = ::frame, visible = { it.isFrontFace && !modern && !allApps }),
+                        frame = ::frame, visible = { it.isFrontFace && !modern && !allApps },
+                        onDrawn = { if (progress.value <= 0f) sourceFrameDrawn = true }),
                 logoModifier = if (sharedLogo) Modifier
                     .onGloballyPositioned {
                         sourceLogo = it.boundsInWindow().translate(-windowOrigin)
@@ -144,7 +184,10 @@ fun FlipLaunchOverlay(
                     .graphicsLayer { alpha = if (allApps) AllAppsLaunchMotion.opacity(progress.value) else 1f }
                     .projectedFace(backMatrix, backRect, backPoints,
                         frame = ::frame, visible = { !it.isFrontFace || modern },
-                        onDrawn = { if (progress.value == 1f) finalFrameDrawn = true })
+                        onDrawn = {
+                            if (progress.value >= 1f) finalFrameDrawn = true
+                            if (progress.value <= 0f) sourceFrameDrawn = true
+                        })
                     .background(state.accentColor),
                 contentAlignment = Alignment.Center,
             ) {
