@@ -1,0 +1,38 @@
+name: Android build
+
+on:
+  push:
+    branches: [ main, win81-fidelity ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Make wrapper executable
+        run: chmod +x gradlew
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Build optimized installable APK
+        run: ./gradlew assemblePerformance --stacktrace
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile8-windows81-apk
+          path: app/build/outputs/apk/performance/*.apk
+          if-no-files-found: error
+          retention-days: 14
