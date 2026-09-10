@@ -4,6 +4,7 @@ import android.graphics.Matrix
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -61,6 +62,10 @@ import kotlin.math.roundToInt
  * progress track from its current frame back to the source. No alternate
  * geometry, easing, perspective or face swap is introduced: the original
  * 0 -> 1 launch path simply becomes currentProgress -> 0.
+ *
+ * onProgress reports the exact normalized timeline used by the clicked tile.
+ * The shell uses that same value for neighbouring tiles/background motion, so
+ * the entire Start/Apps scene reverses coherently instead of only the source.
  */
 @Composable
 fun FlipLaunchOverlay(
@@ -68,6 +73,7 @@ fun FlipLaunchOverlay(
     onAnimationEnd: () -> Unit,
     externalReverseRequest: Int = 0,
     onExternalReverseComplete: () -> Unit = {},
+    onProgress: (Float) -> Unit = {},
     destinationContent: (@Composable () -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
@@ -77,6 +83,7 @@ fun FlipLaunchOverlay(
     val progress = remember(state) { Animatable(0f) }
     val finish by rememberUpdatedState(onAnimationEnd)
     val externalFinish by rememberUpdatedState(onExternalReverseComplete)
+    val reportProgress by rememberUpdatedState(onProgress)
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val initialExternalReverseRequest = remember { externalReverseRequest }
     var finalFrameDrawn by remember(state) { mutableStateOf(false) }
@@ -92,16 +99,10 @@ fun FlipLaunchOverlay(
         reverseRequest++
     }
 
-    // The overlay is composed after the shell BackHandler, so while a launch is
-    // active this callback has priority. Repeated Back/Home requests during the
-    // reversal are ignored; they cannot restart or speed-change the path.
     BackHandler(enabled = state.isRunning && !reversing && !reverseCompleted) {
         requestReverse(fromExternalHome = false)
     }
 
-    // The launcher Activity receives HOME as a new HOME intent. The request
-    // counter is monotonic for the process, so capture its value when this
-    // overlay first enters composition and react only to later requests.
     LaunchedEffect(externalReverseRequest) {
         if (externalReverseRequest != initialExternalReverseRequest) {
             requestReverse(fromExternalHome = true)
@@ -109,19 +110,19 @@ fun FlipLaunchOverlay(
     }
 
     LaunchedEffect(state) {
+        reportProgress(0f)
         progress.animateTo(
             1f,
             tween(
                 durationMillis = state.timing.durationMillis.coerceIn(100, 2000),
                 easing = LinearEasing,
             ),
-        )
-        // A completed Animatable value is not proof that its final frame was drawn.
-        // Let that frame be submitted before another Activity can cover this window.
+        ) {
+            reportProgress(value.coerceIn(0f, 1f))
+        }
+        reportProgress(1f)
         snapshotFlow { finalFrameDrawn }.first { it }
         withFrameNanos { }
-        // Back/Home can arrive on the final launch frame. Never hand off once a
-        // reverse request has won that race.
         if (!reversing && !reverseCompleted) finish()
     }
 
@@ -136,9 +137,11 @@ fun FlipLaunchOverlay(
         progress.animateTo(
             0f,
             tween(durationMillis = reverseDuration, easing = LinearEasing),
-        )
+        ) {
+            reportProgress(value.coerceIn(0f, 1f))
+        }
+        reportProgress(0f)
 
-        // Submit the exact source frame before unhiding the real source tile.
         reverseCompleted = true
         withFrameNanos { }
         if (reverseWasExternal) externalFinish() else backDispatcher?.onBackPressed()
@@ -149,8 +152,6 @@ fun FlipLaunchOverlay(
             .fillMaxSize()
             .clipToBounds()
             .pointerInput(Unit) {
-                // The launch owns pointer input until handoff/reversal completes,
-                // including taps outside the card. System Back/Home stay responsive.
                 awaitPointerEventScope {
                     while (true) {
                         awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
@@ -201,8 +202,6 @@ fun FlipLaunchOverlay(
         }
 
         Box(Modifier.fillMaxSize().onGloballyPositioned { windowOrigin = it.positionInWindow() }) {
-            // Both faces have fixed layout dimensions. Progress is read only during
-            // drawing, so animation does not remeasure text or icons every frame.
             WindowsTileFace(
                 tile,
                 state.appIcon,
@@ -266,8 +265,6 @@ fun FlipLaunchOverlay(
                 }
             }
             if (sharedLogo) {
-                // This is the same drawable for the entire turn. Replacing two
-                // independently scaled face icons at the edge caused a size reset.
                 val logoSizePx = with(density) { iconSize.toPx() }
                 val logoRect = remember(logoSizePx) {
                     floatArrayOf(
@@ -329,6 +326,17 @@ internal fun reverseLaunchDurationMillis(baseDurationMillis: Int, progress: Floa
     return (baseDurationMillis.coerceAtLeast(1) * p)
         .roundToInt()
         .coerceAtLeast(16)
+}
+
+/**
+ * The surrounding Start/Apps scene historically exited over 140 ms using
+ * FastOutSlowInEasing. Express that same animation as a pure function of the
+ * launch timeline so forward behaviour is preserved and reversal is exact.
+ */
+internal fun shellLaunchExitFraction(launchProgress: Float, baseDurationMillis: Int): Float {
+    val elapsedMillis = launchProgress.coerceIn(0f, 1f) * baseDurationMillis.coerceIn(100, 2000)
+    val normalized = (elapsedMillis / 140f).coerceIn(0f, 1f)
+    return FastOutSlowInEasing.transform(normalized)
 }
 
 private fun Modifier.projectedFace(
