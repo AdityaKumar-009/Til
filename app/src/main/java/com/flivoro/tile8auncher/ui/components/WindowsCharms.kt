@@ -17,8 +17,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -36,9 +35,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,13 +49,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -66,6 +69,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -80,10 +86,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.material3.Text
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.ui.animation.CharmsMotion
@@ -102,14 +104,18 @@ private val CharmsDecelerateEasing = Easing { CharmsMotion.decelerate(it) }
 private val CharmsBlack = Color(0xFF111111)
 private val CharmsWhite = Color(0xFFF2F2F2)
 private val CharmsLightGrey = Color(0xFFD8D8D8)
+private val CharmsMutedGrey = Color(0xFFBFB6D1)
 private val CharmsPurple = Color(0xFF1C005D)
 private val StartPurple = Color(0xFF32106B)
 private val StartPurpleGlint = Color(0xFF7650A8)
 private val SearchFieldText = Color(0xFF1C005D)
 
 /**
- * A bounded Windows 8.1 charms overlay. The caller owns the edge-open state and navigation.
- * The component only owns the rail, its small local panels, clock refresh, and Back handling.
+ * Windows 8.1-style Charms surface.
+ *
+ * The established rail/pane timing constants remain unchanged. This pass corrects the interaction
+ * hierarchy around them: edge commitment, rail-to-pane replacement, clock lifetime, native-looking
+ * pane headers, and the Start-specific Settings quick controls seen in Windows 8.1 references.
  */
 @Composable
 fun WindowsCharmsOverlay(
@@ -135,10 +141,8 @@ fun WindowsCharmsOverlay(
     val latestOnDevices = rememberUpdatedState(onDevices)
     val latestOnPower = rememberUpdatedState(onPower)
     var panel by remember { mutableStateOf<CharmPanel?>(null) }
-    var panelContent by remember { mutableStateOf(CharmPanel.Share) }
     var minuteTick by remember { mutableStateOf(currentEpochMinute()) }
     val initialFocusRequester = remember { FocusRequester() }
-    val panelFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -166,13 +170,19 @@ fun WindowsCharmsOverlay(
             when (panel) {
                 null -> initialFocusRequester.requestFocus()
                 CharmPanel.Search -> searchFocusRequester.requestFocus()
-                else -> panelFocusRequester.requestFocus()
+                else -> Unit
             }
         }
     }
 
     BackHandler(enabled = visible) {
-        if (panel != null) panel = null else latestOnDismiss.value()
+        if (panel != null) {
+            panel = null
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+        } else {
+            latestOnDismiss.value()
+        }
     }
 
     BoxWithConstraints(
@@ -183,18 +193,20 @@ fun WindowsCharmsOverlay(
                 else Modifier,
             ),
     ) {
+        // Preserve the existing Android-adapted physical size instead of scaling desktop pixels
+        // literally; the rail remains finger-target friendly on narrow phones.
         val railWidth = if (minOf(maxWidth, maxHeight) >= 600.dp) 100.dp else 86.dp
         val availableClockWidth = (maxWidth - railWidth - 32.dp).coerceAtLeast(0.dp)
         val clockWidth = minOf(208.dp, availableClockWidth)
-        val panelWidth = minOf(340.dp, (maxWidth - 48.dp).coerceAtLeast(0.dp))
+        val panelWidth = minOf(350.dp, (maxWidth - 36.dp).coerceAtLeast(0.dp))
 
         AnimatedVisibility(
             visible = visible,
             modifier = Modifier.fillMaxSize(),
-            enter = fadeIn(animationSpec = tween(160)),
-            exit = fadeOut(animationSpec = tween(120)),
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(100)),
         ) {
-            val scrimInteractionSource = remember { MutableInteractionSource() }
+            val source = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -203,18 +215,21 @@ fun WindowsCharmsOverlay(
                         role = Role.Button
                     }
                     .clickable(
-                        interactionSource = scrimInteractionSource,
+                        interactionSource = source,
                         indication = null,
                         onClickLabel = "Dismiss charms",
                         role = Role.Button,
-                        onClick = { latestOnDismiss.value() },
-                    ),
+                    ) {
+                        latestOnDismiss.value()
+                    },
             )
         }
 
+        // Windows shows the time/date slab with the rail. Once a concrete charm pane replaces
+        // the rail, the slab disappears with it rather than floating over the new pane.
         if (clockWidth > 0.dp) {
             AnimatedVisibility(
-                visible = visible,
+                visible = visible && panel == null,
                 modifier = Modifier.align(Alignment.BottomStart),
                 enter = slideInHorizontally(
                     initialOffsetX = { -it },
@@ -229,7 +244,7 @@ fun WindowsCharmsOverlay(
                         CharmsMotion.ClockDurationMillis,
                         easing = CharmsDecelerateEasing,
                     ),
-                ) + fadeOut(animationSpec = tween(140)),
+                ) + fadeOut(animationSpec = tween(120)),
             ) {
                 CharmsClockSlab(
                     minuteTick = minuteTick,
@@ -256,33 +271,20 @@ fun WindowsCharmsOverlay(
                     CharmsMotion.RailDurationMillis,
                     easing = CharmsDecelerateEasing,
                 ),
-            ) + fadeOut(animationSpec = tween(140)),
+            ) + fadeOut(animationSpec = tween(120)),
         ) {
             CharmsRail(
                 width = railWidth,
                 maxHeight = maxHeight,
-                selectedPanel = panel,
                 initialFocusRequester = initialFocusRequester,
-                onSearch = {
-                    panelContent = CharmPanel.Search
-                    panel = CharmPanel.Search
-                },
-                onShare = {
-                    panelContent = CharmPanel.Share
-                    panel = CharmPanel.Share
-                },
+                onSearch = { panel = CharmPanel.Search },
+                onShare = { panel = CharmPanel.Share },
                 onStart = {
                     latestOnStart.value()
                     latestOnDismiss.value()
                 },
-                onDevices = {
-                    panelContent = CharmPanel.Devices
-                    panel = CharmPanel.Devices
-                },
-                onSettingsPanel = {
-                    panelContent = CharmPanel.Settings
-                    panel = CharmPanel.Settings
-                },
+                onDevices = { panel = CharmPanel.Devices },
+                onSettingsPanel = { panel = CharmPanel.Settings },
                 modifier = Modifier
                     .width(railWidth)
                     .fillMaxHeight()
@@ -307,7 +309,7 @@ fun WindowsCharmsOverlay(
 
         if (panelWidth > 0.dp) {
             AnimatedVisibility(
-                visible = panel != null,
+                visible = visible && panel != null,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .width(panelWidth)
@@ -319,73 +321,78 @@ fun WindowsCharmsOverlay(
                         delayMillis = CharmsMotion.RailContentDelayMillis,
                         easing = CharmsDecelerateEasing,
                     ),
-                ) + fadeIn(animationSpec = tween(180, delayMillis = 20)),
+                ) + fadeIn(animationSpec = tween(160, delayMillis = 20)),
                 exit = slideOutHorizontally(
                     targetOffsetX = { it },
                     animationSpec = tween(
                         CharmsMotion.PanelDurationMillis,
                         easing = CharmsDecelerateEasing,
                     ),
-                ) + fadeOut(animationSpec = tween(120)),
+                ) + fadeOut(animationSpec = tween(110)),
             ) {
-                CharmsPanelPane(
-                    panel = panelContent,
-                    apps = apps,
-                    appsRepository = appsRepository,
-                    focusRequester = panelFocusRequester,
-                    searchFocusRequester = searchFocusRequester,
-                    onBack = { panel = null },
-                    onAppClick = { app, bounds ->
-                        latestOnAppClick.value(app, bounds)
-                        panel = null
-                        latestOnDismiss.value()
-                    },
-                    onSearch = {
-                        panel = null
-                        latestOnSearch.value()
-                        latestOnDismiss.value()
-                    },
-                    onSettings = {
-                        panel = null
-                        latestOnSettings.value()
-                        latestOnDismiss.value()
-                    },
-                    onAddApps = {
-                        panel = null
-                        latestOnAddApps.value()
-                        latestOnDismiss.value()
-                    },
-                    onDevices = {
-                        panel = null
-                        latestOnDevices.value()
-                        latestOnDismiss.value()
-                    },
-                    onPower = {
-                        panel = null
-                        latestOnPower.value()
-                        latestOnDismiss.value()
-                    },
-                )
+                panel?.let { currentPanel ->
+                    CharmsPanelPane(
+                        panel = currentPanel,
+                        apps = apps,
+                        appsRepository = appsRepository,
+                        searchFocusRequester = searchFocusRequester,
+                        onAppClick = { app, bounds ->
+                            latestOnAppClick.value(app, bounds)
+                            panel = null
+                            latestOnDismiss.value()
+                        },
+                        onSearch = {
+                            panel = null
+                            latestOnSearch.value()
+                            latestOnDismiss.value()
+                        },
+                        onSettings = {
+                            panel = null
+                            latestOnSettings.value()
+                            latestOnDismiss.value()
+                        },
+                        onAddApps = {
+                            panel = null
+                            latestOnAddApps.value()
+                            latestOnDismiss.value()
+                        },
+                        onDevices = {
+                            panel = null
+                            latestOnDevices.value()
+                            latestOnDismiss.value()
+                        },
+                        onPower = {
+                            panel = null
+                            latestOnPower.value()
+                            latestOnDismiss.value()
+                        },
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * Observes the Initial pointer pass so an ancestor can open charms without stealing normal
- * content gestures. Only a right-edge inward drag that crosses touch slop is consumed.
+ * Right-edge swipe recognizer matching the Windows 8.1 interaction contract.
+ *
+ * A tiny diagonal twitch no longer opens Charms. The gesture must begin at the right edge and make
+ * a deliberate inward, horizontally dominant pull. A vertical takeover or outward reversal cancels
+ * tracking while leaving the existing Start/All Apps scroll gestures untouched.
  */
 fun Modifier.charmsEdgeGesture(
     enabled: Boolean,
     onOpen: () -> Unit,
 ): Modifier = composed {
     val latestOnOpen = rememberUpdatedState(onOpen)
-    val edgeWidthPx = with(LocalDensity.current) { 28.dp.toPx() }
+    val density = LocalDensity.current
+    val edgeWidthPx = with(density) { 28.dp.toPx() }
+    val commitDistancePx = with(density) { 34.dp.toPx() }
 
     if (!enabled) {
         this
     } else {
-        pointerInput(enabled, edgeWidthPx) {
+        pointerInput(enabled, edgeWidthPx, commitDistancePx) {
             awaitEachGesture {
                 val down = awaitFirstDown(
                     requireUnconsumed = false,
@@ -412,23 +419,23 @@ fun Modifier.charmsEdgeGesture(
                     totalY += change.position.y - change.previousPosition.y
 
                     if (tracking && !opened) {
-                        if (CharmsMotion.isInwardHorizontalSwipe(
+                        when {
+                            CharmsMotion.shouldCommitEdgeSwipe(
                                 deltaX = totalX,
                                 deltaY = totalY,
                                 touchSlop = viewConfiguration.touchSlop,
-                            )
-                        ) {
-                            latestOnOpen.value()
-                            opened = true
-                            change.consume()
-                        } else if (
-                            CharmsMotion.hasCrossedTouchSlop(
+                                commitDistance = commitDistancePx,
+                            ) -> {
+                                latestOnOpen.value()
+                                opened = true
+                                change.consume()
+                            }
+
+                            CharmsMotion.shouldCancelEdgeSwipe(
                                 deltaX = totalX,
                                 deltaY = totalY,
                                 touchSlop = viewConfiguration.touchSlop,
-                            ) && kotlin.math.abs(totalY) > kotlin.math.abs(totalX)
-                        ) {
-                            tracking = false
+                            ) -> tracking = false
                         }
                     } else if (opened) {
                         change.consume()
@@ -443,7 +450,6 @@ fun Modifier.charmsEdgeGesture(
 private fun CharmsRail(
     width: Dp,
     maxHeight: Dp,
-    selectedPanel: CharmPanel?,
     initialFocusRequester: FocusRequester,
     onSearch: () -> Unit,
     onShare: () -> Unit,
@@ -486,31 +492,13 @@ private fun CharmsRail(
                 initialFocusRequester = initialFocusRequester,
             )
             Spacer(Modifier.height(8.dp))
-            CharmAction(
-                label = "Share",
-                glyph = CharmGlyph.Share,
-                selected = selectedPanel == CharmPanel.Share,
-                onClick = onShare,
-            )
+            CharmAction(label = "Share", glyph = CharmGlyph.Share, onClick = onShare)
             Spacer(Modifier.height(8.dp))
-            CharmAction(
-                label = "Start",
-                glyph = CharmGlyph.Start,
-                onClick = onStart,
-            )
+            CharmAction(label = "Start", glyph = CharmGlyph.Start, onClick = onStart)
             Spacer(Modifier.height(8.dp))
-            CharmAction(
-                label = "Devices",
-                glyph = CharmGlyph.Devices,
-                onClick = onDevices,
-            )
+            CharmAction(label = "Devices", glyph = CharmGlyph.Devices, onClick = onDevices)
             Spacer(Modifier.height(8.dp))
-            CharmAction(
-                label = "Settings",
-                glyph = CharmGlyph.Settings,
-                selected = selectedPanel == CharmPanel.Settings,
-                onClick = onSettingsPanel,
-            )
+            CharmAction(label = "Settings", glyph = CharmGlyph.Settings, onClick = onSettingsPanel)
             Spacer(Modifier.height(12.dp))
         }
     }
@@ -521,7 +509,6 @@ private fun CharmAction(
     label: String,
     glyph: CharmGlyph,
     onClick: () -> Unit,
-    selected: Boolean = false,
     initialFocusRequester: FocusRequester? = null,
 ) {
     val glint = remember { Animatable(0f) }
@@ -549,7 +536,6 @@ private fun CharmAction(
                 scaleX = scale
                 scaleY = scale
             }
-            .background(if (selected) CharmsPurple else Color.Transparent)
             .semantics(mergeDescendants = true) {
                 contentDescription = label
                 role = Role.Button
@@ -563,9 +549,7 @@ private fun CharmAction(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.foundation.Canvas(Modifier.size(29.dp)) {
                 drawCharmGlyph(glyph, if (glyph == CharmGlyph.Start) glint.value else 0f)
             }
@@ -589,9 +573,7 @@ private fun CharmsPanelPane(
     panel: CharmPanel,
     apps: List<AppInfo>,
     appsRepository: AppsRepository,
-    focusRequester: FocusRequester,
     searchFocusRequester: FocusRequester,
-    onBack: () -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
@@ -619,27 +601,13 @@ private fun CharmsPanelPane(
             CharmPanel.Search -> SearchPane(
                 apps = apps,
                 appsRepository = appsRepository,
-                focusRequester = focusRequester,
                 searchFocusRequester = searchFocusRequester,
-                onBack = onBack,
                 onAppClick = onAppClick,
                 onSearch = onSearch,
             )
-
-            CharmPanel.Share -> SharePane(
-                focusRequester = focusRequester,
-                onBack = onBack,
-            )
-
-            CharmPanel.Devices -> DevicesPane(
-                focusRequester = focusRequester,
-                onBack = onBack,
-                onDevices = onDevices,
-            )
-
+            CharmPanel.Share -> SharePane()
+            CharmPanel.Devices -> DevicesPane(onDevices = onDevices)
             CharmPanel.Settings -> SettingsPane(
-                focusRequester = focusRequester,
-                onBack = onBack,
                 onSettings = onSettings,
                 onAddApps = onAddApps,
                 onDevices = onDevices,
@@ -653,9 +621,7 @@ private fun CharmsPanelPane(
 private fun SearchPane(
     apps: List<AppInfo>,
     appsRepository: AppsRepository,
-    focusRequester: FocusRequester,
     searchFocusRequester: FocusRequester,
-    onBack: () -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
     onSearch: () -> Unit,
 ) {
@@ -677,49 +643,63 @@ private fun SearchPane(
             .navigationBarsPadding()
             .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 28.dp),
     ) {
-        PanelHeader(
-            title = "Search",
-            focusRequester = focusRequester,
-            onBack = onBack,
+        PanelHeader(title = "Search")
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Everywhere  ▾",
+            color = CharmsLightGrey,
+            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp),
         )
-        Spacer(Modifier.height(20.dp))
-        BasicTextField(
-            value = query,
-            onValueChange = { query = it },
+        Spacer(Modifier.height(12.dp))
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
-                .background(Color.White)
-                .border(1.dp, Color.White)
-                .focusRequester(searchFocusRequester)
-                .semantics { contentDescription = "Search apps" }
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            textStyle = TextStyle(
-                color = SearchFieldText,
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 17.sp,
-            ),
-            cursorBrush = SolidColor(SearchFieldText),
-            singleLine = true,
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    if (query.isEmpty()) {
-                        Text(
-                            text = "Search apps",
-                            color = SearchFieldText.copy(alpha = 0.55f),
-                            style = TextStyle(
-                                fontFamily = FontFamily.SansSerif,
-                                fontSize = 17.sp,
-                            ),
-                        )
+                .background(Color.White),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .focusRequester(searchFocusRequester)
+                    .semantics { contentDescription = "Search apps" }
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                textStyle = TextStyle(
+                    color = SearchFieldText,
+                    fontFamily = FontFamily.SansSerif,
+                    fontSize = 17.sp,
+                ),
+                cursorBrush = SolidColor(SearchFieldText),
+                singleLine = true,
+                decorationBox = { innerTextField ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text(
+                                text = "Search",
+                                color = SearchFieldText.copy(alpha = 0.55f),
+                                style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 17.sp),
+                            )
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
+                },
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(48.dp)
+                    .background(StartPurple)
+                    .clickable { onSearch() },
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+                    drawCharmGlyph(CharmGlyph.Search, 0f)
                 }
-            },
-        )
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         if (filteredApps.isEmpty()) {
@@ -732,10 +712,7 @@ private fun SearchPane(
                 Text(
                     text = if (query.isBlank()) "No installed apps" else "No apps found",
                     color = CharmsLightGrey,
-                    style = TextStyle(
-                        fontFamily = FontFamily.SansSerif,
-                        fontSize = 15.sp,
-                    ),
+                    style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 15.sp),
                 )
             }
         } else {
@@ -749,20 +726,13 @@ private fun SearchPane(
                     items = filteredApps,
                     key = { app -> "${app.packageName}:${app.activityName}" },
                 ) { app ->
-                    val coordinatesHolder = remember(app.packageName, app.activityName) {
-                        LayoutCoordinatesHolder()
-                    }
+                    val holder = remember(app.packageName, app.activityName) { LayoutCoordinatesHolder() }
                     SearchResultRow(
                         app = app,
                         icon = rememberAppIcon(appsRepository, app.packageName),
-                        modifier = Modifier.onGloballyPositioned { coordinates ->
-                            coordinatesHolder.coordinates = coordinates
-                        },
+                        modifier = Modifier.onGloballyPositioned { holder.coordinates = it },
                         onClick = {
-                            val bounds = coordinatesHolder.coordinates
-                                ?.boundsInWindow()
-                                ?: Rect.Zero
-                            onAppClick(app, bounds)
+                            onAppClick(app, holder.coordinates?.boundsInWindow() ?: Rect.Zero)
                         },
                     )
                 }
@@ -770,7 +740,7 @@ private fun SearchPane(
         }
 
         Spacer(Modifier.height(8.dp))
-        SettingsRow(label = "See all apps", onClick = onSearch)
+        SettingsRow(label = "See all results", onClick = onSearch)
     }
 }
 
@@ -787,7 +757,6 @@ private fun SearchResultRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -813,11 +782,7 @@ private fun SearchResultRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Image(
-                bitmap = icon,
-                contentDescription = null,
-                modifier = Modifier.size(36.dp),
-            )
+            Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(36.dp))
         } else {
             MetroIcon(glyph = "app", color = CharmsWhite, size = 30.dp)
         }
@@ -825,10 +790,7 @@ private fun SearchResultRow(
         Text(
             text = app.label,
             color = CharmsWhite,
-            style = TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 16.sp,
-            ),
+            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 16.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -836,10 +798,7 @@ private fun SearchResultRow(
 }
 
 @Composable
-private fun SharePane(
-    focusRequester: FocusRequester,
-    onBack: () -> Unit,
-) {
+private fun SharePane() {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -847,11 +806,7 @@ private fun SharePane(
             .navigationBarsPadding()
             .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 28.dp),
     ) {
-        PanelHeader(
-            title = "Share",
-            focusRequester = focusRequester,
-            onBack = onBack,
-        )
+        PanelHeader(title = "Share")
         Spacer(Modifier.height(34.dp))
         Text(
             text = "Nothing to share from Start",
@@ -864,23 +819,15 @@ private fun SharePane(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "Share is available when an app provides content.",
+            text = "Share becomes available when the foreground app exposes shareable content.",
             color = CharmsLightGrey,
-            style = TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Normal,
-            ),
+            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp),
         )
     }
 }
 
 @Composable
-private fun DevicesPane(
-    focusRequester: FocusRequester,
-    onBack: () -> Unit,
-    onDevices: () -> Unit,
-) {
+private fun DevicesPane(onDevices: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -888,40 +835,22 @@ private fun DevicesPane(
             .navigationBarsPadding()
             .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 28.dp),
     ) {
-        PanelHeader(
-            title = "Devices",
-            focusRequester = focusRequester,
-            onBack = onBack,
-        )
+        PanelHeader(title = "Devices")
         Spacer(Modifier.height(28.dp))
-        Text(
-            text = "Play",
-            color = CharmsWhite,
-            style = TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Light,
-            ),
-        )
-        Spacer(Modifier.height(8.dp))
+        SettingsRow(label = "Play", onClick = onDevices)
         SettingsRow(label = "Print", onClick = onDevices)
         SettingsRow(label = "Project", onClick = onDevices)
         Spacer(Modifier.height(16.dp))
         Text(
             text = "Choose a device for playback, printing, or projection.",
             color = CharmsLightGrey,
-            style = TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 14.sp,
-            ),
+            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp),
         )
     }
 }
 
 @Composable
 private fun SettingsPane(
-    focusRequester: FocusRequester,
-    onBack: () -> Unit,
     onSettings: () -> Unit,
     onAddApps: () -> Unit,
     onDevices: () -> Unit,
@@ -934,64 +863,79 @@ private fun SettingsPane(
             .navigationBarsPadding()
             .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 28.dp),
     ) {
-        PanelHeader(
-            title = "Settings",
-            focusRequester = focusRequester,
-            onBack = onBack,
-        )
-        Spacer(Modifier.height(28.dp))
+        PanelHeader(title = "Settings")
+        Spacer(Modifier.height(18.dp))
+
         Text(
             text = "Start",
-            color = CharmsLightGrey,
+            color = CharmsMutedGrey,
             style = TextStyle(
                 fontFamily = FontFamily.SansSerif,
-                fontSize = 15.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Normal,
             ),
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         SettingsRow(label = "Personalize", onClick = onSettings)
         SettingsRow(label = "Tiles", onClick = onAddApps)
+        SettingsRow(label = "Help", onClick = onSettings)
+
+        Spacer(Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color.White.copy(alpha = 0.16f)),
+        )
+        Spacer(Modifier.height(18.dp))
+
+        // Windows 8.1 Settings charm quick block: two rows of three controls.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            QuickSetting(label = "Network", glyph = QuickGlyph.Network, onClick = onDevices)
+            QuickSetting(label = "Volume", glyph = QuickGlyph.Volume, onClick = onSettings)
+            QuickSetting(label = "Brightness", glyph = QuickGlyph.Brightness, onClick = onSettings)
+        }
+        Spacer(Modifier.height(20.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            QuickSetting(label = "Notifications", glyph = QuickGlyph.Notifications, onClick = onSettings)
+            QuickSetting(label = "Power", glyph = QuickGlyph.Power, onClick = onPower)
+            QuickSetting(label = "Keyboard", glyph = QuickGlyph.Keyboard, onClick = onSettings)
+        }
+
         Spacer(Modifier.height(24.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color.White.copy(alpha = 0.16f)),
+        )
+        Spacer(Modifier.height(10.dp))
         SettingsRow(label = "Change PC settings", onClick = onSettings)
-        SettingsRow(label = "Power", onClick = onPower)
-        SettingsRow(label = "Devices and network", onClick = onDevices)
     }
 }
 
 @Composable
-private fun PanelHeader(
-    title: String,
-    focusRequester: FocusRequester,
-    onBack: () -> Unit,
-) {
-    Row(
+private fun PanelHeader(title: String) {
+    // The Windows 8.1 pane header is plain typography. Hardware/system Back returns to the
+    // five-charms rail; no Android-style visible back affordance is injected into the pane.
+    Text(
+        text = title,
+        color = CharmsWhite,
+        style = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Light,
+        ),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        FlatPanelButton(
-            label = "Back to charms",
-            onClick = onBack,
-            focusRequester = focusRequester,
-            modifier = Modifier.size(48.dp),
-        ) {
-            androidx.compose.foundation.Canvas(Modifier.size(24.dp)) {
-                drawBackGlyph()
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = title,
-            color = CharmsWhite,
-            style = TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Light,
-            ),
-        )
-    }
+            .heightIn(min = 46.dp),
+    )
 }
 
 @Composable
@@ -1004,20 +948,62 @@ private fun SettingsRow(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp),
+            .heightIn(min = 44.dp),
     ) {
         Text(
             text = label,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 2.dp),
             color = CharmsWhite,
             textAlign = TextAlign.Start,
             style = TextStyle(
                 fontFamily = FontFamily.SansSerif,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Normal,
             ),
+        )
+    }
+}
+
+@Composable
+private fun QuickSetting(
+    label: String,
+    glyph: QuickGlyph,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    Column(
+        modifier = Modifier
+            .width(88.dp)
+            .graphicsLayer {
+                val scale = if (pressed) 0.96f else 1f
+                scaleX = scale
+                scaleY = scale
+            }
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+                role = Role.Button
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(33.dp)) {
+            drawQuickGlyph(glyph)
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            text = label,
+            color = CharmsWhite,
+            style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 10.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1027,20 +1013,12 @@ private fun FlatPanelButton(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null,
     content: @Composable () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val focusModifier = if (focusRequester != null) {
-        Modifier.focusRequester(focusRequester)
-    } else {
-        Modifier
-    }
-
     Box(
-        modifier = focusModifier
-            .then(modifier)
+        modifier = modifier
             .graphicsLayer {
                 val scale = if (pressed) 0.98f else 1f
                 scaleX = scale
@@ -1082,9 +1060,7 @@ private fun CharmsClockSlab(
                 contentDescription = "Local time $time, $date"
             },
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(
                 text = time,
                 color = CharmsWhite,
@@ -1110,20 +1086,9 @@ private fun CharmsClockSlab(
     }
 }
 
-private enum class CharmPanel {
-    Search,
-    Share,
-    Devices,
-    Settings,
-}
-
-private enum class CharmGlyph {
-    Search,
-    Share,
-    Start,
-    Devices,
-    Settings,
-}
+private enum class CharmPanel { Search, Share, Devices, Settings }
+private enum class CharmGlyph { Search, Share, Start, Devices, Settings }
+private enum class QuickGlyph { Network, Volume, Brightness, Notifications, Power, Keyboard }
 
 private fun currentEpochMinute(): Long = System.currentTimeMillis() / 60_000L
 
@@ -1154,33 +1119,21 @@ private fun DrawScope.drawCharmGlyph(glyph: CharmGlyph, glint: Float) {
         }
 
         CharmGlyph.Share -> {
-            // Three nested, connected arcs read as the Windows share charm rather than a
-            // three-dot Android share symbol.
             val arcs = listOf(
                 rect(3.5f, 3.5f, 25f, 25f),
                 rect(7.5f, 7.5f, 21f, 21f),
                 rect(11.5f, 11.5f, 17f, 17f),
             )
-            arcs.forEachIndexed { index, bounds ->
+            arcs.forEach { bounds ->
                 drawArc(
                     color = CharmsWhite,
                     startAngle = -58f,
                     sweepAngle = 116f,
                     useCenter = false,
                     topLeft = Offset(bounds.left, bounds.top),
-                    size = androidx.compose.ui.geometry.Size(bounds.width, bounds.height),
+                    size = Size(bounds.width, bounds.height),
                     style = Stroke(width = stroke),
                 )
-                if (index < arcs.lastIndex) {
-                    val y = 21f - index * 3.8f
-                    drawLine(
-                        color = CharmsWhite,
-                        start = point(4.5f + index * 4f, y),
-                        end = point(7.5f + index * 4f, y),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Square,
-                    )
-                }
             }
         }
 
@@ -1195,7 +1148,6 @@ private fun DrawScope.drawCharmGlyph(glyph: CharmGlyph, glint: Float) {
                 }
                 drawPath(path, color)
             }
-
             pane(3f, 4.2f, 13f, 13.7f, StartPurple.copy(alpha = 0.95f))
             pane(15f, 3.1f, 25f, 13.7f, StartPurple.copy(alpha = 0.78f))
             pane(3f, 16f, 13f, 25.2f, StartPurple.copy(alpha = 0.78f))
@@ -1215,35 +1167,16 @@ private fun DrawScope.drawCharmGlyph(glyph: CharmGlyph, glint: Float) {
             drawRect(
                 color = CharmsWhite,
                 topLeft = point(3f, 5f),
-                size = androidx.compose.ui.geometry.Size(18f * unit, 13f * unit),
+                size = Size(18f * unit, 13f * unit),
                 style = Stroke(width = stroke),
             )
-            drawLine(
-                color = CharmsWhite,
-                start = point(9f, 21f),
-                end = point(16f, 21f),
-                strokeWidth = stroke,
-                cap = StrokeCap.Square,
-            )
-            drawLine(
-                color = CharmsWhite,
-                start = point(12.5f, 18f),
-                end = point(12.5f, 21f),
-                strokeWidth = stroke,
-                cap = StrokeCap.Square,
-            )
+            drawLine(CharmsWhite, point(9f, 21f), point(16f, 21f), stroke, StrokeCap.Square)
+            drawLine(CharmsWhite, point(12.5f, 18f), point(12.5f, 21f), stroke, StrokeCap.Square)
             drawRect(
                 color = CharmsWhite,
                 topLeft = point(9f, 9f),
-                size = androidx.compose.ui.geometry.Size(16f * unit, 13f * unit),
+                size = Size(16f * unit, 13f * unit),
                 style = Stroke(width = stroke),
-            )
-            drawLine(
-                color = CharmsWhite,
-                start = point(14f, 24.2f),
-                end = point(20f, 24.2f),
-                strokeWidth = stroke,
-                cap = StrokeCap.Square,
             )
         }
 
@@ -1258,11 +1191,7 @@ private fun DrawScope.drawCharmGlyph(glyph: CharmGlyph, glint: Float) {
                 if (i == 0) gear.moveTo(x, y) else gear.lineTo(x, y)
             }
             gear.close()
-            drawPath(
-                path = gear,
-                color = CharmsWhite,
-                style = Stroke(width = stroke, cap = StrokeCap.Square),
-            )
+            drawPath(gear, color = CharmsWhite, style = Stroke(width = stroke, cap = StrokeCap.Square))
             drawCircle(
                 color = CharmsWhite,
                 radius = 3.2f * unit,
@@ -1273,28 +1202,109 @@ private fun DrawScope.drawCharmGlyph(glyph: CharmGlyph, glint: Float) {
     }
 }
 
-private fun DrawScope.drawBackGlyph() {
+private fun DrawScope.drawQuickGlyph(glyph: QuickGlyph) {
+    val w = size.width
+    val h = size.height
+    val stroke = (w * 0.075f).coerceAtLeast(1.5f)
     val color = CharmsWhite
-    val stroke = 1.8.dp.toPx()
-    drawLine(
-        color = color,
-        start = Offset(size.width * 0.76f, size.height * 0.5f),
-        end = Offset(size.width * 0.25f, size.height * 0.5f),
-        strokeWidth = stroke,
-        cap = StrokeCap.Square,
-    )
-    drawLine(
-        color = color,
-        start = Offset(size.width * 0.25f, size.height * 0.5f),
-        end = Offset(size.width * 0.47f, size.height * 0.27f),
-        strokeWidth = stroke,
-        cap = StrokeCap.Square,
-    )
-    drawLine(
-        color = color,
-        start = Offset(size.width * 0.25f, size.height * 0.5f),
-        end = Offset(size.width * 0.47f, size.height * 0.73f),
-        strokeWidth = stroke,
-        cap = StrokeCap.Square,
-    )
+    when (glyph) {
+        QuickGlyph.Network -> {
+            val barW = w * 0.12f
+            for (i in 0 until 4) {
+                val barH = h * (0.18f + i * 0.14f)
+                drawRect(
+                    color = color,
+                    topLeft = Offset(w * (0.18f + i * 0.17f), h * 0.78f - barH),
+                    size = Size(barW, barH),
+                )
+            }
+        }
+
+        QuickGlyph.Volume -> {
+            val speaker = Path().apply {
+                moveTo(w * 0.18f, h * 0.42f)
+                lineTo(w * 0.36f, h * 0.42f)
+                lineTo(w * 0.55f, h * 0.25f)
+                lineTo(w * 0.55f, h * 0.75f)
+                lineTo(w * 0.36f, h * 0.58f)
+                lineTo(w * 0.18f, h * 0.58f)
+                close()
+            }
+            drawPath(speaker, color)
+            drawArc(
+                color = color,
+                startAngle = -55f,
+                sweepAngle = 110f,
+                useCenter = false,
+                topLeft = Offset(w * 0.47f, h * 0.24f),
+                size = Size(w * 0.36f, h * 0.52f),
+                style = Stroke(width = stroke),
+            )
+        }
+
+        QuickGlyph.Brightness -> {
+            val c = Offset(w * 0.5f, h * 0.5f)
+            drawCircle(color, radius = w * 0.15f, center = c)
+            for (i in 0 until 8) {
+                val angle = (i * PI / 4.0).toFloat()
+                drawLine(
+                    color = color,
+                    start = Offset(c.x + cos(angle) * w * 0.25f, c.y + sin(angle) * w * 0.25f),
+                    end = Offset(c.x + cos(angle) * w * 0.38f, c.y + sin(angle) * w * 0.38f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Square,
+                )
+            }
+        }
+
+        QuickGlyph.Notifications -> {
+            drawRect(
+                color = color,
+                topLeft = Offset(w * 0.18f, h * 0.30f),
+                size = Size(w * 0.64f, h * 0.40f),
+                style = Stroke(width = stroke),
+            )
+            drawLine(color, Offset(w * 0.28f, h * 0.42f), Offset(w * 0.72f, h * 0.42f), stroke)
+            drawLine(color, Offset(w * 0.28f, h * 0.56f), Offset(w * 0.62f, h * 0.56f), stroke)
+        }
+
+        QuickGlyph.Power -> {
+            drawArc(
+                color = color,
+                startAngle = -48f,
+                sweepAngle = 276f,
+                useCenter = false,
+                topLeft = Offset(w * 0.18f, h * 0.18f),
+                size = Size(w * 0.64f, h * 0.64f),
+                style = Stroke(width = stroke * 1.15f),
+            )
+            drawLine(
+                color = color,
+                start = Offset(w * 0.5f, h * 0.12f),
+                end = Offset(w * 0.5f, h * 0.47f),
+                strokeWidth = stroke * 1.15f,
+                cap = StrokeCap.Square,
+            )
+        }
+
+        QuickGlyph.Keyboard -> {
+            drawRect(
+                color = color,
+                topLeft = Offset(w * 0.12f, h * 0.29f),
+                size = Size(w * 0.76f, h * 0.46f),
+                style = Stroke(width = stroke),
+            )
+            val keyW = w * 0.10f
+            val keyH = h * 0.07f
+            for (row in 0 until 3) {
+                for (column in 0 until 5) {
+                    drawRect(
+                        color = color,
+                        topLeft = Offset(w * 0.20f + column * w * 0.13f, h * 0.37f + row * h * 0.11f),
+                        size = Size(keyW, keyH),
+                    )
+                }
+            }
+        }
+    }
 }
