@@ -37,4 +37,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-# Windows 8.1 fidelity branch verification
+  reference-frames:
+    if: github.ref == 'refs/heads/win81-fidelity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reference recording
+        uses: actions/checkout@v4
+      - name: Extract reference timeline
+        shell: bash
+        run: |
+          mkdir -p reference-frames/overview reference-frames/start-entrance
+          ffprobe -v error -show_streams -show_format test.mp4 > reference-frames/metadata.txt
+          # 25 thumbnails per sheet, 2 fps: every sheet spans 12.5 seconds.
+          ffmpeg -hide_banner -loglevel error -i test.mp4 \
+            -vf "fps=2,scale=320:-2,tile=5x5:padding=2:margin=2" \
+            -q:v 3 -vsync 0 reference-frames/overview/sheet-%02d.jpg
+          # Existing docs identify the Start session entrance around 56.0 s.
+          # Preserve all 30 fps source frames around that transition for visual fitting.
+          ffmpeg -hide_banner -loglevel error -ss 55.5 -t 2.0 -i test.mp4 \
+            -vf "fps=30,scale=240:-2,tile=10x6:padding=1:margin=1" \
+            -q:v 2 -vsync 0 reference-frames/start-entrance/frames-%02d.jpg
+      - name: Upload reference frame sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows81-reference-frames
+          path: reference-frames
+          if-no-files-found: error
+          retention-days: 2
