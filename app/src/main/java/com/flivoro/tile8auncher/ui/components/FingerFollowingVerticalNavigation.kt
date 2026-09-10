@@ -1,8 +1,7 @@
 package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,15 +28,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import com.flivoro.tile8auncher.ui.animation.Windows81Motion
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * Keeps Start and All Apps mounted while a vertically locked drag moves between them.
+ * Windows 8.1 Start <-> Apps direct-manipulation surface.
  *
- * The child rows retain their own LazyListState and continue to receive horizontal gestures.
- * A page change requested by a button or BackHandler follows the same spring as a released drag.
+ * During touch the two pages are physically attached to the finger. On release
+ * the remaining distance settles with the Windows fluid curve rather than a
+ * Compose spring. This is important: the real Windows shell does not bounce or
+ * oscillate when Start is pulled up into Apps view.
  */
 @Composable
 fun FingerFollowingVerticalNavigation(
@@ -71,10 +73,15 @@ fun FingerFollowingVerticalNavigation(
         settleJob.value = null
     }
 
-    fun settleTo(target: Float, initialVelocity: Float) {
+    fun settleTo(target: Float, progressVelocityPerSecond: Float) {
         cancelSettle()
-        if (abs(progress - target) < 0.001f && abs(initialVelocity) < 0.001f) {
-            progress = target
+        val duration = Windows81Motion.settleDurationMillis(
+            progress = progress,
+            target = target,
+            progressVelocityPerSecond = progressVelocityPerSecond,
+        )
+        if (duration == 0 || abs(progress - target) < 0.001f) {
+            progress = target.coerceIn(0f, 1f)
             return
         }
 
@@ -82,11 +89,10 @@ fun FingerFollowingVerticalNavigation(
             settleAnimation.snapTo(progress)
             settleAnimation.animateTo(
                 targetValue = target,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
+                animationSpec = tween(
+                    durationMillis = duration,
+                    easing = Windows81Motion.Fluid,
                 ),
-                initialVelocity = initialVelocity,
             ) {
                 progress = value.coerceIn(0f, 1f)
             }
@@ -103,10 +109,8 @@ fun FingerFollowingVerticalNavigation(
             isDragging = false
             latestOnDraggingChanged(false)
             gestureTargetPage.value = false
-            settleTo(0f, initialVelocity = 0f)
-            if (latestShowAllApps) {
-                latestOnPageChange(false)
-            }
+            settleTo(0f, progressVelocityPerSecond = 0f)
+            if (latestShowAllApps) latestOnPageChange(false)
             return@LaunchedEffect
         }
 
@@ -114,7 +118,7 @@ fun FingerFollowingVerticalNavigation(
         val wasRequestedByGesture = gestureTargetPage.value == targetPage
         gestureTargetPage.value = null
         if (!wasRequestedByGesture && !isDragging) {
-            settleTo(if (targetPage) 1f else 0f, initialVelocity = 0f)
+            settleTo(if (targetPage) 1f else 0f, progressVelocityPerSecond = 0f)
         }
     }
 
@@ -125,7 +129,7 @@ fun FingerFollowingVerticalNavigation(
 
         val height = viewportHeightPx
         if (height <= 0f) {
-            settleTo(if (latestShowAllApps) 1f else 0f, initialVelocity = 0f)
+            settleTo(if (latestShowAllApps) 1f else 0f, progressVelocityPerSecond = 0f)
             return
         }
 
@@ -134,12 +138,11 @@ fun FingerFollowingVerticalNavigation(
             velocityY >= swipeVelocityThreshold -> false
             else -> progress >= 0.5f
         }
+        // Upward finger velocity advances the 0 -> 1 Start-to-Apps progress.
         val progressVelocity = (-velocityY / height).coerceIn(-8f, 8f)
         gestureTargetPage.value = targetShowAllApps
         settleTo(if (targetShowAllApps) 1f else 0f, progressVelocity)
-        if (targetShowAllApps != latestShowAllApps) {
-            latestOnPageChange(targetShowAllApps)
-        }
+        if (targetShowAllApps != latestShowAllApps) latestOnPageChange(targetShowAllApps)
     }
 
     Box(
@@ -149,7 +152,6 @@ fun FingerFollowingVerticalNavigation(
             .onSizeChanged { viewportHeightPx = it.height.toFloat() }
             .pointerInput(resetRequest) {
                 var velocityTracker = VelocityTracker()
-
                 detectVerticalDragGestures(
                     onDragStart = {
                         cancelSettle()
@@ -164,35 +166,23 @@ fun FingerFollowingVerticalNavigation(
                             progress = (progress - dragAmount / viewportHeightPx).coerceIn(0f, 1f)
                         }
                     },
-                    onDragEnd = {
-                        finishDrag(velocityTracker.calculateVelocity().y)
-                    },
-                    onDragCancel = {
-                        finishDrag(0f)
-                    },
+                    onDragEnd = { finishDrag(velocityTracker.calculateVelocity().y) },
+                    onDragCancel = { finishDrag(0f) },
                 )
             },
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    translationY = -viewportHeightPx * progress
-                }
+                .graphicsLayer { translationY = -viewportHeightPx * progress }
                 .then(if (startHidden) Modifier.clearAndSetSemantics {} else Modifier),
-        ) {
-            startContent()
-        }
+        ) { startContent() }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    translationY = viewportHeightPx * (1f - progress)
-                }
+                .graphicsLayer { translationY = viewportHeightPx * (1f - progress) }
                 .then(if (appsHidden) Modifier.clearAndSetSemantics {} else Modifier),
-        ) {
-            allAppsContent()
-        }
+        ) { allAppsContent() }
     }
 }
