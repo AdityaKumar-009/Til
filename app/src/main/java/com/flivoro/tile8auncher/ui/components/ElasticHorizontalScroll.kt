@@ -1,8 +1,7 @@
 package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -21,18 +20,20 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import com.flivoro.tile8auncher.ui.animation.Windows81Motion
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.min
 import kotlin.math.exp
+import kotlin.math.min
 import kotlin.math.sign
 
 /**
- * Adds a small, shared rubber band at either horizontal scroll edge.
+ * Adds Windows-style elastic resistance at either horizontal scroll edge.
  *
- * Apply this to the LazyRow itself. The row still owns normal scrolling and flings. This
- * modifier only uses the unconsumed edge delta and springs its translation back on release.
+ * Normal LazyRow panning/fling remains untouched. Only the unconsumed edge
+ * delta is translated, and release uses the same front-loaded Windows 8.1
+ * fluid curve as the shell instead of Compose's spring physics.
  */
 @Composable
 fun Modifier.elasticHorizontalScroll(
@@ -53,9 +54,9 @@ fun Modifier.elasticHorizontalScroll(
         returnJob.value = null
     }
 
-    fun startReturn(velocity: Float = 0f) {
+    fun startReturn() {
         cancelReturn()
-        if (abs(overscrollPx) < 0.5f && abs(velocity) < 1f) {
+        if (abs(overscrollPx) < 0.5f) {
             overscrollPx = 0f
             return
         }
@@ -65,10 +66,9 @@ fun Modifier.elasticHorizontalScroll(
             returnAnimation.snapTo(start)
             returnAnimation.animateTo(
                 targetValue = 0f,
-                initialVelocity = velocity.coerceIn(-maxOverscrollPx * 8f, maxOverscrollPx * 8f),
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
+                animationSpec = tween(
+                    durationMillis = Windows81Motion.PointerDurationMillis,
+                    easing = Windows81Motion.Fluid,
                 ),
             ) {
                 overscrollPx = value
@@ -117,8 +117,6 @@ fun Modifier.elasticHorizontalScroll(
                     maxOverscrollPx
                 }
                 overscrollPx = elasticOffset(overscrollPx, available.x, cap, resistanceFactor)
-                // A fling must stop at the real list edge, then transfer its remaining
-                // velocity to the return spring. Consuming it here prolongs the fling.
                 return if (source == NestedScrollSource.UserInput) Offset(available.x, 0f) else Offset.Zero
             }
 
@@ -126,7 +124,7 @@ fun Modifier.elasticHorizontalScroll(
                 consumed: Velocity,
                 available: Velocity,
             ): Velocity {
-                startReturn(available.x * resistanceFactor)
+                startReturn()
                 return Velocity(available.x, 0f)
             }
         }
