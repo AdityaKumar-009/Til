@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -266,23 +267,26 @@ fun AllAppsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Windows 8.1 uses the lower navigation affordance to return to Start.
+            // Mirror Start's lower-left navigation affordance exactly: same 48 dp target,
+            // -9 dp optical offset, 30 dp glyph and bottom inset. Only direction changes.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 14.dp),
-                contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clickable { onNavigateToStart() },
+                        .align(Alignment.CenterStart)
+                        .offset(x = (-9).dp)
+                        .size(48.dp)
+                        .clickable { onNavigateToStart() }
+                        .semantics { contentDescription = "Return to Start" },
                     contentAlignment = Alignment.Center,
                 ) {
                     MetroIcon(
                         glyph = "arrow_up",
                         color = Color.White.copy(alpha = 0.9f),
-                        size = 40.dp,
+                        size = 30.dp,
                     )
                 }
             }
