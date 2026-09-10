@@ -5,12 +5,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -63,6 +61,7 @@ import com.flivoro.tile8auncher.data.Windows81AppsSortMode
 import com.flivoro.tile8auncher.data.Windows81ShellPreferences
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.animation.Windows81Motion
+import com.flivoro.tile8auncher.ui.animation.metroTilePress
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
@@ -74,7 +73,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import kotlin.math.floor
 
 /**
  * Windows 8.1 Apps view.
@@ -138,13 +136,18 @@ fun Windows81AllAppsScreen(
             Spacer(Modifier.height(14.dp))
 
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                val rowHeight = 48.dp
-                val availableRows = floor(maxHeight.value / rowHeight.value).toInt().coerceAtLeast(3)
+                val metrics = remember(maxWidth, maxHeight) {
+                    calculateAllAppsColumnMetrics(
+                        availableWidthDp = maxWidth.value,
+                        availableHeightDp = maxHeight.value,
+                    )
+                }
+                val rowHeight = metrics.rowHeightDp.dp
                 val appSections = remember(sortedSections) {
                     sortedSections.map { AppSection(letter = it.name, apps = it.apps) }
                 }
-                val columns = remember(appSections, availableRows) {
-                    packAllAppsColumns(appSections, availableRows)
+                val columns = remember(appSections, metrics.rowsPerColumn) {
+                    packAllAppsColumns(appSections, metrics.rowsPerColumn)
                 }
                 val zoomProgress by animateFloatAsState(
                     targetValue = if (semanticZoom) 1f else 0f,
@@ -166,11 +169,12 @@ fun Windows81AllAppsScreen(
                             scaleY = scale
                             alpha = 1f - zoomProgress
                         },
-                    horizontalArrangement = Arrangement.spacedBy(30.dp),
+                    horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
                 ) {
                     items(columns, key = { it.key }) { column ->
                         AppsColumn(
                             column = column,
+                            columnWidth = metrics.columnWidthDp.dp,
                             appsRepository = appsRepository,
                             shellPreferences = shellPreferences,
                             rowHeight = rowHeight,
@@ -187,8 +191,6 @@ fun Windows81AllAppsScreen(
                     }
                 }
 
-                // Microsoft SemanticZoom uses a shell zoom factor of 0.65 and
-                // 333 ms ease-in-out scale/opacity transitions in both views.
                 if (zoomProgress > 0.001f) {
                     AppsSemanticZoom(
                         sections = sortedSections,
@@ -218,7 +220,10 @@ fun Windows81AllAppsScreen(
                     contentAlignment = Alignment.Center,
                 ) { Text("−", color = Color.White, fontSize = 22.sp) }
                 Spacer(Modifier.weight(1f))
-                Box(Modifier.size(46.dp).clickable(onClick = onNavigateToStart), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(46.dp).clickable(onClick = onNavigateToStart),
+                    contentAlignment = Alignment.Center,
+                ) {
                     MetroIcon("arrow_up", color = Color.White.copy(alpha = 0.92f), size = 40.dp)
                 }
                 Spacer(Modifier.weight(1f))
@@ -226,8 +231,6 @@ fun Windows81AllAppsScreen(
             }
         }
 
-        // App commands are edge UI in Windows 8.1. Use Microsoft's 367 ms
-        // EdgeUI curve instead of AnimatedVisibility's Material defaults.
         AnimatedVisibility(
             visible = selectedApp != null,
             enter = slideInVertically(
@@ -368,7 +371,10 @@ private fun installDateBucket(time: Long): String {
 
     val startOfWeek = (now.clone() as Calendar).apply {
         set(Calendar.DAY_OF_WEEK, firstDayOfWeek)
-        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
     }
     if (!date.before(startOfWeek)) return "This week"
     val lastWeek = (startOfWeek.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -7) }
@@ -388,6 +394,7 @@ private val DATE_BUCKET_ORDER = listOf("Today", "This week", "Last week", "Earli
 @Composable
 private fun AppsColumn(
     column: AllAppsColumnModel,
+    columnWidth: Dp,
     appsRepository: AppsRepository,
     shellPreferences: Windows81ShellPreferences,
     rowHeight: Dp,
@@ -395,7 +402,7 @@ private fun AppsColumn(
     onAppClick: (AppInfo, Rect) -> Unit,
     onLongClick: (AppInfo) -> Unit,
 ) {
-    Column(Modifier.width(220.dp)) {
+    Column(Modifier.width(columnWidth)) {
         column.items.forEach { item ->
             key(item.key) {
                 when (item) {
@@ -428,7 +435,6 @@ private fun AppsColumn(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppRow(
     app: AppInfo,
@@ -438,28 +444,47 @@ private fun AppRow(
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val coords = remember { TileCoordinatesHolder() }
+    val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAppIcon(appsRepository, app.packageName)
     Row(
-        modifier = Modifier.fillMaxWidth().height(rowHeight).combinedClickable(
-            onClick = { onClick(coords.coordinates?.takeIf { it.isAttached }?.boundsInWindow() ?: Rect.Zero) },
-            onLongClick = onLongClick,
-        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowHeight)
+            .metroTilePress(
+                onClick = {
+                    onClick(
+                        iconCoordinates.coordinates
+                            ?.takeIf { coordinates -> coordinates.isAttached }
+                            ?.boundsInWindow()
+                            ?: Rect.Zero,
+                    )
+                },
+                onLongClick = onLongClick,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(38.dp).onGloballyPositioned { coords.coordinates = it }
+            Modifier
+                .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
+                .onGloballyPositioned { iconCoordinates.coordinates = it }
                 .background(WindowsColors.Purple.toTileColor()),
             contentAlignment = Alignment.Center,
         ) {
-            if (icon != null) Image(icon, contentDescription = app.label, modifier = Modifier.size(30.dp))
-            else MetroIcon("app", color = Color.White, size = 25.dp)
+            if (icon != null) {
+                Image(
+                    icon,
+                    contentDescription = app.label,
+                    modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                )
+            } else {
+                MetroIcon("app", color = Color.White, size = 34.dp)
+            }
         }
         Spacer(Modifier.width(10.dp))
         Text(
             app.label,
             color = Color.White,
-            style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
+            style = WindowsTypography.bodyMedium.copy(fontSize = 14.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -536,13 +561,20 @@ private fun AppCommandBar(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(38.dp).background(WindowsColors.Purple.toTileColor()), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(38.dp).background(WindowsColors.Purple.toTileColor()),
+                contentAlignment = Alignment.Center,
+            ) {
                 if (icon != null) Image(icon, contentDescription = app.label, modifier = Modifier.size(28.dp))
                 else MetroIcon("app", color = Color.White, size = 24.dp)
             }
             Spacer(Modifier.width(10.dp))
             Text(app.label, color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
-            AppsCommand(if (isPinned) "⊖" else "⊕", if (isPinned) "Unpin from Start" else "Pin to Start", onPinToggle)
+            AppsCommand(
+                if (isPinned) "⊖" else "⊕",
+                if (isPinned) "Unpin from Start" else "Pin to Start",
+                onPinToggle,
+            )
             AppsCommand("ⓘ", "App info", onAppInfo)
             AppsCommand("×", "Uninstall", onUninstall)
             AppsCommand("⌄", "Cancel", onCancel)
@@ -552,7 +584,10 @@ private fun AppCommandBar(
 
 @Composable
 private fun AppsCommand(icon: String, label: String, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 7.dp)) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 7.dp),
+    ) {
         Box(Modifier.size(32.dp).border(2.dp, Color.White), contentAlignment = Alignment.Center) {
             Text(icon, color = Color.White, fontSize = 15.sp)
         }
