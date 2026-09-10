@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.ui.animation.metroTileLongPressDrag
 import com.flivoro.tile8auncher.ui.animation.metroTilePress
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import kotlinx.coroutines.delay
@@ -44,14 +46,28 @@ fun WindowsTileView(
     modifier: Modifier = Modifier,
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
+    dragEnabled: Boolean = false,
+    onDragStart: (bounds: Rect) -> Unit = {},
+    onDrag: (delta: Offset) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = onDragEnd,
 ) {
     WindowsTileFace(
         tile = tile,
         appIcon = appIcon,
         modifier = modifier
+            .metroTileLongPressDrag(
+                enabled = dragEnabled,
+                onDragStart = onDragStart,
+                onDrag = onDrag,
+                onDragEnd = onDragEnd,
+                onDragCancel = onDragCancel,
+            )
             .metroTilePress(
                 onClick = onClick,
-                onLongClick = onLongClick,
+                // The drag recognizer owns the long-press threshold when enabled. Keeping
+                // this null prevents the old modal action from firing at the same instant.
+                onLongClick = if (dragEnabled) null else onLongClick,
             ),
     )
 }
