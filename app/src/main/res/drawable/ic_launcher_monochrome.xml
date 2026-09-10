@@ -4,5 +4,5 @@
         android:width="46dp"
         android:height="44.4dp"
         android:gravity="center"
-        android:drawable="@drawable/mosaic_launcher_art" />
+        android:drawable="@drawable/mosaic_launcher_monochrome" />
 </layer-list>
