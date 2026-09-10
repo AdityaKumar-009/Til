@@ -1,6 +1,8 @@
 package com.flivoro.tile8auncher.ui.components
 
 import android.os.BatteryManager
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -40,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.ui.animation.Windows81Motion
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -60,25 +64,30 @@ fun Windows81CharmsEdgeDetector(
     if (!enabled) return
     var drag by remember { mutableFloatStateOf(0f) }
     Box(
-        modifier
-            .fillMaxHeight()
-            .width(22.dp)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { drag = 0f },
-                    onDragEnd = {
-                        if (drag < -28f) onReveal()
-                        drag = 0f
-                    },
-                    onDragCancel = { drag = 0f },
-                ) { change, amount ->
-                    if (abs(amount) > 0f) change.consume()
-                    drag += amount
-                }
-            },
+        modifier.fillMaxHeight().width(22.dp).pointerInput(Unit) {
+            detectHorizontalDragGestures(
+                onDragStart = { drag = 0f },
+                onDragEnd = {
+                    if (drag < -28f) onReveal()
+                    drag = 0f
+                },
+                onDragCancel = { drag = 0f },
+            ) { change, amount ->
+                if (abs(amount) > 0f) change.consume()
+                drag += amount
+            }
+        },
     )
 }
 
+/**
+ * Windows 8.1 Charms chrome.
+ *
+ * The narrow Charms rail uses Microsoft's EdgeUI 367 ms fluid motion. Wider
+ * Search/Share/Devices/Settings panes use the 550 ms Panel motion. Keeping the
+ * two tracks separate is important: the original shell does not animate the
+ * entire right side as one generic Material drawer.
+ */
 @Composable
 fun Windows81CharmsOverlay(
     visible: Boolean,
@@ -93,19 +102,37 @@ fun Windows81CharmsOverlay(
     onOpenDevices: () -> Unit,
     onOpenHelp: () -> Unit,
 ) {
-    if (!visible) return
     var pane by remember { mutableStateOf(requestedPane) }
-    LaunchedEffect(visible, requestedPane) { pane = requestedPane }
+    LaunchedEffect(visible, requestedPane) {
+        if (visible) pane = requestedPane
+    }
+
+    val edgeProgress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(Windows81Motion.EdgeUiDurationMillis, easing = Windows81Motion.Fluid),
+        label = "Windows81CharmsEdge",
+    )
+    val paneVisible = visible && pane != Windows81CharmPane.MAIN
+    val paneProgress by animateFloatAsState(
+        targetValue = if (paneVisible) 1f else 0f,
+        animationSpec = tween(Windows81Motion.PanelDurationMillis, easing = Windows81Motion.Fluid),
+        label = "Windows81CharmsPane",
+    )
+
+    if (!visible && edgeProgress <= 0.001f && paneProgress <= 0.001f) return
 
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.08f))
-            .clickable(onClick = onDismiss),
+        Modifier.fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.08f * edgeProgress))
+            .clickable(enabled = visible, onClick = onDismiss),
     ) {
-        CharmsClockPanel(Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 32.dp))
+        CharmsClockPanel(
+            Modifier.align(Alignment.BottomStart)
+                .padding(start = 24.dp, bottom = 32.dp)
+                .graphicsLayer { alpha = edgeProgress },
+        )
 
-        if (pane != Windows81CharmPane.MAIN) {
+        if (pane != Windows81CharmPane.MAIN && paneProgress > 0.001f) {
             CharmsPane(
                 pane = pane,
                 apps = apps,
@@ -115,25 +142,39 @@ fun Windows81CharmsOverlay(
                 onOpenNotificationSettings = onOpenNotificationSettings,
                 onOpenDevices = onOpenDevices,
                 onOpenHelp = onOpenHelp,
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer {
+                    translationX = 330.dp.toPx() * (1f - paneProgress)
+                    alpha = paneProgress
+                },
             )
         }
 
         Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
+            modifier = Modifier.align(Alignment.CenterEnd)
                 .width(88.dp)
                 .fillMaxHeight()
+                .graphicsLayer { translationX = 88.dp.toPx() * (1f - edgeProgress) }
                 .background(Color(0xF0121212))
                 .padding(vertical = 68.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            CharmButton("search", "Search", pane == Windows81CharmPane.SEARCH) { pane = Windows81CharmPane.SEARCH }
-            CharmButton("share", "Share", pane == Windows81CharmPane.SHARE) { pane = Windows81CharmPane.SHARE }
-            CharmButton("start", "Start", false) { onDismiss(); onStart() }
-            CharmButton("devices", "Devices", pane == Windows81CharmPane.DEVICES) { pane = Windows81CharmPane.DEVICES }
-            CharmButton("settings", "Settings", pane == Windows81CharmPane.SETTINGS) { pane = Windows81CharmPane.SETTINGS }
+            CharmButton("search", "Search", pane == Windows81CharmPane.SEARCH) {
+                pane = Windows81CharmPane.SEARCH
+            }
+            CharmButton("share", "Share", pane == Windows81CharmPane.SHARE) {
+                pane = Windows81CharmPane.SHARE
+            }
+            CharmButton("start", "Start", false) {
+                onDismiss()
+                onStart()
+            }
+            CharmButton("devices", "Devices", pane == Windows81CharmPane.DEVICES) {
+                pane = Windows81CharmPane.DEVICES
+            }
+            CharmButton("settings", "Settings", pane == Windows81CharmPane.SETTINGS) {
+                pane = Windows81CharmPane.SETTINGS
+            }
         }
     }
 }
@@ -141,8 +182,7 @@ fun Windows81CharmsOverlay(
 @Composable
 private fun CharmButton(glyph: String, label: String, selected: Boolean, onClick: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = Modifier.fillMaxWidth()
             .background(if (selected) WindowsColors.Purple.toTileColor() else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
@@ -163,10 +203,12 @@ private fun CharmButton(glyph: String, label: String, selected: Boolean, onClick
 private fun WindowsStartGlyph() {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            Box(Modifier.size(10.dp).background(Color.White)); Box(Modifier.size(10.dp).background(Color.White))
+            Box(Modifier.size(10.dp).background(Color.White))
+            Box(Modifier.size(10.dp).background(Color.White))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            Box(Modifier.size(10.dp).background(Color.White)); Box(Modifier.size(10.dp).background(Color.White))
+            Box(Modifier.size(10.dp).background(Color.White))
+            Box(Modifier.size(10.dp).background(Color.White))
         }
     }
 }
@@ -184,17 +226,18 @@ private fun CharmsPane(
     modifier: Modifier,
 ) {
     Column(
-        modifier = modifier
-            .width(330.dp)
-            .fillMaxHeight()
-            .background(Color(0xFA25102F))
+        modifier = modifier.width(330.dp).fillMaxHeight().background(Color(0xFA25102F))
             .padding(end = 88.dp, start = 18.dp, top = 34.dp, bottom = 24.dp),
     ) {
         when (pane) {
             Windows81CharmPane.SEARCH -> SearchCharm(apps, appsRepository, onSearchApp)
             Windows81CharmPane.SHARE -> ShareCharm()
             Windows81CharmPane.DEVICES -> DevicesCharm(onOpenDevices)
-            Windows81CharmPane.SETTINGS -> SettingsCharm(onOpenPcSettings, onOpenNotificationSettings, onOpenHelp)
+            Windows81CharmPane.SETTINGS -> SettingsCharm(
+                onOpenPcSettings,
+                onOpenNotificationSettings,
+                onOpenHelp,
+            )
             Windows81CharmPane.MAIN -> Unit
         }
     }
@@ -247,7 +290,13 @@ private fun SearchCharm(apps: List<AppInfo>, appsRepository: AppsRepository, onS
                     else MetroIcon("app", color = Color.White, size = 22.dp)
                 }
                 Spacer(Modifier.size(9.dp))
-                Text(app.label, color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    app.label,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -269,7 +318,11 @@ private fun DevicesCharm(onOpenDevices: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCharm(onOpenPcSettings: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenHelp: () -> Unit) {
+private fun SettingsCharm(
+    onOpenPcSettings: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+    onOpenHelp: () -> Unit,
+) {
     Text("Settings", color = Color.White, style = WindowsTypography.displayLarge.copy(fontSize = 28.sp))
     Spacer(Modifier.size(18.dp))
     CharmPaneItem("Personalize", "Start colors and backgrounds", onOpenPcSettings)
