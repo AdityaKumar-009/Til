@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher.ui.animation
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -12,6 +13,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -110,5 +112,49 @@ fun Modifier.metroTilePress(
             this.rotationY = rotationY.value
             this.cameraDistance = 10f // Authentic 3D tilt perspective in Compose
             this.transformOrigin = TransformOrigin(0.5f, 0.5f)
+        }
+}
+
+/**
+ * Long-press drag channel used by Start customization.
+ *
+ * It is intentionally separate from [metroTilePress]: ordinary taps keep the exact existing
+ * press/tilt implementation, while only a completed long press takes ownership of movement.
+ * This mirrors Windows 8.1's touch model where a held tile becomes draggable without changing
+ * the normal tap-to-launch interaction.
+ */
+fun Modifier.metroTileLongPressDrag(
+    enabled: Boolean,
+    onDragStart: (bounds: Rect) -> Unit,
+    onDrag: (delta: Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit = onDragEnd,
+): Modifier = composed {
+    if (!enabled) return@composed this
+
+    val coordinates = remember { TileCoordinatesHolder() }
+    val latestStart by rememberUpdatedState(onDragStart)
+    val latestDrag by rememberUpdatedState(onDrag)
+    val latestEnd by rememberUpdatedState(onDragEnd)
+    val latestCancel by rememberUpdatedState(onDragCancel)
+
+    this
+        .onGloballyPositioned { coordinates.coordinates = it }
+        .pointerInput(enabled) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = {
+                    val bounds = coordinates.coordinates
+                        ?.takeIf { it.isAttached }
+                        ?.boundsInWindow()
+                        ?: Rect.Zero
+                    latestStart(bounds)
+                },
+                onDrag = { change, dragAmount ->
+                    change.consume()
+                    latestDrag(dragAmount)
+                },
+                onDragEnd = { latestEnd() },
+                onDragCancel = { latestCancel() },
+            )
         }
 }
