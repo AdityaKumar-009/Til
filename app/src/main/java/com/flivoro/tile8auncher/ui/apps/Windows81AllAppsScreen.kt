@@ -1,6 +1,8 @@
 package com.flivoro.tile8auncher.ui.apps
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -41,9 +43,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
@@ -53,10 +57,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.data.AppInfo
+import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.Windows81AppsSortMode
 import com.flivoro.tile8auncher.data.Windows81ShellPreferences
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
+import com.flivoro.tile8auncher.ui.animation.Windows81Motion
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
@@ -70,6 +76,14 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.floor
 
+/**
+ * Windows 8.1 Apps view.
+ *
+ * A column is a finite vertical strip, NOT one alphabetical section. Section
+ * headings continue immediately after the preceding section whenever a header
+ * plus at least one app fit. This reproduces the real 8.1 Apps screenshots
+ * where A/B/C/etc. can all appear in one visual column.
+ */
 @Composable
 fun Windows81AllAppsScreen(
     apps: List<AppInfo>,
@@ -123,15 +137,35 @@ fun Windows81AllAppsScreen(
             }
             Spacer(Modifier.height(14.dp))
 
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 val rowHeight = 48.dp
                 val availableRows = floor(maxHeight.value / rowHeight.value).toInt().coerceAtLeast(3)
-                val columns = remember(sortedSections, availableRows) {
-                    buildWindows81Columns(sortedSections, availableRows)
+                val appSections = remember(sortedSections) {
+                    sortedSections.map { AppSection(letter = it.name, apps = it.apps) }
                 }
+                val columns = remember(appSections, availableRows) {
+                    packAllAppsColumns(appSections, availableRows)
+                }
+                val zoomProgress by animateFloatAsState(
+                    targetValue = if (semanticZoom) 1f else 0f,
+                    animationSpec = tween(
+                        durationMillis = Windows81Motion.SemanticZoomDurationMillis,
+                        easing = Windows81Motion.SemanticZoomEase,
+                    ),
+                    label = "Windows81AppsSemanticZoom",
+                )
+
                 LazyRow(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().elasticHorizontalScroll(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .elasticHorizontalScroll()
+                        .graphicsLayer {
+                            val scale = 1f - (1f - Windows81Motion.SemanticZoomFactor) * zoomProgress
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 1f - zoomProgress
+                        },
                     horizontalArrangement = Arrangement.spacedBy(30.dp),
                 ) {
                     items(columns, key = { it.key }) { column ->
@@ -140,6 +174,7 @@ fun Windows81AllAppsScreen(
                             appsRepository = appsRepository,
                             shellPreferences = shellPreferences,
                             rowHeight = rowHeight,
+                            onSectionClick = { semanticZoom = true },
                             onAppClick = { app, bounds ->
                                 if (selectedApp != null) selectedApp = null
                                 else {
@@ -152,11 +187,19 @@ fun Windows81AllAppsScreen(
                     }
                 }
 
-                if (semanticZoom) {
+                // Microsoft SemanticZoom uses a shell zoom factor of 0.65 and
+                // 333 ms ease-in-out scale/opacity transitions in both views.
+                if (zoomProgress > 0.001f) {
                     AppsSemanticZoom(
                         sections = sortedSections,
+                        enabled = semanticZoom,
+                        progress = zoomProgress,
                         onSectionClick = { section ->
-                            val target = columns.indexOfFirst { it.sectionName == section }.coerceAtLeast(0)
+                            val target = columns.indexOfFirst { column ->
+                                column.items.any { item ->
+                                    item is AllAppsColumnItem.LetterHeader && item.letter == section
+                                }
+                            }.coerceAtLeast(0)
                             semanticZoom = false
                             scope.launch { listState.animateScrollToItem(target) }
                         },
@@ -169,7 +212,9 @@ fun Windows81AllAppsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.size(34.dp).border(1.dp, Color.White.copy(alpha = 0.6f)).clickable { semanticZoom = !semanticZoom },
+                    Modifier.size(34.dp).border(1.dp, Color.White.copy(alpha = 0.6f)).clickable {
+                        semanticZoom = !semanticZoom
+                    },
                     contentAlignment = Alignment.Center,
                 ) { Text("−", color = Color.White, fontSize = 22.sp) }
                 Spacer(Modifier.weight(1f))
@@ -181,10 +226,18 @@ fun Windows81AllAppsScreen(
             }
         }
 
+        // App commands are edge UI in Windows 8.1. Use Microsoft's 367 ms
+        // EdgeUI curve instead of AnimatedVisibility's Material defaults.
         AnimatedVisibility(
             visible = selectedApp != null,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
+            enter = slideInVertically(
+                animationSpec = tween(Windows81Motion.EdgeUiDurationMillis, easing = Windows81Motion.Fluid),
+                initialOffsetY = { it },
+            ),
+            exit = slideOutVertically(
+                animationSpec = tween(Windows81Motion.EdgeUiDurationMillis, easing = Windows81Motion.Fluid),
+                targetOffsetY = { it },
+            ),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             selectedApp?.let { app ->
@@ -261,12 +314,6 @@ private fun AppsSearchField(query: String, onQueryChange: (String) -> Unit, modi
 }
 
 private data class Windows81AppSection(val name: String, val apps: List<AppInfo>)
-private data class Windows81AppColumn(
-    val key: String,
-    val sectionName: String,
-    val showHeader: Boolean,
-    val apps: List<AppInfo>,
-)
 
 private fun buildWindows81Sections(
     apps: List<AppInfo>,
@@ -311,17 +358,6 @@ private fun buildWindows81Sections(
         }
 }
 
-private fun buildWindows81Columns(sections: List<Windows81AppSection>, maxRows: Int): List<Windows81AppColumn> {
-    val appRows = (maxRows - 1).coerceAtLeast(2)
-    return buildList {
-        sections.forEach { section ->
-            section.apps.chunked(appRows).forEachIndexed { index, chunk ->
-                add(Windows81AppColumn("${section.name}:$index", section.name, index == 0, chunk))
-            }
-        }
-    }
-}
-
 private fun installDateBucket(time: Long): String {
     if (time <= 0L) return "Earlier"
     val now = Calendar.getInstance()
@@ -351,37 +387,42 @@ private val DATE_BUCKET_ORDER = listOf("Today", "This week", "Last week", "Earli
 
 @Composable
 private fun AppsColumn(
-    column: Windows81AppColumn,
+    column: AllAppsColumnModel,
     appsRepository: AppsRepository,
     shellPreferences: Windows81ShellPreferences,
     rowHeight: Dp,
+    onSectionClick: (String) -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
     onLongClick: (AppInfo) -> Unit,
 ) {
     Column(Modifier.width(220.dp)) {
-        Box(Modifier.fillMaxWidth().height(rowHeight), contentAlignment = Alignment.CenterStart) {
-            if (column.showHeader) {
-                Text(
-                    column.sectionName,
-                    style = WindowsTypography.headlineMedium.copy(
-                        fontSize = if (column.sectionName.length <= 3) 24.sp else 16.sp,
-                        fontWeight = FontWeight.Normal,
-                    ),
-                    color = WindowsColors.Magenta.toTileColor(),
-                    maxLines = 2,
-                )
-            }
-        }
-        column.apps.forEach { app ->
-            key(app.packageName) {
-                AppRow(
-                    app = app,
-                    appsRepository = appsRepository,
-                    isNew = shellPreferences.isAppNew(app.packageName),
-                    rowHeight = rowHeight,
-                    onClick = { onAppClick(app, it) },
-                    onLongClick = { onLongClick(app) },
-                )
+        column.items.forEach { item ->
+            key(item.key) {
+                when (item) {
+                    is AllAppsColumnItem.LetterHeader -> Box(
+                        Modifier.fillMaxWidth().height(rowHeight).clickable { onSectionClick(item.letter) },
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            item.letter,
+                            style = WindowsTypography.headlineMedium.copy(
+                                fontSize = if (item.letter.length <= 3) 24.sp else 16.sp,
+                                fontWeight = FontWeight.Normal,
+                            ),
+                            color = WindowsColors.Magenta.toTileColor(),
+                            maxLines = 2,
+                        )
+                    }
+
+                    is AllAppsColumnItem.App -> AppRow(
+                        app = item.app,
+                        appsRepository = appsRepository,
+                        isNew = shellPreferences.isAppNew(item.app.packageName),
+                        rowHeight = rowHeight,
+                        onClick = { onAppClick(item.app, it) },
+                        onLongClick = { onLongClick(item.app) },
+                    )
+                }
             }
         }
     }
@@ -424,20 +465,45 @@ private fun AppRow(
             modifier = Modifier.weight(1f),
         )
         if (isNew) {
-            Text("NEW", color = Color(0xFFFFA5D8), fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 5.dp))
+            Text(
+                "NEW",
+                color = Color(0xFFFFA5D8),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 5.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun AppsSemanticZoom(sections: List<Windows81AppSection>, onSectionClick: (String) -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color(0xEB2A0A3A)), contentAlignment = Alignment.Center) {
+private fun AppsSemanticZoom(
+    sections: List<Windows81AppSection>,
+    enabled: Boolean,
+    progress: Float,
+    onSectionClick: (String) -> Unit,
+) {
+    val incomingStartScale = 1f / Windows81Motion.SemanticZoomFactor
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = progress
+                val scale = incomingStartScale - (incomingStartScale - 1f) * progress
+                scaleX = scale
+                scaleY = scale
+            }
+            .background(Color(0xEB2A0A3A)),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             sections.map { it.name }.distinct().chunked(5).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { section ->
                         Box(
-                            Modifier.size(58.dp).background(Color(0xFF5A1780)).clickable { onSectionClick(section) },
+                            Modifier.size(58.dp).background(Color(0xFF5A1780)).clickable(enabled = enabled) {
+                                onSectionClick(section)
+                            },
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
