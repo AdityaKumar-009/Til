@@ -19,6 +19,7 @@ local.properties
 
 # Local build and tool caches created by the development environment
 /.gradle-local/
+/.gradle-user/
 /.gradle-dist/
 /.android-local/
 **/build/

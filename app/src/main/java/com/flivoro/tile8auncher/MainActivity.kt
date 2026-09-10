@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -47,11 +53,14 @@ import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
+import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
+import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
+import com.flivoro.tile8auncher.ui.components.charmsEdgeGesture
 import com.flivoro.tile8auncher.ui.dialogs.CustomizeTileDialog
 import com.flivoro.tile8auncher.ui.dialogs.PinAppsDialog
 import com.flivoro.tile8auncher.ui.dialogs.PowerDialog
@@ -73,6 +82,9 @@ class MainActivity : ComponentActivity() {
     private var activeInAppTile by mutableStateOf<TileModel?>(null)
     private var homeRequest by mutableIntStateOf(0)
     private var entranceRequest by mutableIntStateOf(0)
+    private var entranceKind by mutableStateOf(StartEntranceKind.STARTUP)
+    private var entranceReady by mutableStateOf(false)
+    private var startupEntrancePending = true
     private var pendingLaunchIntent: Intent? = null
     private var launchHandoffPending = false
     private var launcherForeground = false
@@ -83,11 +95,24 @@ class MainActivity : ComponentActivity() {
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                startupEntrancePending = true
+                entranceReady = false
+                return
+            }
+            if (intent.action == Intent.ACTION_USER_PRESENT && !launcherForeground) {
+                // onStart may follow USER_PRESENT. Consume the unlock only when
+                // the launcher can actually present it.
+                return
+            }
             if (intent.action == Intent.ACTION_USER_PRESENT &&
                 launcherForeground &&
-                waitingForUserPresent
+                (waitingForUserPresent || startupEntrancePending)
             ) {
                 waitingForUserPresent = false
+                startupEntrancePending = false
+                entranceReady = true
+                entranceKind = StartEntranceKind.STARTUP
                 entryHandledByUserPresent = true
                 entranceRequest++
             }
@@ -121,7 +146,7 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(
             this,
             userPresentReceiver,
-            IntentFilter(Intent.ACTION_USER_PRESENT),
+            IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_OFF) },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         userPresentReceiverRegistered = true
@@ -134,6 +159,8 @@ class MainActivity : ComponentActivity() {
                     activeInAppTile = activeInAppTile,
                     homeRequest = homeRequest,
                     entranceRequest = entranceRequest,
+                    entranceKind = entranceKind,
+                    entranceReady = entranceReady,
                     onOpenInAppTile = { activeInAppTile = it },
                     onCloseInAppTile = {
                         activeInAppTile = null
@@ -208,7 +235,11 @@ class MainActivity : ComponentActivity() {
         launcherResumed = true
         val keyguardLocked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
         waitingForUserPresent = keyguardLocked
-        if (!keyguardLocked && !homeWasPending && !userPresentEntryHandled) {
+        entranceReady = !keyguardLocked
+        if (keyguardLocked) startupEntrancePending = true
+        if (!keyguardLocked && !userPresentEntryHandled && (startupEntrancePending || !homeWasPending)) {
+            entranceKind = if (startupEntrancePending) StartEntranceKind.STARTUP else StartEntranceKind.RETURN
+            startupEntrancePending = false
             entranceRequest++
         }
         launchHandoffPending = false
@@ -227,6 +258,7 @@ class MainActivity : ComponentActivity() {
             flipState = FlipAnimationState()
             pendingLaunchIntent = null
             homeIntentPending = !launcherResumed
+            entranceKind = StartEntranceKind.RETURN
             homeRequest++
         }
     }
@@ -330,9 +362,12 @@ fun Tile8LauncherApp(
     onUninstallApp: (packageName: String) -> Unit,
     homeRequest: Int = 0,
     entranceRequest: Int = 0,
+    entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
+    entranceReady: Boolean = true,
 ) {
     var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
     val drawerProgress = remember { mutableFloatStateOf(0f) }
+    val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
     val startScroll = rememberLazyListState()
     val appsScroll = rememberLazyListState()
     var wallpaperParallaxEnabled by remember {
@@ -345,6 +380,11 @@ fun Tile8LauncherApp(
     var showPinAppsDialog by remember { mutableStateOf(false) }
     var flipLaunchDispatched by remember(flipState) { mutableStateOf(false) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
+    var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
+    var showCharms by remember { mutableStateOf(false) }
+    var searchFocusRequest by remember { mutableIntStateOf(0) }
+    var drawerResetRequest by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
 
     val startEntranceRequest = entranceRequest + homeRequest + localStartEntranceRequest
 
@@ -352,9 +392,52 @@ fun Tile8LauncherApp(
         currentScreen = LauncherScreen.ALL_APPS
     }
 
+    fun searchApps() {
+        showCharms = false
+        if (activeInAppTile != null) onCloseInAppTile()
+        navigateToAllApps()
+        searchFocusRequest++
+    }
+
+    fun openLauncherSettings() {
+        showCharms = false
+        val settingsTile = tiles.firstOrNull { it.tileType == TileType.SETTINGS }
+            ?: TileModel(id = "tile_settings", title = "PC settings",
+                colorValue = WindowsColors.SettingsPurple, tileType = TileType.SETTINGS,
+                iconGlyph = "settings")
+        onOpenInAppTile(settingsTile)
+    }
+
+    fun openDeviceSettings() {
+        showCharms = false
+        val intent = Intent(android.provider.Settings.ACTION_CAST_SETTINGS)
+        val fallback = Intent(android.provider.Settings.ACTION_SETTINGS)
+        try {
+            val destination = if (intent.resolveActivity(context.packageManager) != null) intent else fallback
+            destination.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            context.startActivity(destination, ActivityOptions.makeCustomAnimation(
+                context, R.anim.no_anim, R.anim.no_anim).toBundle())
+        } catch (_: android.content.ActivityNotFoundException) {
+            Toast.makeText(context, "Device settings are unavailable", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun returnToStart() {
+        showCharms = false
+        selectedTileForCustomization = null
+        showPinAppsDialog = false
+        showPowerDialog = false
+        onCloseInAppTile()
+        currentScreen = LauncherScreen.START
+        drawerResetRequest++
+        startEntranceKind = StartEntranceKind.RETURN
+        localStartEntranceRequest++
+    }
+
     fun navigateToStart() {
         if (currentScreen != LauncherScreen.START) {
             currentScreen = LauncherScreen.START
+            startEntranceKind = StartEntranceKind.RETURN
             localStartEntranceRequest++
         }
     }
@@ -362,10 +445,22 @@ fun Tile8LauncherApp(
     fun closeInAppTileAndRetriggerEntrance() {
         val wasOpen = activeInAppTile != null
         onCloseInAppTile()
-        if (wasOpen) localStartEntranceRequest++
+        if (wasOpen) {
+            startEntranceKind = StartEntranceKind.RETURN
+            localStartEntranceRequest++
+        }
     }
 
-    LaunchedEffect(homeRequest) { currentScreen = LauncherScreen.START }
+    LaunchedEffect(homeRequest) {
+        currentScreen = LauncherScreen.START
+        showCharms = false
+        selectedTileForCustomization = null
+        showPinAppsDialog = false
+        showPowerDialog = false
+    }
+    LaunchedEffect(flipState.isRunning) {
+        if (flipState.isRunning) showCharms = false
+    }
 
     LaunchedEffect(Unit) {
         val pinned = withContext(Dispatchers.IO) { appsRepository.loadPinnedTiles() }
@@ -390,7 +485,7 @@ fun Tile8LauncherApp(
     )
 
     // Back button handling
-    BackHandler(enabled = flipState.isRunning || activeInAppTile != null || currentScreen == LauncherScreen.ALL_APPS) {
+    BackHandler(enabled = !showCharms && (flipState.isRunning || activeInAppTile != null || currentScreen == LauncherScreen.ALL_APPS)) {
         if (flipState.isRunning && activeInAppTile != null) {
             closeInAppTileAndRetriggerEntrance()
         } else if (flipState.isRunning) {
@@ -403,7 +498,18 @@ fun Tile8LauncherApp(
     }
 
     // Root Container with Static Windows 8.1 Purple Wallpaper
-    Box(modifier = Modifier.fillMaxSize()) {
+    val charmsAvailable = !flipState.isRunning && !showPowerDialog &&
+        !showPinAppsDialog && selectedTileForCustomization == null
+    Box(modifier = Modifier.fillMaxSize()
+        .charmsEdgeGesture(enabled = charmsAvailable && !showCharms) { showCharms = true }
+        .semantics {
+            if (charmsAvailable && !showCharms) {
+                customActions = listOf(CustomAccessibilityAction("Open charms") {
+                    showCharms = true
+                    true
+                })
+            }
+        }) {
         WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
             enabled = wallpaperParallaxEnabled,
@@ -423,6 +529,7 @@ fun Tile8LauncherApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(if (showCharms) Modifier.clearAndSetSemantics {} else Modifier)
                 .graphicsLayer {
                     val exiting = flipState.isRunning || activeInAppTile != null
                     this.alpha = if (exiting) contentAlpha else 1f
@@ -433,9 +540,10 @@ fun Tile8LauncherApp(
             FingerFollowingVerticalNavigation(
                 showAllApps = currentScreen == LauncherScreen.ALL_APPS,
                 onShowAllAppsChange = { showAllApps ->
-                    currentScreen = if (showAllApps) LauncherScreen.ALL_APPS else LauncherScreen.START
+                    if (showAllApps) navigateToAllApps() else navigateToStart()
                 },
-                resetRequest = homeRequest,
+                enabled = !showCharms && !flipState.isRunning && activeInAppTile == null,
+                resetRequest = homeRequest + drawerResetRequest,
                 progressState = drawerProgress,
                 startContent = {
                     StartScreen(
@@ -443,6 +551,10 @@ fun Tile8LauncherApp(
                         tiles = tiles,
                         launchingTileId = flipState.sourceTile?.id.takeIf { flipState.isRunning },
                         entranceRequest = startEntranceRequest,
+                        entranceKind = startEntranceKind,
+                        entranceEnabled = entranceReady && currentScreen == LauncherScreen.START &&
+                            !flipState.isRunning && activeInAppTile == null,
+                        interactionEnabled = !showCharms && !flipState.isRunning && activeInAppTile == null,
                         appsRepository = appsRepository,
                         onTileClick = { tile, bounds ->
                             onTriggerFlip(tile, bounds, LaunchOrigin.START)
@@ -451,7 +563,8 @@ fun Tile8LauncherApp(
                             selectedTileForCustomization = tile
                         },
                         onPowerClick = { showPowerDialog = true },
-                        onSearchClick = { navigateToAllApps() },
+                        onSearchClick = { searchApps() },
+                        onCharmsClick = { showCharms = true },
                         onAddAppsClick = { showPinAppsDialog = true },
                         onNavigateToAllApps = { navigateToAllApps() },
                     )
@@ -459,6 +572,8 @@ fun Tile8LauncherApp(
                 allAppsContent = {
                     AllAppsScreen(
                         listState = appsScroll,
+                        searchFocusRequest = searchFocusRequest,
+                        searchFocusEnabled = appsFullyVisible && !showCharms && activeInAppTile == null,
                         sections = categorizedApps,
                         appsRepository = appsRepository,
                         onAppClick = { app, bounds ->
@@ -500,6 +615,7 @@ fun Tile8LauncherApp(
 
         // Active In-App Screen (Reading List, Money, Desktop, PC settings, Help+Tips)
         if (activeInAppTile != null) {
+            Box(Modifier.fillMaxSize().then(if (showCharms) Modifier.clearAndSetSemantics {} else Modifier)) {
             WindowsAppView(
                 onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
                 onWallpaperStyleChanged = { wallpaperStyle = it },
@@ -511,7 +627,30 @@ fun Tile8LauncherApp(
                 },
                 onClose = { closeInAppTileAndRetriggerEntrance() },
             )
+            }
         }
+
+        WindowsCharmsOverlay(
+            visible = showCharms,
+            apps = remember(categorizedApps) { categorizedApps.flatMap { it.apps } },
+            appsRepository = appsRepository,
+            onAppClick = { app, bounds ->
+                showCharms = false
+                if (activeInAppTile != null) onCloseInAppTile()
+                onTriggerFlip(TileModel(
+                    id = "app_${app.packageName}", title = app.label,
+                    packageName = app.packageName, activityName = app.activityName,
+                    colorValue = WindowsColors.Purple, size = TileSize.MEDIUM,
+                ), bounds, LaunchOrigin.ALL_APPS)
+            },
+            onDismiss = { showCharms = false },
+            onStart = { returnToStart() },
+            onSearch = { searchApps() },
+            onSettings = { openLauncherSettings() },
+            onAddApps = { showCharms = false; showPinAppsDialog = true },
+            onDevices = { openDeviceSettings() },
+            onPower = { showCharms = false; showPowerDialog = true },
+        )
 
         // 3D Flip App Opening Animation Overlay
         if (flipState.isRunning) {
@@ -603,15 +742,7 @@ fun Tile8LauncherApp(
                 onDismiss = { showPowerDialog = false },
                 onOpenLauncherSettings = {
                     showPowerDialog = false
-                    val settingsTile = tiles.firstOrNull { it.tileType == TileType.SETTINGS }
-                        ?: TileModel(
-                            id = "tile_settings",
-                            title = "PC settings",
-                            colorValue = WindowsColors.SettingsPurple,
-                            tileType = TileType.SETTINGS,
-                            iconGlyph = "settings"
-                        )
-                    onOpenInAppTile(settingsTile)
+                    openLauncherSettings()
                 }
             )
         }

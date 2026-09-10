@@ -34,6 +34,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -42,12 +44,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
@@ -82,10 +89,22 @@ fun AllAppsScreen(
     onUninstallApp: (packageName: String) -> Unit,
     onNavigateToStart: () -> Unit,
     listState: LazyListState = rememberLazyListState(),
+    searchFocusRequest: Int = 0,
+    searchFocusEnabled: Boolean = true,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
     val context = LocalContext.current
+    val searchFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var handledSearchRequest by remember { mutableIntStateOf(0) }
+    LaunchedEffect(searchFocusRequest, searchFocusEnabled) {
+        if (searchFocusEnabled && searchFocusRequest > handledSearchRequest) {
+            searchFocus.requestFocus()
+            keyboard?.show()
+            handledSearchRequest = searchFocusRequest
+        }
+    }
 
     val filteredSections = remember(sections, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -148,6 +167,7 @@ fun AllAppsScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
                         SearchField(
+                            focusRequester = searchFocus,
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
                             modifier = Modifier
@@ -183,6 +203,7 @@ fun AllAppsScreen(
                         }
 
                         SearchField(
+                            focusRequester = searchFocus,
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
                             modifier = Modifier
@@ -381,6 +402,7 @@ fun AllAppsScreen(
 
 @Composable
 private fun SearchField(
+    focusRequester: FocusRequester,
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -398,7 +420,8 @@ private fun SearchField(
             textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
             cursorBrush = SolidColor(Color.White),
             singleLine = true,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).focusRequester(focusRequester)
+                .semantics { contentDescription = "Search apps" },
             decorationBox = { innerTextField ->
                 if (query.isEmpty()) {
                     Text(

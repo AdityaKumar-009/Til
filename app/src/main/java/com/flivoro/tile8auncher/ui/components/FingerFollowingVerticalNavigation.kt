@@ -46,6 +46,7 @@ fun FingerFollowingVerticalNavigation(
     startContent: @Composable () -> Unit,
     allAppsContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onDraggingChanged: (Boolean) -> Unit = {},
     resetRequest: Int = 0,
     progressState: MutableFloatState = remember { mutableFloatStateOf(if (showAllApps) 1f else 0f) },
@@ -147,7 +148,8 @@ fun FingerFollowingVerticalNavigation(
             .fillMaxSize()
             .clipToBounds()
             .onSizeChanged { viewportHeightPx = it.height.toFloat() }
-            .pointerInput(resetRequest) {
+            .pointerInput(resetRequest, enabled) {
+                if (!enabled) return@pointerInput
                 var velocityTracker = VelocityTracker()
 
                 detectVerticalDragGestures(

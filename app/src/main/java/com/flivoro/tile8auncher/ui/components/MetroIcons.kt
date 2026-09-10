@@ -392,13 +392,15 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
         "arrow_down" -> {
             // Circle with down arrow
-            drawCircle(color, radius = w * 0.44f, center = Offset(w * 0.5f, h * 0.5f), style = Stroke(width = strokeW * 0.9f))
+            val line = w * .055f
+            drawCircle(color, radius = w * 0.46f, center = Offset(w * 0.5f, h * 0.5f), style = Stroke(width = line))
+            drawLine(color, Offset(w * .5f, h * .25f), Offset(w * .5f, h * .70f), line)
             val p = Path().apply {
-                moveTo(w * 0.32f, h * 0.42f)
-                lineTo(w * 0.50f, h * 0.60f)
-                lineTo(w * 0.68f, h * 0.42f)
+                moveTo(w * 0.30f, h * 0.50f)
+                lineTo(w * 0.50f, h * 0.70f)
+                lineTo(w * 0.70f, h * 0.50f)
             }
-            drawPath(p, color, style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(p, color, style = Stroke(width = line, cap = StrokeCap.Square, join = StrokeJoin.Miter))
         }
 
         "arrow_up" -> {
