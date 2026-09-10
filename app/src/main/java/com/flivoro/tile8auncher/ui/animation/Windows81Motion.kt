@@ -7,18 +7,18 @@ import kotlin.math.abs
 /**
  * Windows 8 / 8.1 shell motion primitives.
  *
- * Values are intentionally centralized so shell interactions do not silently
- * fall back to Compose's Material springs/tweens. The timings below are taken
- * from Microsoft's WinJS animation implementation used by Windows 8-era apps:
- * pointerDown/pointerUp 167 ms, edge UI 367 ms, panel 550 ms, semantic zoom
- * 333 ms, and the fluid cubic-bezier(0.1, 0.9, 0.2, 1).
+ * Values are centralized so shell interactions cannot silently fall back to
+ * Material/Compose motion. Microsoft WinJS supplies the canonical Windows-era
+ * fluid spline plus pointer/edge/panel/semantic-zoom timings. Tile8's bundled
+ * 30 fps Windows 8.1 reference recording independently shows Start <-> Apps
+ * completing in five source frames (~167 ms) for arrow-triggered navigation.
  *
  * App-opening motion is deliberately NOT represented here. Tile8's existing
  * FlipLaunchOverlay/WindowsLaunchMotion pipeline remains independent.
  */
 internal object Windows81Motion {
     val Fluid: Easing = CubicBezierEasing(0.1f, 0.9f, 0.2f, 1f)
-    val SemanticZoomEase: Easing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f) // CSS ease-in-out
+    val SemanticZoomEase: Easing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 
     const val PointerDurationMillis = 167
     const val PointerPressedScale = 0.975f
@@ -32,14 +32,15 @@ internal object Windows81Motion {
     const val SemanticZoomDurationMillis = 333
     const val SemanticZoomFactor = 0.65f
 
-    // Windows' staggered page-slide primitive uses a 350 ms surface move.
-    const val SurfaceSlideDurationMillis = 350
-    const val MinimumDirectManipulationSettleMillis = 90
+    // Measured from test.mp4: Start -> Apps and Apps -> Start both settle
+    // over about five 30-fps frames when invoked by the shell arrow.
+    const val SurfaceSlideDurationMillis = 167
+    const val MinimumDirectManipulationSettleMillis = 50
 
     /**
-     * Direct manipulation follows the finger exactly. On release, continue
-     * toward the chosen page using the user's current velocity when useful,
-     * otherwise use the Windows page-slide duration for the remaining travel.
+     * Direct manipulation follows the finger exactly. On release, the remaining
+     * distance settles on the same Windows fluid track, shortened proportionally
+     * and by release velocity when the user's gesture is already moving faster.
      */
     fun settleDurationMillis(progress: Float, target: Float, progressVelocityPerSecond: Float): Int {
         val remaining = abs(target - progress).coerceIn(0f, 1f)
