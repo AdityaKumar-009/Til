@@ -57,17 +57,17 @@ import kotlin.math.roundToInt
 /**
  * A single rotating plane, viewed from the center of the launcher window.
  *
- * Back while the launch is still in flight reverses this exact same progress
- * track from its current frame back to the source. No alternate geometry,
- * easing, perspective or face swap is introduced: the original 0 -> 1 launch
- * path simply becomes currentProgress -> 0. Once frame 0 has actually been
- * submitted, Back is re-dispatched to the launcher so its existing dismissal
- * logic restores the source tile without ever handing off to the target app.
+ * Back or Home while the launch is still in flight reverses this exact same
+ * progress track from its current frame back to the source. No alternate
+ * geometry, easing, perspective or face swap is introduced: the original
+ * 0 -> 1 launch path simply becomes currentProgress -> 0.
  */
 @Composable
 fun FlipLaunchOverlay(
     state: FlipAnimationState,
     onAnimationEnd: () -> Unit,
+    externalReverseRequest: Int = 0,
+    onExternalReverseComplete: () -> Unit = {},
     destinationContent: (@Composable () -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
@@ -76,18 +76,36 @@ fun FlipLaunchOverlay(
     val allApps = state.origin == LaunchOrigin.ALL_APPS
     val progress = remember(state) { Animatable(0f) }
     val finish by rememberUpdatedState(onAnimationEnd)
+    val externalFinish by rememberUpdatedState(onExternalReverseComplete)
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val initialExternalReverseRequest = remember { externalReverseRequest }
     var finalFrameDrawn by remember(state) { mutableStateOf(false) }
     var reverseRequest by remember(state) { mutableIntStateOf(0) }
     var reversing by remember(state) { mutableStateOf(false) }
     var reverseCompleted by remember(state) { mutableStateOf(false) }
+    var reverseWasExternal by remember(state) { mutableStateOf(false) }
 
-    // The overlay is composed after the shell BackHandler, so while a launch is
-    // active this callback has priority. Repeated Back presses during reversal
-    // are ignored; they must not restart or speed-change the same physical path.
-    BackHandler(enabled = state.isRunning && !reversing && !reverseCompleted) {
+    fun requestReverse(fromExternalHome: Boolean) {
+        if (reversing || reverseCompleted) return
+        reverseWasExternal = fromExternalHome
         reversing = true
         reverseRequest++
+    }
+
+    // The overlay is composed after the shell BackHandler, so while a launch is
+    // active this callback has priority. Repeated Back/Home requests during the
+    // reversal are ignored; they cannot restart or speed-change the path.
+    BackHandler(enabled = state.isRunning && !reversing && !reverseCompleted) {
+        requestReverse(fromExternalHome = false)
+    }
+
+    // The launcher Activity receives HOME as a new HOME intent. The request
+    // counter is monotonic for the process, so capture its value when this
+    // overlay first enters composition and react only to later requests.
+    LaunchedEffect(externalReverseRequest) {
+        if (externalReverseRequest != initialExternalReverseRequest) {
+            requestReverse(fromExternalHome = true)
+        }
     }
 
     LaunchedEffect(state) {
@@ -102,9 +120,8 @@ fun FlipLaunchOverlay(
         // Let that frame be submitted before another Activity can cover this window.
         snapshotFlow { finalFrameDrawn }.first { it }
         withFrameNanos { }
-        // If Back arrived on the final launch frame, reversal may start after the
-        // forward Animatable completed. This guard prevents that race from handing
-        // off to the external app while the reverse path is already underway.
+        // Back/Home can arrive on the final launch frame. Never hand off once a
+        // reverse request has won that race.
         if (!reversing && !reverseCompleted) finish()
     }
 
@@ -124,7 +141,7 @@ fun FlipLaunchOverlay(
         // Submit the exact source frame before unhiding the real source tile.
         reverseCompleted = true
         withFrameNanos { }
-        backDispatcher?.onBackPressed()
+        if (reverseWasExternal) externalFinish() else backDispatcher?.onBackPressed()
     }
 
     BoxWithConstraints(
@@ -133,7 +150,7 @@ fun FlipLaunchOverlay(
             .clipToBounds()
             .pointerInput(Unit) {
                 // The launch owns pointer input until handoff/reversal completes,
-                // including taps outside the card. System Back remains responsive.
+                // including taps outside the card. System Back/Home stay responsive.
                 awaitPointerEventScope {
                     while (true) {
                         awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
