@@ -4,6 +4,8 @@ import kotlin.math.abs
 
 /** Small, deterministic rules shared by the charms animation and edge observer. */
 internal object CharmsMotion {
+    // These durations are retained from the repository's recorded-reference fit. The fidelity
+    // pass changes gesture commitment and pane behavior, not the measured rail/pane timeline.
     const val RailDurationMillis = 300
     const val RailContentDelayMillis = 35
     const val PanelDurationMillis = 260
@@ -28,8 +30,40 @@ internal object CharmsMotion {
         return deltaX <= -slop && abs(deltaX) > abs(deltaY)
     }
 
+    /**
+     * Windows edge UI should not appear from a tiny diagonal twitch at the navigation edge.
+     * Commit only after a deliberate inward horizontal pull. A vertical or materially reversed
+     * gesture remains owned by the underlying content/system navigation instead.
+     */
+    fun shouldCommitEdgeSwipe(
+        deltaX: Float,
+        deltaY: Float,
+        touchSlop: Float,
+        commitDistance: Float,
+    ): Boolean {
+        if (!deltaX.isFinite() || !deltaY.isFinite() || !touchSlop.isFinite() ||
+            !commitDistance.isFinite()
+        ) return false
+        val threshold = maxOf(touchSlop.coerceAtLeast(0f) * 2f, commitDistance.coerceAtLeast(0f))
+        val inward = -deltaX
+        return inward >= threshold && inward > abs(deltaY) * 1.20f
+    }
+
     fun hasCrossedTouchSlop(deltaX: Float, deltaY: Float, touchSlop: Float): Boolean {
         if (!deltaX.isFinite() || !deltaY.isFinite() || !touchSlop.isFinite()) return false
         return maxOf(abs(deltaX), abs(deltaY)) >= touchSlop.coerceAtLeast(0f)
+    }
+
+    /** Once an edge gesture clearly turns vertical or reverses outward, stop tracking it. */
+    fun shouldCancelEdgeSwipe(
+        deltaX: Float,
+        deltaY: Float,
+        touchSlop: Float,
+    ): Boolean {
+        if (!deltaX.isFinite() || !deltaY.isFinite() || !touchSlop.isFinite()) return true
+        val slop = touchSlop.coerceAtLeast(0f)
+        val verticalWins = abs(deltaY) >= slop && abs(deltaY) > abs(deltaX) * 1.10f
+        val reversedOutward = deltaX >= slop
+        return verticalWins || reversedOutward
     }
 }
