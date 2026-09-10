@@ -37,6 +37,21 @@ class CharmsMotionTest {
     }
 
     @Test
+    fun edge_ui_commits_only_after_deliberate_inward_pull() {
+        assertFalse(CharmsMotion.shouldCommitEdgeSwipe(-20f, 2f, 12f, 34f))
+        assertTrue(CharmsMotion.shouldCommitEdgeSwipe(-40f, 4f, 12f, 34f))
+        assertFalse(CharmsMotion.shouldCommitEdgeSwipe(-40f, 38f, 12f, 34f))
+        assertFalse(CharmsMotion.shouldCommitEdgeSwipe(40f, 1f, 12f, 34f))
+    }
+
+    @Test
+    fun vertical_or_reversed_edge_motion_is_cancelled() {
+        assertTrue(CharmsMotion.shouldCancelEdgeSwipe(-10f, 22f, 12f))
+        assertTrue(CharmsMotion.shouldCancelEdgeSwipe(14f, 2f, 12f))
+        assertFalse(CharmsMotion.shouldCancelEdgeSwipe(-22f, 8f, 12f))
+    }
+
+    @Test
     fun vertical_movement_crosses_slop_without_becoming_an_open_gesture() {
         assertTrue(CharmsMotion.hasCrossedTouchSlop(4f, 20f, 12f))
         assertFalse(CharmsMotion.isInwardHorizontalSwipe(4f, 20f, 12f))
