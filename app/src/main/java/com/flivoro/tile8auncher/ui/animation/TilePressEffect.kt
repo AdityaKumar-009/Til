@@ -122,6 +122,11 @@ fun Modifier.metroTilePress(
  * press/tilt implementation, while only a completed long press takes ownership of movement.
  * This mirrors Windows 8.1's touch model where a held tile becomes draggable without changing
  * the normal tap-to-launch interaction.
+ *
+ * While the existing Start packer animates neighboring tiles into their new slots, it may also
+ * relayout the held tile's base slot. We compensate only for that parent-layout displacement so
+ * the direct-manipulation contact point stays under the finger instead of jumping when a swap
+ * happens. Pointer movement itself is still forwarded unchanged.
  */
 fun Modifier.metroTileLongPressDrag(
     enabled: Boolean,
@@ -137,9 +142,26 @@ fun Modifier.metroTileLongPressDrag(
     val latestDrag by rememberUpdatedState(onDrag)
     val latestEnd by rememberUpdatedState(onDragEnd)
     val latestCancel by rememberUpdatedState(onDragCancel)
+    var dragging by remember { mutableStateOf(false) }
+    var lastLayoutTopLeft by remember { mutableStateOf<Offset?>(null) }
 
     this
-        .onGloballyPositioned { coordinates.coordinates = it }
+        .onGloballyPositioned { layoutCoordinates ->
+            coordinates.coordinates = layoutCoordinates
+            if (!layoutCoordinates.isAttached) return@onGloballyPositioned
+
+            val topLeft = layoutCoordinates.boundsInWindow().topLeft
+            val previous = lastLayoutTopLeft
+            if (dragging && previous != null) {
+                val layoutDelta = topLeft - previous
+                if (kotlin.math.abs(layoutDelta.x) > 0.5f || kotlin.math.abs(layoutDelta.y) > 0.5f) {
+                    // Offset the visual drag by the inverse layout movement. This callback is
+                    // triggered by the packer's layout offset animation, not pointer translation.
+                    latestDrag(Offset(-layoutDelta.x, -layoutDelta.y))
+                }
+            }
+            lastLayoutTopLeft = topLeft
+        }
         .pointerInput(enabled) {
             detectDragGesturesAfterLongPress(
                 onDragStart = {
@@ -147,14 +169,24 @@ fun Modifier.metroTileLongPressDrag(
                         ?.takeIf { it.isAttached }
                         ?.boundsInWindow()
                         ?: Rect.Zero
+                    lastLayoutTopLeft = bounds.topLeft
+                    dragging = true
                     latestStart(bounds)
                 },
                 onDrag = { change, dragAmount ->
                     change.consume()
                     latestDrag(dragAmount)
                 },
-                onDragEnd = { latestEnd() },
-                onDragCancel = { latestCancel() },
+                onDragEnd = {
+                    dragging = false
+                    lastLayoutTopLeft = null
+                    latestEnd()
+                },
+                onDragCancel = {
+                    dragging = false
+                    lastLayoutTopLeft = null
+                    latestCancel()
+                },
             )
         }
 }
