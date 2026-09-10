@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher.ui.start
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
@@ -69,11 +70,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * Windows 8.1 Start surface.
- *
- * The pronounced tower/tile entrance is a session/login entrance. It is played
- * once when the tile model becomes available and is intentionally not replayed
- * every time the user returns from Apps view or another app.
+ * Windows 8.1 Start surface. The entrance track is the existing motion fitted
+ * frame-by-frame to Tile8's bundled Windows 8.1 recording. The recording also
+ * shows the entrance replay when returning from Desktop, so entranceRequest is
+ * intentionally honored instead of treating the motion as login-only.
  */
 @Composable
 fun Windows81StartScreen(
@@ -100,17 +100,10 @@ fun Windows81StartScreen(
 ) {
     val entrance = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
-    var entrancePlayed by remember { mutableStateOf(false) }
     var semanticZoom by remember { mutableStateOf(false) }
 
-    // Keep entranceRequest in the signature for compatibility with the shell,
-    // but do not use it to replay the login animation on ordinary navigation.
-    @Suppress("UNUSED_VARIABLE")
-    val compatibilityEntranceRequest = entranceRequest
-
-    LaunchedEffect(tiles.isNotEmpty()) {
-        if (tiles.isNotEmpty() && !entrancePlayed) {
-            entrancePlayed = true
+    LaunchedEffect(entranceRequest, tiles.isNotEmpty()) {
+        if (tiles.isNotEmpty()) {
             entrance.snapTo(0f)
             entrance.animateTo(
                 1f,
@@ -192,14 +185,29 @@ fun Windows81StartScreen(
                                             placed.rows * metrics.cellDp +
                                                 (placed.rows - 1) * metrics.gapDp
                                             ).dp
+                                        val targetX = (placed.column * (metrics.cellDp + metrics.gapDp)).dp
+                                        val targetY = (placed.row * (metrics.cellDp + metrics.gapDp)).dp
+                                        val animatedX by animateDpAsState(
+                                            targetValue = targetX,
+                                            animationSpec = tween(
+                                                Windows81Motion.RepositionDurationMillis,
+                                                easing = Windows81Motion.Fluid,
+                                            ),
+                                            label = "Windows81TileX:${tile.id}",
+                                        )
+                                        val animatedY by animateDpAsState(
+                                            targetValue = targetY,
+                                            animationSpec = tween(
+                                                Windows81Motion.RepositionDurationMillis,
+                                                easing = Windows81Motion.Fluid,
+                                            ),
+                                            label = "Windows81TileY:${tile.id}",
+                                        )
                                         var dragX by remember(tile.id) { mutableFloatStateOf(0f) }
 
                                         Box(
                                             modifier = Modifier
-                                                .offset(
-                                                    x = (placed.column * (metrics.cellDp + metrics.gapDp)).dp,
-                                                    y = (placed.row * (metrics.cellDp + metrics.gapDp)).dp,
-                                                )
+                                                .offset(x = animatedX, y = animatedY)
                                                 .size(tileWidth, tileHeight)
                                                 .graphicsLayer {
                                                     val frame = StartEntranceMotion.frame(
