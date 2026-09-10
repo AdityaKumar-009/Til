@@ -481,10 +481,10 @@ fun Tile8LauncherApp(
     }
 
     fun navigateToStart() {
+        // Start <-> All Apps is one continuous Windows surface. Returning by swipe,
+        // the up arrow or Back must not manufacture the separate Home/Back entrance.
         if (currentScreen != LauncherScreen.START) {
             currentScreen = LauncherScreen.START
-            startEntranceKind = StartEntranceKind.RETURN
-            localStartEntranceRequest++
         }
     }
 
@@ -597,6 +597,7 @@ fun Tile8LauncherApp(
                         entranceKind = startEntranceKind,
                         entranceEnabled = entranceReady && currentScreen == LauncherScreen.START &&
                             !flipState.isRunning && activeInAppTile == null,
+                        prehideForEntrance = !entranceReady,
                         interactionEnabled = !showCharms && !flipState.isRunning && activeInAppTile == null,
                         appsRepository = appsRepository,
                         onTileClick = { tile, bounds ->
@@ -604,6 +605,11 @@ fun Tile8LauncherApp(
                         },
                         onTileLongClick = { tile ->
                             selectedTileForCustomization = tile
+                        },
+                        onTilesChanged = { updatedTiles ->
+                            tiles.clear()
+                            tiles.addAll(updatedTiles)
+                            appsRepository.savePinnedTiles(updatedTiles)
                         },
                         onPowerClick = { showPowerDialog = true },
                         onSearchClick = { searchApps() },
@@ -732,7 +738,8 @@ fun Tile8LauncherApp(
             )
         }
 
-        // Customize Tile Dialog (Resize / Color / Unpin)
+        // Customize Tile Dialog (Resize / Color / Unpin). Long-press no longer opens this
+        // directly; it is reached from the Windows-style contextual command bar.
         selectedTileForCustomization?.let { tile ->
             CustomizeTileDialog(
                 tile = tile,
