@@ -19,11 +19,13 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 
 class AppsRepository(private val context: Context) {
 
@@ -48,57 +50,92 @@ class AppsRepository(private val context: Context) {
     private val iconLoadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlightIconLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
 
-    init {
-        iconLoadScope.launch {
-            try {
-                val installed = getInstalledApps()
-                for (app in installed) {
-                    loadAppIcon(app.packageName)
-                }
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-    }
+    // PackageManager and bitmap decoding are both CPU/Binder-heavy. A screenful of Compose
+    // icon requests should not fan out into dozens of simultaneous decodes on low-end phones.
+    private val iconDecodePermits = Semaphore(ICON_DECODE_CONCURRENCY)
 
+    // The largest app icon currently rendered by the launcher is ~104 dp during the launch
+    // overlay. Keeping a small guard above that preserves visual fidelity while preventing a
+    // 512/1024 px source icon from consuming megabytes in the cache and causing GC churn.
+    private val maxCachedIconPx: Int =
+        (ICON_CACHE_MAX_DP * context.resources.displayMetrics.density)
+            .roundToInt()
+            .coerceIn(ICON_CACHE_MIN_PX, ICON_CACHE_MAX_PX)
+
+    @Volatile
+    private var installedAppsCache: List<AppInfo>? = null
+    private val installedAppsCacheLock = Any()
+
+    @Volatile
+    private var categorizedAppsCache: List<AppSection>? = null
+    private val categorizedAppsCacheLock = Any()
+
+    /**
+     * Returns the launcher-visible apps from one process-local PackageManager scan.
+     *
+     * Previously startup could run this scan concurrently from repository initialization,
+     * All Apps loading and default-tile creation. On slower devices those Binder/resource calls
+     * competed with first-frame work. The immutable result is now shared for this repository.
+     */
     fun getInstalledApps(): List<AppInfo> {
-        val intent = Intent(Intent.ACTION_MAIN, null).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-        val resolveInfoList = packageManager.queryIntentActivities(intent, 0)
-        val apps = resolveInfoList.mapNotNull { resolveInfo ->
-            val pkg = resolveInfo.activityInfo.packageName
-            if (pkg == context.packageName) return@mapNotNull null
+        installedAppsCache?.let { return it }
 
-            val label = resolveInfo.loadLabel(packageManager).toString()
-            val activityName = resolveInfo.activityInfo.name
-            val installTime = try {
-                packageManager.getPackageInfo(pkg, 0).firstInstallTime
-            } catch (e: Exception) {
-                0L
+        return synchronized(installedAppsCacheLock) {
+            installedAppsCache?.let { return@synchronized it }
+
+            val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
             }
-            AppInfo(label = label, packageName = pkg, activityName = activityName, firstInstallTime = installTime)
+            val locale = Locale.getDefault()
+            val resolveInfoList = packageManager.queryIntentActivities(intent, 0)
+            val apps = resolveInfoList.mapNotNull { resolveInfo ->
+                val pkg = resolveInfo.activityInfo.packageName
+                if (pkg == context.packageName) return@mapNotNull null
+
+                val label = resolveInfo.loadLabel(packageManager).toString()
+                val activityName = resolveInfo.activityInfo.name
+
+                // firstInstallTime is not consumed by the launcher UI. Avoid an additional
+                // getPackageInfo() Binder call for every installed app during cold start.
+                AppInfo(
+                    label = label,
+                    packageName = pkg,
+                    activityName = activityName,
+                    firstInstallTime = 0L,
+                )
+            }.sortedBy { it.label.lowercase(locale) }
+
+            installedAppsCache = apps
+            apps
         }
-        return apps.sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
     fun getCategorizedApps(): List<AppSection> {
-        val apps = getInstalledApps()
-        val groups = apps.groupBy { app ->
-            val firstChar = app.label.trim().firstOrNull()?.uppercaseChar() ?: '#'
-            if (firstChar in 'A'..'Z') firstChar.toString() else "#"
-        }
-        return groups.map { (letter, sectionApps) ->
-            AppSection(
-                letter = letter,
-                apps = sectionApps.sortedBy { it.label.lowercase(Locale.getDefault()) }
-            )
-        }.sortedWith { a, b ->
-            when {
-                a.letter == "#" -> 1
-                b.letter == "#" -> -1
-                else -> a.letter.compareTo(b.letter)
+        categorizedAppsCache?.let { return it }
+
+        return synchronized(categorizedAppsCacheLock) {
+            categorizedAppsCache?.let { return@synchronized it }
+
+            val locale = Locale.getDefault()
+            val groups = getInstalledApps().groupBy { app ->
+                val firstChar = app.label.trim().firstOrNull()?.uppercaseChar() ?: '#'
+                if (firstChar in 'A'..'Z') firstChar.toString() else "#"
             }
+            val sections = groups.map { (letter, sectionApps) ->
+                AppSection(
+                    letter = letter,
+                    apps = sectionApps.sortedBy { it.label.lowercase(locale) },
+                )
+            }.sortedWith { a, b ->
+                when {
+                    a.letter == "#" -> 1
+                    b.letter == "#" -> -1
+                    else -> a.letter.compareTo(b.letter)
+                }
+            }
+
+            categorizedAppsCache = sections
+            sections
         }
     }
 
@@ -111,7 +148,8 @@ class AppsRepository(private val context: Context) {
 
     /**
      * Loads and caches an icon without blocking the caller's thread. Concurrent requests for
-     * the same package share one decode, which matters when a row and the action bar overlap.
+     * the same package share one decode, while total decode concurrency is deliberately bounded
+     * to protect animation frames from CPU, Binder and GC bursts on slower devices.
      */
     suspend fun loadAppIcon(packageName: String): ImageBitmap? {
         getCachedAppIcon(packageName)?.let { return it }
@@ -119,7 +157,9 @@ class AppsRepository(private val context: Context) {
 
         val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
             try {
-                decodeAndCacheAppIcon(packageName)
+                iconDecodePermits.withPermit {
+                    decodeAndCacheAppIcon(packageName)
+                }
             } finally {
                 inFlightIconLoads.remove(packageName)
             }
@@ -133,11 +173,12 @@ class AppsRepository(private val context: Context) {
         return (active ?: candidate).await()
     }
 
-    fun getAppIcon(packageName: String): ImageBitmap? {
-        getCachedAppIcon(packageName)?.let { return it }
-        if (failedIcons.contains(packageName)) return null
-        return decodeAndCacheAppIcon(packageName)
-    }
+    /**
+     * Synchronous callers (notably a tile/app tap starting the launch overlay) must never perform
+     * PackageManager or bitmap work on the main thread. A cache miss simply uses the existing
+     * launcher fallback icon while the normal composable loader fills the cache asynchronously.
+     */
+    fun getAppIcon(packageName: String): ImageBitmap? = getCachedAppIcon(packageName)
 
     private fun decodeAndCacheAppIcon(packageName: String): ImageBitmap? {
         getCachedAppIcon(packageName)?.let { return it }
@@ -162,15 +203,31 @@ class AppsRepository(private val context: Context) {
 
     private fun drawableToBitmap(drawable: Drawable): Bitmap {
         if (drawable is BitmapDrawable && drawable.bitmap != null) {
-            return drawable.bitmap
+            return downsampleBitmapIfNeeded(drawable.bitmap)
         }
-        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 96
-        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 96
+
+        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
+        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
+        val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
+        val scale = minOf(1f, maxCachedIconPx.toFloat() / longestSide.toFloat())
+        val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
+        val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
+
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
         return bitmap
+    }
+
+    private fun downsampleBitmapIfNeeded(bitmap: Bitmap): Bitmap {
+        val longestSide = maxOf(bitmap.width, bitmap.height)
+        if (longestSide <= maxCachedIconPx) return bitmap
+
+        val scale = maxCachedIconPx.toFloat() / longestSide.toFloat()
+        val width = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
+        val height = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, width, height, true)
     }
 
     fun findAppForKeywords(installed: List<AppInfo>, vararg keywords: String): AppInfo? {
@@ -544,6 +601,10 @@ class AppsRepository(private val context: Context) {
     private companion object {
         const val BYTES_PER_PIXEL = 4L
         const val ICON_CACHE_MAX_BYTES = 8 * 1024 * 1024
+        const val ICON_DECODE_CONCURRENCY = 2
+        const val ICON_CACHE_MAX_DP = 112f
+        const val ICON_CACHE_MIN_PX = 96
+        const val ICON_CACHE_MAX_PX = 384
         const val LAUNCH_TIMING_DURATION = "launch_timing_duration_millis"
         const val LAUNCH_TIMING_CURVE = "launch_timing_curve"
         const val LAUNCH_TIMING_CUSTOM_X1 = "launch_timing_custom_x1"
