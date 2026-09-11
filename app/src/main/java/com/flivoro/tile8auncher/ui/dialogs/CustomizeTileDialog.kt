@@ -40,6 +40,7 @@ import androidx.compose.ui.window.Dialog
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.IconPackManager
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
@@ -75,6 +76,7 @@ fun CustomizeTileDialog(
             }
             LauncherFeatureStore.setCustomIconUri(context, packageName, uri.toString())
             IconPackManager.clearCaches()
+            LauncherFeatureRuntime.notifyIconsChanged()
             customIconSet = true
         }
     }
@@ -210,6 +212,7 @@ fun CustomizeTileDialog(
                                 onClick = {
                                     LauncherFeatureStore.setCustomIconUri(context, tile.packageName, null)
                                     IconPackManager.clearCaches()
+                                    LauncherFeatureRuntime.notifyIconsChanged()
                                     customIconSet = false
                                 },
                                 shape = RectangleShape,
