@@ -35,9 +35,27 @@ suspend fun loadEnhancedApps(context: Context, apps: List<AppInfo>): List<Enhanc
     val pm = context.packageManager
     val now = System.currentTimeMillis()
     val usage = usageStats(context, now)
+
+    // PackageManager calls cross a Binder boundary. Doing getPackageInfo() and then
+    // getApplicationInfo() once for every launcher entry made the initial All Apps data pass
+    // scale as roughly 2N Binder calls. Query the package table once instead and index only the
+    // launcher-visible packages we actually need. PackageInfo already carries ApplicationInfo,
+    // so install time and category can both be resolved from the same bulk snapshot.
+    val launcherPackages = apps.asSequence().map(AppInfo::packageName).toHashSet()
+    val packageSnapshot = runCatching {
+        pm.getInstalledPackages(0)
+            .asSequence()
+            .filter { it.packageName in launcherPackages }
+            .associateBy { it.packageName }
+    }.getOrNull()
+
     return apps.map { app ->
-        val packageInfo = runCatching { pm.getPackageInfo(app.packageName, 0) }.getOrNull()
-        val appInfo = runCatching { pm.getApplicationInfo(app.packageName, 0) }.getOrNull()
+        // The bulk path is the normal path. Keep narrow per-package fallbacks only for unusual
+        // OEM/package-visibility races so the optimization cannot regress existing metadata.
+        val packageInfo = packageSnapshot?.get(app.packageName)
+            ?: runCatching { pm.getPackageInfo(app.packageName, 0) }.getOrNull()
+        val appInfo = packageInfo?.applicationInfo
+            ?: runCatching { pm.getApplicationInfo(app.packageName, 0) }.getOrNull()
         val firstInstall = packageInfo?.firstInstallTime ?: app.firstInstallTime
         val stat = usage[app.packageName]
         EnhancedAppInfo(
