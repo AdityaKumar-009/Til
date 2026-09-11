@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.features.IconPackManager
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -24,11 +25,12 @@ fun rememberAppIcon(
     packageName: String?,
 ): ImageBitmap? {
     val context = LocalContext.current
-    var icon by remember(repository, packageName) {
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    var icon by remember(repository, packageName, iconsRevision) {
         mutableStateOf(packageName?.let(repository::getCachedAppIcon))
     }
 
-    LaunchedEffect(repository, packageName) {
+    LaunchedEffect(repository, packageName, iconsRevision) {
         val name = packageName ?: return@LaunchedEffect
         val override = withContext(Dispatchers.IO) {
             IconPackManager.loadOverride(context.applicationContext, name)
