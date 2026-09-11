@@ -2,8 +2,10 @@ package com.flivoro.tile8auncher.ui.components
 
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Keeps Start and All Apps mounted while a vertically locked drag moves between them.
@@ -66,13 +69,6 @@ fun FingerFollowingVerticalNavigation(
     val dragFrameJob = remember { mutableStateOf<Job?>(null) }
     val dragTargetProgress = remember { floatArrayOf(progress) }
 
-    // Release must continue the motion the user actually saw, not a higher-rate raw pointer stream.
-    // These values are deliberately non-snapshot storage: they are sampled by the gesture state
-    // machine and must not cause composition by themselves.
-    val lastRenderedFrameNanos = remember { longArrayOf(0L) }
-    val lastRenderedUptimeMillis = remember { longArrayOf(0L) }
-    val renderedProgressVelocity = remember { floatArrayOf(0f) }
-
     // When a gesture completes we commit the logical page only after the moving layers reach their
     // anchor. The following showAllApps update must therefore not start a second animation.
     val gestureTargetPage = remember { mutableStateOf<Boolean?>(null) }
@@ -91,33 +87,12 @@ fun FingerFollowingVerticalNavigation(
         dragFrameJob.value = null
     }
 
-    fun resetRenderedVelocityTracking() {
-        lastRenderedFrameNanos[0] = 0L
-        lastRenderedUptimeMillis[0] = 0L
-        renderedProgressVelocity[0] = 0f
-    }
-
     fun queueDragFrame() {
         if (dragFrameJob.value?.isActive == true) return
         dragFrameJob.value = scope.launch {
-            withFrameNanos { frameTimeNanos ->
-                if (isDragging) {
-                    val nextProgress = dragTargetProgress[0].coerceIn(0f, 1f)
-                    val previousFrameTime = lastRenderedFrameNanos[0]
-                    if (previousFrameTime > 0L) {
-                        val deltaSeconds = (frameTimeNanos - previousFrameTime) / 1_000_000_000f
-                        if (deltaSeconds in 0.001f..0.1f) {
-                            renderedProgressVelocity[0] = (
-                                (nextProgress - progress) / deltaSeconds
-                            ).coerceIn(-4f, 4f)
-                        } else {
-                            renderedProgressVelocity[0] = 0f
-                        }
-                    }
-                    progress = nextProgress
-                    lastRenderedFrameNanos[0] = frameTimeNanos
-                    lastRenderedUptimeMillis[0] = SystemClock.uptimeMillis()
-                }
+            withFrameNanos { }
+            if (isDragging) {
+                progress = dragTargetProgress[0].coerceIn(0f, 1f)
             }
             dragFrameJob.value = null
         }
@@ -137,9 +112,6 @@ fun FingerFollowingVerticalNavigation(
         }
 
         settleJob.value = scope.launch {
-            // The animation starts at the exact value currently submitted to the graphics layers,
-            // and with the velocity measured from those rendered frames. This makes finger-following
-            // and auto-settle one continuous motion rather than two phases.
             settleAnimation.snapTo(progress)
             settleAnimation.animateTo(
                 targetValue = target,
@@ -147,7 +119,7 @@ fun FingerFollowingVerticalNavigation(
                     dampingRatio = Spring.DampingRatioNoBouncy,
                     stiffness = Spring.StiffnessMediumLow,
                 ),
-                initialVelocity = initialVelocity.coerceIn(-4f, 4f),
+                initialVelocity = initialVelocity,
             ) {
                 progress = value.coerceIn(0f, 1f)
                 dragTargetProgress[0] = progress
@@ -155,8 +127,52 @@ fun FingerFollowingVerticalNavigation(
             progress = target.coerceIn(0f, 1f)
             dragTargetProgress[0] = progress
             onSettled?.invoke()
-            // Cancellation is handled synchronously by cancelSettle(). Only a normally completed
-            // job clears itself here, so an interrupted old settle can never erase a newer job.
+            settleJob.value = null
+        }
+    }
+
+    fun settleReleasedDragTo(
+        target: Float,
+        onSettled: (() -> Unit)? = null,
+    ) {
+        cancelSettle()
+
+        // Finger-up must never inject a new velocity or position into the visual stream. Start from
+        // exactly the progress that is already on screen, then ease directly to the chosen anchor.
+        // This deliberately avoids a velocity-driven spring here: a fast pointer sample can move a
+        // large fraction of the viewport on the first post-release frame and looks like a page jump.
+        val start = progress.coerceIn(0f, 1f)
+        val distance = abs(target - start)
+        if (distance < 0.001f) {
+            progress = target
+            dragTargetProgress[0] = target
+            onSettled?.invoke()
+            return
+        }
+
+        // Keep short releases short while giving longer releases enough time to visibly finish.
+        // The duration only depends on the remaining distance, so both Start -> All Apps and the
+        // reverse path behave identically and cannot overshoot the destination.
+        val durationMillis = (100f + 180f * distance)
+            .roundToInt()
+            .coerceIn(100, 280)
+
+        settleJob.value = scope.launch {
+            settleAnimation.snapTo(start)
+            settleAnimation.animateTo(
+                targetValue = target,
+                animationSpec = tween(
+                    durationMillis = durationMillis,
+                    easing = FastOutSlowInEasing,
+                ),
+                initialVelocity = 0f,
+            ) {
+                progress = value.coerceIn(0f, 1f)
+                dragTargetProgress[0] = progress
+            }
+            progress = target.coerceIn(0f, 1f)
+            dragTargetProgress[0] = progress
+            onSettled?.invoke()
             settleJob.value = null
         }
     }
@@ -170,7 +186,6 @@ fun FingerFollowingVerticalNavigation(
             cancelDragFrame()
             isDragging = false
             dragTargetProgress[0] = 0f
-            resetRenderedVelocityTracking()
             latestOnDraggingChanged(false)
             gestureTargetPage.value = false
             settleTo(0f, initialVelocity = 0f)
@@ -193,15 +208,15 @@ fun FingerFollowingVerticalNavigation(
     fun finishDrag(pointerVelocityY: Float) {
         if (!isDragging) return
 
-        // Never inject an unrendered raw sample at finger-up. The visible frame is the start of the
-        // settle; the latest raw position is used only for deciding which anchor should win.
+        // Keep the exact frame the user last saw. A queued raw pointer sample is allowed to decide
+        // the destination below, but it is never flushed into progress when the finger is lifted.
         cancelDragFrame()
         isDragging = false
         latestOnDraggingChanged(false)
 
         val height = viewportHeightPx
         if (height <= 0f) {
-            settleTo(if (latestShowAllApps) 1f else 0f, initialVelocity = 0f)
+            settleReleasedDragTo(if (latestShowAllApps) 1f else 0f)
             return
         }
 
@@ -212,32 +227,13 @@ fun FingerFollowingVerticalNavigation(
             else -> decisionProgress >= 0.5f
         }
 
-        val now = SystemClock.uptimeMillis()
-        val renderedSampleAge = now - lastRenderedUptimeMillis[0]
-        val pointerProgressVelocity = (-pointerVelocityY / height).coerceIn(-4f, 4f)
-        val visualProgressVelocity = if (renderedSampleAge in 0L..80L) {
-            renderedProgressVelocity[0].coerceIn(-4f, 4f)
-        } else {
-            0f
-        }
-        // A one-frame flick does not yet have two rendered samples from which to derive velocity.
-        // In that narrow case fall back to the fresh pointer velocity; normal drags continue with
-        // the velocity of the actual on-screen motion.
-        val releaseProgressVelocity = if (abs(visualProgressVelocity) >= 0.05f) {
-            visualProgressVelocity
-        } else {
-            pointerProgressVelocity
-        }
-
         val changesPage = targetShowAllApps != latestShowAllApps
         gestureTargetPage.value = targetShowAllApps
-        settleTo(
+        settleReleasedDragTo(
             target = if (targetShowAllApps) 1f else 0f,
-            initialVelocity = releaseProgressVelocity,
         ) {
-            // Do not recompose Start/All Apps into a different logical state while their layers are
-            // still moving. Commit only at the anchor; both surfaces have remained mounted for the
-            // entire transition, so this state handoff is visually inert.
+            // Commit only at the final anchor. Both pages stayed mounted during the complete motion,
+            // so changing the logical page cannot replace content halfway through the animation.
             if (changesPage && targetShowAllApps != latestShowAllApps) {
                 latestOnPageChange(targetShowAllApps)
             } else {
@@ -261,7 +257,6 @@ fun FingerFollowingVerticalNavigation(
                         cancelSettle()
                         cancelDragFrame()
                         dragTargetProgress[0] = progress
-                        resetRenderedVelocityTracking()
                         velocityTracker = VelocityTracker()
                         lastVelocitySampleUptimeMillis = 0L
                         isDragging = true
@@ -275,9 +270,8 @@ fun FingerFollowingVerticalNavigation(
                             dragTargetProgress[0] = (
                                 dragTargetProgress[0] - dragAmount / viewportHeightPx
                             ).coerceIn(0f, 1f)
-                            // Pointer hardware can report faster than the display. Submit at most one
-                            // progress value per display frame, then measure that rendered motion for
-                            // a seamless release continuation.
+                            // Pointer hardware can report faster than the display. Submit only the
+                            // latest position on the next frame so the drag itself stays efficient.
                             queueDragFrame()
                         }
                     },
