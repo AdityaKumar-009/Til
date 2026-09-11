@@ -2,7 +2,7 @@ name: Android build
 
 on:
   push:
-    branches: [ main, win81-fidelity, feat/windows-81-lock-screen ]
+    branches: [ main, win81-fidelity ]
   workflow_dispatch:
 
 permissions:
