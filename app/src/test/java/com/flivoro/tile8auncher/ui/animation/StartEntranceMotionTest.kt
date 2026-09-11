@@ -26,15 +26,57 @@ class StartEntranceMotionTest {
         assertEquals(1f, frame.alpha, .0001f)
     }
 
-    @Test fun homeReturnUsesIndependentShortTrack() {
-        assertEquals(680, StartEntranceMotion.durationMillis(StartEntranceKind.RETURN))
+    @Test fun returnMatchesTestMp4MailTileAtRecordedFrames() {
+        assertEquals(600, StartEntranceMotion.durationMillis(StartEntranceKind.RETURN))
         assertEquals(2800, StartEntranceMotion.durationMillis(StartEntranceKind.STARTUP))
-        val home = StartEntranceMotion.frame(200f / 680, 0f, StartEntranceKind.RETURN)
-        val unlock = StartEntranceMotion.frame(200f / 2800, 0f, StartEntranceKind.STARTUP)
-        assertEquals(.98f, home.scale, .0001f)
-        assertTrue(unlock.offsetFraction > home.offsetFraction * 4)
-        assertEquals(1f, StartEntranceMotion.headerAlpha(200f / 680), .0001f)
-        assertEquals(0f, StartEntranceMotion.headerAlpha(200f / 2800, StartEntranceKind.STARTUP), .0001f)
+
+        val at133 = StartEntranceMotion.frame(133.333f / 600f, 0f, StartEntranceKind.RETURN)
+        assertEquals(35.5f / 1920f, at133.offsetFraction, .00005f)
+        assertEquals(237f / 248f, at133.scale, .0005f)
+        assertEquals(.741f, at133.alpha, .002f)
+
+        val at200 = StartEntranceMotion.frame(200f / 600f, 0f, StartEntranceKind.RETURN)
+        assertEquals(19f / 1920f, at200.offsetFraction, .00005f)
+        assertEquals(244f / 248f, at200.scale, .0005f)
+        assertEquals(1f, at200.alpha, .0001f)
+    }
+
+    @Test fun returnHeaderUsesItsSlowerMeasuredFade() {
+        assertEquals(.258f, StartEntranceMotion.headerAlpha(133.333f / 600f), .003f)
+        assertEquals(.581f, StartEntranceMotion.headerAlpha(200f / 600f), .003f)
+        assertEquals(.906f, StartEntranceMotion.headerAlpha(266.667f / 600f), .003f)
+        assertEquals(1f, StartEntranceMotion.headerAlpha(366.667f / 600f), .0001f)
+        assertEquals(0f, StartEntranceMotion.headerAlpha(200f / 2800f, StartEntranceKind.STARTUP), .0001f)
+    }
+
+    @Test fun returnBandsStaggerScaleAndOpacityWithoutExaggeratingTranslation() {
+        val progress = 200f / 600f
+        val first = StartEntranceMotion.frame(progress, 0f, StartEntranceKind.RETURN)
+        val second = StartEntranceMotion.frame(progress, 1f, StartEntranceKind.RETURN)
+        val third = StartEntranceMotion.frame(progress, 2f, StartEntranceKind.RETURN)
+
+        assertTrue(second.scale < first.scale)
+        assertTrue(third.scale < second.scale)
+        assertTrue(second.alpha <= first.alpha)
+        assertTrue(third.alpha <= second.alpha)
+
+        // test.mp4 shows later bands travelling less horizontally, unlike the old delayed-travel
+        // implementation which pushed them much farther to the right.
+        assertEquals(first.offsetFraction * .85f, second.offsetFraction, .000001f)
+        assertEquals(first.offsetFraction * .85f * .85f, third.offsetFraction, .000001f)
+    }
+
+    @Test fun returnCurveRemainsSmoothOnTenMillisecondInterpolationGrid() {
+        val duration = StartEntranceMotion.durationMillis(StartEntranceKind.RETURN)
+        var previous = StartEntranceMotion.frame(0f, 0f, StartEntranceKind.RETURN)
+        for (ms in 10..duration step 10) {
+            val frame = StartEntranceMotion.frame(ms.toFloat() / duration, 0f, StartEntranceKind.RETURN)
+            assertTrue("return travel reversed at $ms ms", frame.offsetFraction <= previous.offsetFraction + .000001f)
+            assertTrue("return scale reversed at $ms ms", frame.scale >= previous.scale - .000001f)
+            assertTrue("return alpha reversed at $ms ms", frame.alpha >= previous.alpha - .000001f)
+            previous = frame
+        }
+        assertEquals(EntranceFrame(0f, 1f, 1f), previous)
     }
 
     @Test fun wallpaperAnchorUsesSameMeasuredTravelAndSettlesMonotonically() {
