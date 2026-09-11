@@ -32,16 +32,16 @@ import java.util.WeakHashMap
 /**
  * Pre-rendered wallpaper-only guard used while the display/keyguard owns the screen.
  *
- * The guard stays allocated and hardware-backed so ACTION_SCREEN_OFF / ACTION_SCREEN_ON only need
- * an alpha/visibility property change; the launcher does not wait for a new Compose frame before
- * hiding Start content. It may never expose an uninitialised white surface: a Windows-purple base
- * is installed on the View itself before Compose renders the full selected wallpaper.
+ * The guard stays allocated, laid out and hardware-backed even while transparent. Screen-off and
+ * screen-on therefore need only a compositor alpha change; they never have to create the guard or
+ * wait for a new Start composition before hiding tiles. A Windows-purple View background exists
+ * below the Compose wallpaper, so an uninitialised white surface is impossible.
  *
  * USER_PRESENT, keyguard dismissal and Activity resume can arrive in different orders on OEM
- * builds. Release is therefore state-driven rather than one-shot: once unlock was requested, a
- * resumed activity keeps checking until the device is genuinely interactive and unlocked, waits
- * two prepared display frames, then removes the guard with no fade. A subsequent screen-off bumps
- * the generation and cancels every pending release callback.
+ * builds. Release is state-driven rather than one-shot: once unlock was requested, a resumed
+ * activity keeps checking until the device is genuinely interactive and unlocked, waits two
+ * prepared display frames, then clears the guard with no fade. A subsequent screen-off bumps the
+ * generation and cancels every pending release callback.
  */
 class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var prefs: SharedPreferences
@@ -132,19 +132,19 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
         val curtain = ComposeView(activity).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
 
-            // This is intentionally set before setContent. Even if the Compose wallpaper has not
-            // produced its first buffer yet, the guard can only display purple, never window white.
+            // Installed before setContent: even the guard's first compositor frame can only be the
+            // Windows background color while the full selected wallpaper is being prepared.
             setBackgroundColor(WINDOWS_PURPLE_FALLBACK)
-            visibility = if (activeInitially) View.VISIBLE else View.INVISIBLE
+            visibility = View.VISIBLE
             alpha = if (activeInitially) 1f else 0f
             isClickable = activeInitially
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-            // A visible unlock guard must never pass taps to invisible Start tiles underneath.
+            // Never allow a temporary unlock guard to pass touches into hidden Start tiles.
             setOnTouchListener { view, _: MotionEvent ->
-                view.visibility == View.VISIBLE && view.alpha > ACTIVE_ALPHA_THRESHOLD
+                view.alpha > ACTIVE_ALPHA_THRESHOLD
             }
 
             setContent {
@@ -217,9 +217,9 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
             if (activity !in resumedActivities) return@releaseFrame
 
             if (deviceRequiresCurtain()) {
-                // Do not abandon the release because the OEM reports keyguard locked for an extra
-                // frame after USER_PRESENT. Keep checking until it really clears. The next
-                // SCREEN_OFF/SCREEN_ON generation cancels this loop immediately.
+                // OEMs can report the keyguard as locked briefly after USER_PRESENT. Retry rather
+                // than abandoning release. Any new screen-off/on event changes the generation and
+                // terminates this pending release path immediately.
                 scheduleReleaseFrame(
                     activity = activity,
                     curtain = curtain,
@@ -250,7 +250,9 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
         curtain.animate().cancel()
         curtain.isClickable = false
         curtain.alpha = 0f
-        curtain.visibility = View.INVISIBLE
+        // Intentionally keep VISIBLE and laid out. Alpha is a compositor property, so the full
+        // wallpaper layer stays ready for the next screen-off without reattaching/re-laying it out.
+        curtain.visibility = View.VISIBLE
     }
 
     private fun deviceRequiresCurtain(): Boolean {
