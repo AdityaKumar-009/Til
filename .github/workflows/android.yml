@@ -2,7 +2,7 @@ name: Android build
 
 on:
   push:
-    branches: [ main, win81-fidelity, feat/windows81-complete-launcher ]
+    branches: [ main, win81-fidelity ]
   workflow_dispatch:
 
 permissions:
