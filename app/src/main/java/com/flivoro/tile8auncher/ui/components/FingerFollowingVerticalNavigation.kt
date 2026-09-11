@@ -76,12 +76,9 @@ fun FingerFollowingVerticalNavigation(
         settleJob.value = null
     }
 
-    fun cancelDragFrame(flush: Boolean) {
+    fun cancelDragFrame() {
         dragFrameJob.value?.cancel()
         dragFrameJob.value = null
-        if (flush) {
-            progress = dragTargetProgress[0].coerceIn(0f, 1f)
-        }
     }
 
     fun queueDragFrame() {
@@ -95,19 +92,17 @@ fun FingerFollowingVerticalNavigation(
         }
     }
 
-    fun settleTo(
-        target: Float,
-        initialVelocity: Float,
-        onSettled: (() -> Unit)? = null,
-    ) {
+    fun settleTo(target: Float, initialVelocity: Float) {
         cancelSettle()
         if (abs(progress - target) < 0.001f && abs(initialVelocity) < 0.001f) {
             progress = target
-            onSettled?.invoke()
             return
         }
 
         settleJob.value = scope.launch {
+            // Always begin from the last frame that was actually displayed. In particular, do not
+            // force a pending high-rate pointer sample onto the screen at finger-up: that creates a
+            // visible one-frame jump before the release animation starts.
             settleAnimation.snapTo(progress)
             settleAnimation.animateTo(
                 targetValue = target,
@@ -120,7 +115,6 @@ fun FingerFollowingVerticalNavigation(
                 progress = value.coerceIn(0f, 1f)
             }
             progress = target.coerceIn(0f, 1f)
-            onSettled?.invoke()
             settleJob.value = null
         }
     }
@@ -131,7 +125,7 @@ fun FingerFollowingVerticalNavigation(
         previousResetRequest = resetRequest
         if (isReset) {
             cancelSettle()
-            cancelDragFrame(flush = false)
+            cancelDragFrame()
             isDragging = false
             dragTargetProgress[0] = 0f
             latestOnDraggingChanged(false)
@@ -153,7 +147,11 @@ fun FingerFollowingVerticalNavigation(
 
     fun finishDrag(velocityY: Float) {
         if (!isDragging) return
-        cancelDragFrame(flush = true)
+
+        // A pending drag frame may contain a newer raw pointer position than the frame currently on
+        // screen. Discard it on release so the settle animation continues from the exact visible
+        // position instead of snapping forward first.
+        cancelDragFrame()
         isDragging = false
         latestOnDraggingChanged(false)
 
@@ -163,24 +161,28 @@ fun FingerFollowingVerticalNavigation(
             return
         }
 
+        // Use the latest physical finger position only to choose the destination. The animation
+        // itself still starts from `progress`, i.e. the last rendered frame, for visual continuity.
+        val decisionProgress = dragTargetProgress[0].coerceIn(0f, 1f)
         val targetShowAllApps = when {
             velocityY <= -swipeVelocityThreshold -> true
             velocityY >= swipeVelocityThreshold -> false
-            else -> progress >= 0.5f
+            else -> decisionProgress >= 0.5f
         }
         val progressVelocity = (-velocityY / height).coerceIn(-8f, 8f)
         val changesPage = targetShowAllApps != latestShowAllApps
+
+        // Commit the destination as the release begins, not after the visual settle. The guard in
+        // LaunchedEffect recognises this as a gesture-originated change and leaves the in-flight
+        // spring alone, so there is no late content-state swap at the end of the motion.
         gestureTargetPage.value = targetShowAllApps
+        if (changesPage) {
+            latestOnPageChange(targetShowAllApps)
+        }
         settleTo(
             target = if (targetShowAllApps) 1f else 0f,
             initialVelocity = progressVelocity,
-        ) {
-            // Commit the page only after the moving layers have finished. This avoids making the
-            // parent Start/All Apps content recompose in the middle of the release animation.
-            if (changesPage && targetShowAllApps != latestShowAllApps) {
-                latestOnPageChange(targetShowAllApps)
-            }
-        }
+        )
     }
 
     Box(
@@ -195,7 +197,7 @@ fun FingerFollowingVerticalNavigation(
                 detectVerticalDragGestures(
                     onDragStart = {
                         cancelSettle()
-                        cancelDragFrame(flush = false)
+                        cancelDragFrame()
                         dragTargetProgress[0] = progress
                         velocityTracker = VelocityTracker()
                         isDragging = true
