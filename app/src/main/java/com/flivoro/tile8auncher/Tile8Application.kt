@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.flivoro.tile8auncher.ui.animation.UnlockEntranceMotionOverride
+import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenRuntime
 
 /**
  * Process-wide revision for the installed launcher app catalog.
@@ -42,6 +43,7 @@ object PackageCatalogUpdates {
 class Tile8Application : Application() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var unlockGeneration = 0
+    private var mainActivityResumed = false
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -49,18 +51,23 @@ class Tile8Application : Application() {
                 Intent.ACTION_SCREEN_OFF -> {
                     unlockGeneration++
                     UnlockEntranceMotionOverride.arm()
+                    WindowsLockScreenRuntime.arm(context)
                 }
 
                 Intent.ACTION_SCREEN_ON -> {
                     // Devices without a secure/visible keyguard may resume directly from SCREEN_ON.
                     // Keep the override alive through the 680 ms entrance, then clear it.
-                    if (!deviceRequiresUnlockGate()) scheduleOverrideRelease()
+                    if (!deviceRequiresUnlockGate()) {
+                        scheduleOverrideRelease()
+                        scheduleUnusedLockScreenRelease()
+                    }
                 }
 
                 Intent.ACTION_USER_PRESENT -> {
                     // Keyguard has gone away. The MainActivity gate starts the same entrance; keep
                     // the override active long enough for both tile and wallpaper clocks to finish.
                     scheduleOverrideRelease()
+                    scheduleUnusedLockScreenRelease()
                 }
             }
         }
@@ -94,6 +101,7 @@ class Tile8Application : Application() {
         // reveal as an unlock even though this process missed the earlier SCREEN_OFF broadcast.
         if (deviceRequiresUnlockGate()) {
             UnlockEntranceMotionOverride.arm()
+            WindowsLockScreenRuntime.arm(this)
         }
 
         ContextCompat.registerReceiver(
@@ -126,7 +134,16 @@ class Tile8Application : Application() {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
                 if (activity is MainActivity && deviceRequiresUnlockGate()) {
                     UnlockEntranceMotionOverride.arm()
+                    WindowsLockScreenRuntime.arm(this@Tile8Application)
                 }
+            }
+
+            override fun onActivityResumed(activity: Activity) {
+                if (activity is MainActivity) mainActivityResumed = true
+            }
+
+            override fun onActivityPaused(activity: Activity) {
+                if (activity is MainActivity) mainActivityResumed = false
             }
 
             override fun onActivityDestroyed(activity: Activity) {
@@ -135,12 +152,11 @@ class Tile8Application : Application() {
                     // even if it happens immediately after an unlock.
                     unlockGeneration++
                     UnlockEntranceMotionOverride.cancel()
+                    WindowsLockScreenRuntime.dismiss()
                 }
             }
 
             override fun onActivityStarted(activity: Activity) = Unit
-            override fun onActivityResumed(activity: Activity) = Unit
-            override fun onActivityPaused(activity: Activity) = Unit
             override fun onActivityStopped(activity: Activity) = Unit
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
         })
@@ -155,6 +171,19 @@ class Tile8Application : Application() {
         }, UNLOCK_OVERRIDE_HOLD_MILLIS)
     }
 
+    /**
+     * A launcher cannot cover another foreground app after Android unlock. If Home does not resume
+     * promptly, drop the pending visual layer instead of surprising the user on a much later Home tap.
+     */
+    private fun scheduleUnusedLockScreenRelease() {
+        val generation = unlockGeneration
+        mainHandler.postDelayed({
+            if (generation == unlockGeneration && !mainActivityResumed) {
+                WindowsLockScreenRuntime.dismiss()
+            }
+        }, LOCK_SCREEN_HOME_GRACE_MILLIS)
+    }
+
     private fun deviceRequiresUnlockGate(): Boolean {
         val keyguardLocked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
         val interactive = getSystemService(PowerManager::class.java)?.isInteractive != false
@@ -165,5 +194,6 @@ class Tile8Application : Application() {
         // RETURN motion is 680 ms. This is only a cleanup guard; the visual timing remains exactly
         // the existing RETURN fit and no animation curve/duration is changed here.
         private const val UNLOCK_OVERRIDE_HOLD_MILLIS = 1_200L
+        private const val LOCK_SCREEN_HOME_GRACE_MILLIS = 3_000L
     }
 }
