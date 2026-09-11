@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -71,6 +73,8 @@ import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
@@ -99,6 +103,26 @@ fun AllAppsScreen(
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var handledSearchRequest by remember { mutableIntStateOf(0) }
+    val packageCatalogRevision = PackageCatalogUpdates.revision
+
+    // Parent-provided sections remain the zero-cost normal path. Only a real Android package
+    // change triggers a fresh PackageManager scan; the new repository is lightweight and does
+    // not eagerly decode icons. This preserves the startup cache optimization while keeping
+    // All Apps immediately correct after install/uninstall/enable/disable/update events.
+    val liveSections by produceState(
+        initialValue = sections,
+        sections,
+        packageCatalogRevision,
+    ) {
+        value = if (packageCatalogRevision == 0) {
+            sections
+        } else {
+            withContext(Dispatchers.IO) {
+                AppsRepository(context.applicationContext).getCategorizedApps()
+            }
+        }
+    }
+
     LaunchedEffect(searchFocusRequest, searchFocusEnabled) {
         if (searchFocusEnabled && searchFocusRequest > handledSearchRequest) {
             searchFocus.requestFocus()
@@ -107,12 +131,12 @@ fun AllAppsScreen(
         }
     }
 
-    val filteredSections = remember(sections, searchQuery) {
+    val filteredSections = remember(liveSections, searchQuery) {
         if (searchQuery.isBlank()) {
-            sections
+            liveSections
         } else {
             val query = searchQuery.trim().lowercase(Locale.getDefault())
-            sections.mapNotNull { section ->
+            liveSections.mapNotNull { section ->
                 val matchingApps = section.apps.filter { app ->
                     app.label.lowercase(Locale.getDefault()).contains(query)
                 }
