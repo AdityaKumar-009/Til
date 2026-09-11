@@ -164,7 +164,7 @@ fun universalNonAppResults(context: Context, query: String): List<UniversalSearc
         Triple("Battery", "Battery settings", Settings.ACTION_BATTERY_SAVER_SETTINGS),
         Triple("Apps", "Installed app settings", Settings.ACTION_APPLICATION_SETTINGS),
         Triple("Accessibility", "Accessibility settings", Settings.ACTION_ACCESSIBILITY_SETTINGS),
-        Triple("Notifications", "Notification settings", Settings.ACTION_NOTIFICATION_SETTINGS),
+        Triple("Notifications", "Notification settings", "android.settings.NOTIFICATION_SETTINGS"),
     )
     settings.filter { (name, description, _) ->
         name.lowercase(Locale.getDefault()).contains(lower) ||
@@ -198,7 +198,7 @@ private fun contactResults(context: Context, query: String): List<UniversalSearc
         context.contentResolver.query(uri, projection, selection, args, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
             val numberIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
-            buildList {
+            buildList<UniversalSearchResult.Contact> {
                 while (cursor.moveToNext() && size < 6) {
                     val name = cursor.getString(nameIndex).orEmpty()
                     val number = cursor.getString(numberIndex).orEmpty()
@@ -231,7 +231,6 @@ private fun formatCalculation(value: Double): String {
     return if (value == asLong.toDouble()) asLong.toString() else "%.8f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 }
 
-/** A tiny arithmetic parser for search-box quick calculations. */
 private fun evaluateExpression(raw: String): Double? {
     if (raw.none { it in "+-*/^()" } && raw.toDoubleOrNull() == null) return null
     return runCatching { ExpressionParser(raw).parse() }.getOrNull()?.takeIf(Double::isFinite)
