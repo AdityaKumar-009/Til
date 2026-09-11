@@ -171,6 +171,11 @@ fun StartScreen(
         if (!entranceEnabled) {
             entrance.stop()
             entranceRunning = false
+            // A return request received while Start is not the visible surface is stale. Consume it
+            // now so returning from an app opened in All Apps cannot replay the short Start entrance
+            // later when the user swipes back to Start.
+            lastStartedRequest = entranceRequest
+            entrance.snapTo(1f)
             return@LaunchedEffect
         }
 
