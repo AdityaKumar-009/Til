@@ -177,6 +177,7 @@ class WidgetPickerActivity : ComponentActivity() {
             order = current.size,
         )
         repo.savePinnedTiles(current)
+        LauncherFeatureRuntime.notifyPinnedTilesChanged()
         setResult(Activity.RESULT_OK)
         finish()
     }
