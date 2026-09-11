@@ -103,8 +103,6 @@ fun Windows81LockScreen(
     val detailedStatusPackage = remember { LauncherFeatureStore.lockDetailedPackage(context) }
     val appsRepository = remember(context) { AppsRepository(context.applicationContext) }
 
-    // Windows 8.1's lock screen is an immersive full-window surface. Hide Android chrome only while
-    // this visual layer is present, then restore it immediately when Start is revealed.
     val activity = context as? Activity
     DisposableEffect(activity) {
         val window = activity?.window
@@ -122,8 +120,6 @@ fun Windows81LockScreen(
         }
     }
 
-    // Windows 8.1 lock-screen slideshows linger on each image and cross-fade; the gesture layer
-    // stays mounted above this artwork for the entire cycle.
     LaunchedEffect(slideshowUris) {
         if (slideshowUris.size <= 1) return@LaunchedEffect
         while (true) {
@@ -220,16 +216,8 @@ fun Windows81LockScreen(
                     .align(Alignment.BottomStart)
                     .padding(start = horizontalPadding, end = 22.dp, bottom = bottomPadding),
             ) {
-                TextWithWindowsLockStyle(
-                    text = timeText,
-                    sizeSp = timeSize.value,
-                    weight = FontWeight.Light,
-                )
-                TextWithWindowsLockStyle(
-                    text = dateText,
-                    sizeSp = dateSize.value,
-                    weight = FontWeight.Light,
-                )
+                TextWithWindowsLockStyle(timeText, timeSize.value, FontWeight.Light)
+                TextWithWindowsLockStyle(dateText, dateSize.value, FontWeight.Light)
 
                 if (detailedStatus != null &&
                     (detailedStatus.title.isNotBlank() || detailedStatus.text.isNotBlank())
@@ -279,6 +267,7 @@ fun Windows81LockScreen(
 
 @Composable
 private fun LockArtwork(slideshowUris: List<String>, slideshowIndex: Int) {
+    val context = LocalContext.current
     if (slideshowUris.isEmpty()) {
         Windows81DefaultLockArtwork(Modifier.fillMaxSize())
         return
@@ -289,8 +278,8 @@ private fun LockArtwork(slideshowUris: List<String>, slideshowIndex: Int) {
         label = "Windows81LockSlideshow",
     ) { index ->
         val uri = slideshowUris.getOrNull(index)
-        val bitmap by produceState<ImageBitmap?>(null, uri) {
-            value = uri?.let { withContext(Dispatchers.IO) { decodeLockBitmap(LocalContext.current, Uri.parse(it)) } }
+        val bitmap by produceState<ImageBitmap?>(null, uri, context) {
+            value = uri?.let { withContext(Dispatchers.IO) { decodeLockBitmap(context, Uri.parse(it)) } }
         }
         Box(Modifier.fillMaxSize()) {
             if (bitmap != null) {
