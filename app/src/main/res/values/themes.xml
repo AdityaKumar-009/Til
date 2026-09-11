@@ -3,8 +3,13 @@
     <style name="Theme.Tile8Launcher" parent="Theme.Tile8Launcher.Base" />
 
     <style name="Theme.Tile8Launcher.Base" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Never expose Material's light window background while Compose is preparing/resuming. -->
+        <item name="android:windowBackground">@color/launcher_window_background</item>
+        <item name="android:colorBackground">@color/launcher_window_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
