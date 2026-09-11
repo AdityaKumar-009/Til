@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.mutableFloatStateOf
@@ -18,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
@@ -54,13 +54,17 @@ fun FingerFollowingVerticalNavigation(
     var progress by progressState
     val swipeVelocityThreshold = with(LocalDensity.current) { 300.dp.toPx() }
     val focusManager = LocalFocusManager.current
-    val startHidden by remember { derivedStateOf { progress >= 1f } }
-    val appsHidden by remember { derivedStateOf { progress <= 0f } }
+    // Keep the accessibility tree tied to the committed page instead of rebuilding it while the
+    // finger is moving. The visual pages remain mounted and continue to follow progress below.
+    val startHidden = showAllApps
+    val appsHidden = !showAllApps
     var viewportHeightPx by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val settleAnimation = remember { Animatable(progress) }
     val settleJob = remember { mutableStateOf<Job?>(null) }
+    val dragFrameJob = remember { mutableStateOf<Job?>(null) }
+    val dragTargetProgress = remember { floatArrayOf(progress) }
     val gestureTargetPage = remember { mutableStateOf<Boolean?>(null) }
     var previousResetRequest by remember { mutableIntStateOf(resetRequest) }
     val latestShowAllApps by rememberUpdatedState(showAllApps)
@@ -72,10 +76,34 @@ fun FingerFollowingVerticalNavigation(
         settleJob.value = null
     }
 
-    fun settleTo(target: Float, initialVelocity: Float) {
+    fun cancelDragFrame(flush: Boolean) {
+        dragFrameJob.value?.cancel()
+        dragFrameJob.value = null
+        if (flush) {
+            progress = dragTargetProgress[0].coerceIn(0f, 1f)
+        }
+    }
+
+    fun queueDragFrame() {
+        if (dragFrameJob.value?.isActive == true) return
+        dragFrameJob.value = scope.launch {
+            withFrameNanos { }
+            if (isDragging) {
+                progress = dragTargetProgress[0].coerceIn(0f, 1f)
+            }
+            dragFrameJob.value = null
+        }
+    }
+
+    fun settleTo(
+        target: Float,
+        initialVelocity: Float,
+        onSettled: (() -> Unit)? = null,
+    ) {
         cancelSettle()
         if (abs(progress - target) < 0.001f && abs(initialVelocity) < 0.001f) {
             progress = target
+            onSettled?.invoke()
             return
         }
 
@@ -92,6 +120,8 @@ fun FingerFollowingVerticalNavigation(
                 progress = value.coerceIn(0f, 1f)
             }
             progress = target.coerceIn(0f, 1f)
+            onSettled?.invoke()
+            settleJob.value = null
         }
     }
 
@@ -101,7 +131,9 @@ fun FingerFollowingVerticalNavigation(
         previousResetRequest = resetRequest
         if (isReset) {
             cancelSettle()
+            cancelDragFrame(flush = false)
             isDragging = false
+            dragTargetProgress[0] = 0f
             latestOnDraggingChanged(false)
             gestureTargetPage.value = false
             settleTo(0f, initialVelocity = 0f)
@@ -121,6 +153,7 @@ fun FingerFollowingVerticalNavigation(
 
     fun finishDrag(velocityY: Float) {
         if (!isDragging) return
+        cancelDragFrame(flush = true)
         isDragging = false
         latestOnDraggingChanged(false)
 
@@ -136,10 +169,17 @@ fun FingerFollowingVerticalNavigation(
             else -> progress >= 0.5f
         }
         val progressVelocity = (-velocityY / height).coerceIn(-8f, 8f)
+        val changesPage = targetShowAllApps != latestShowAllApps
         gestureTargetPage.value = targetShowAllApps
-        settleTo(if (targetShowAllApps) 1f else 0f, progressVelocity)
-        if (targetShowAllApps != latestShowAllApps) {
-            latestOnPageChange(targetShowAllApps)
+        settleTo(
+            target = if (targetShowAllApps) 1f else 0f,
+            initialVelocity = progressVelocity,
+        ) {
+            // Commit the page only after the moving layers have finished. This avoids making the
+            // parent Start/All Apps content recompose in the middle of the release animation.
+            if (changesPage && targetShowAllApps != latestShowAllApps) {
+                latestOnPageChange(targetShowAllApps)
+            }
         }
     }
 
@@ -155,6 +195,8 @@ fun FingerFollowingVerticalNavigation(
                 detectVerticalDragGestures(
                     onDragStart = {
                         cancelSettle()
+                        cancelDragFrame(flush = false)
+                        dragTargetProgress[0] = progress
                         velocityTracker = VelocityTracker()
                         isDragging = true
                         latestOnDraggingChanged(true)
@@ -163,7 +205,13 @@ fun FingerFollowingVerticalNavigation(
                         if (viewportHeightPx > 0f) {
                             velocityTracker.addPosition(change.uptimeMillis, change.position)
                             change.consume()
-                            progress = (progress - dragAmount / viewportHeightPx).coerceIn(0f, 1f)
+                            dragTargetProgress[0] = (
+                                dragTargetProgress[0] - dragAmount / viewportHeightPx
+                            ).coerceIn(0f, 1f)
+                            // Coalesce high-rate pointer samples into one visual update per frame.
+                            // This keeps the page locked to the finger without redundant snapshot
+                            // invalidations between display frames.
+                            queueDragFrame()
                         }
                     },
                     onDragEnd = {
