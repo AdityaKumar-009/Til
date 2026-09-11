@@ -42,9 +42,10 @@ fun Modifier.passiveDoubleTap(onDoubleTap: () -> Unit): Modifier = pointerInput(
         }
         val duration = upTime - startTime
         if (duration > 220L || maxTravel > 28f) continue
+        val hasPreviousPosition = previousTapPosition != Offset.Unspecified
         val isSecond = previousTapTime > 0L &&
             startTime - previousTapTime in 40L..360L &&
-            previousTapPosition.isSpecified &&
+            hasPreviousPosition &&
             hypot(start.x - previousTapPosition.x, start.y - previousTapPosition.y) <= 56f
         if (isSecond) {
             previousTapTime = 0L
