@@ -1,6 +1,9 @@
 package com.flivoro.tile8auncher.features
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,6 +14,16 @@ enum class StartDoubleTapAction {
     ALL_APPS,
     CHARMS,
     LOCK_DEVICE,
+}
+
+/** Process-local signal for feature activities that mutate the persisted Start layout. */
+object LauncherFeatureRuntime {
+    var pinnedTilesRevision by mutableIntStateOf(0)
+        private set
+
+    fun notifyPinnedTilesChanged() {
+        pinnedTilesRevision++
+    }
 }
 
 /**
