@@ -7,27 +7,33 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.features.IconPackManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * Returns a cached icon synchronously and schedules a cache miss on the repository's bounded IO
- * loader. A missing package is deliberately a no-op so placeholder tiles never query the
- * PackageManager during composition.
+ * Returns a cached icon synchronously and schedules a cache miss on bounded background work.
+ * User-selected icons/icon packs are resolved first; the existing repository path remains the
+ * unchanged fallback, so this feature cannot affect package scanning or launcher motion timing.
  */
 @Composable
 fun rememberAppIcon(
     repository: AppsRepository,
     packageName: String?,
 ): ImageBitmap? {
+    val context = LocalContext.current
     var icon by remember(repository, packageName) {
         mutableStateOf(packageName?.let(repository::getCachedAppIcon))
     }
 
     LaunchedEffect(repository, packageName) {
         val name = packageName ?: return@LaunchedEffect
-        // loadAppIcon owns its IO dispatcher and decode throttling. Awaiting it here suspends this
-        // effect without blocking the main thread, and avoids an unnecessary extra dispatcher hop.
-        icon = repository.loadAppIcon(name)
+        val override = withContext(Dispatchers.IO) {
+            IconPackManager.loadOverride(context.applicationContext, name)
+        }
+        icon = override ?: repository.loadAppIcon(name)
     }
 
     return icon
