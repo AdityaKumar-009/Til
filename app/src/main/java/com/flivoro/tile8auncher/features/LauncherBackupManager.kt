@@ -89,7 +89,9 @@ object LauncherBackupManager {
                 }
             }
         }
-        editor.commit()
+        check(editor.commit()) { "Could not commit launcher preferences" }
         IconPackManager.clearCaches()
+        LauncherFeatureRuntime.notifyIconsChanged()
+        LauncherFeatureRuntime.notifyPinnedTilesChanged()
     }
 }
