@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -40,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -95,34 +98,33 @@ class MainActivity : ComponentActivity() {
     private var launcherForeground = false
     private var launcherResumed = false
     private var waitingForUserPresent = false
-    private var entryHandledByUserPresent = false
+    private var userPresentObserved = false
     private var homeIntentPending = false
+    private var unlockReleaseGeneration = 0
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == Intent.ACTION_SCREEN_OFF) {
-                // The application-level compositor curtain is raised independently at the same
-                // broadcast. This state gate makes the next Compose buffer background-only too,
-                // so there is no settled Start content waiting underneath the curtain.
-                startupEntrancePending = true
-                entranceReady = false
-                return
-            }
-            if (intent.action == Intent.ACTION_USER_PRESENT && !launcherForeground) {
-                // onStart may follow USER_PRESENT. Consume the unlock only when
-                // the launcher can actually present it.
-                return
-            }
-            if (intent.action == Intent.ACTION_USER_PRESENT &&
-                launcherForeground &&
-                (waitingForUserPresent || startupEntrancePending)
-            ) {
-                waitingForUserPresent = false
-                startupEntrancePending = false
-                entranceReady = true
-                entranceKind = StartEntranceKind.STARTUP
-                entryHandledByUserPresent = true
-                entranceRequest++
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    // Keep the already-existing launcher surface alive but submit only its wallpaper.
+                    // Incrementing the generation cancels every pending unlock release callback.
+                    unlockReleaseGeneration++
+                    userPresentObserved = false
+                    startupEntrancePending = true
+                    waitingForUserPresent = true
+                    entranceReady = false
+                    activeInAppTile = null
+                    pendingLaunchIntent = null
+                    if (flipState.isRunning) flipState = FlipAnimationState()
+                }
+
+                Intent.ACTION_USER_PRESENT -> {
+                    // USER_PRESENT and Activity resume/keyguard state have no stable ordering across
+                    // OEMs. Remember the event even if the launcher is not resumed yet; onResume
+                    // will finish the same gate instead of losing this notification.
+                    userPresentObserved = true
+                    scheduleUnlockReleaseIfReady()
+                }
             }
         }
     }
@@ -133,7 +135,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         suppressLauncherTransitions()
 
-        // Make system status and navigation bars 100% transparent edge-to-edge
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
@@ -175,7 +176,7 @@ class MainActivity : ComponentActivity() {
                         flipState = FlipAnimationState(isRunning = false)
                     },
                     onTriggerFlip = { tile, bounds, origin ->
-                        if (!flipState.isRunning) {
+                        if (entranceReady && !flipState.isRunning) {
                             pendingLaunchIntent = resolveLaunchIntent(tile)
                             val icon = tile.packageName?.let { appsRepository.getAppIcon(it) }
                             flipState = FlipAnimationState(
@@ -194,7 +195,6 @@ class MainActivity : ComponentActivity() {
                     onRequestFlipReverse = { reason -> requestFlipReverse(reason) },
                     onLaunchTile = { tile -> handleTileLaunch(tile) },
                     onDismissFlip = {
-                        // The reverse overlay reaches its source frame before this clears it.
                         flipState = FlipAnimationState(isRunning = false)
                         pendingLaunchIntent = null
                     },
@@ -208,16 +208,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         launcherForeground = true
+        if (startupEntrancePending && userPresentObserved) scheduleUnlockReleaseIfReady()
     }
 
     override fun onStop() {
         launcherForeground = false
         launcherResumed = false
-        waitingForUserPresent = false
-        entryHandledByUserPresent = false
         super.onStop()
-        // Wait until the launcher is fully covered before clearing the overlay. Clearing
-        // from onPause would expose the scaled start screen during the app handoff.
         if (flipState.isRunning) {
             flipState = FlipAnimationState(isRunning = false)
         }
@@ -227,6 +224,16 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         launcherResumed = false
+
+        // Some OEMs deliver ACTION_SCREEN_OFF after onPause. Pre-arm the same background-only gate
+        // here when the display/keyguard already says the device is leaving the interactive state.
+        if (deviceRequiresEntranceGate()) {
+            unlockReleaseGeneration++
+            startupEntrancePending = true
+            waitingForUserPresent = true
+            entranceReady = false
+        }
+
         if (!launchHandoffPending && flipState.isRunning &&
             flipState.direction != FlipAnimationDirection.REVERSE
         ) {
@@ -240,21 +247,25 @@ class MainActivity : ComponentActivity() {
         suppressLauncherTransitions()
         val homeWasPending = homeIntentPending
         homeIntentPending = false
-        val userPresentEntryHandled = entryHandledByUserPresent
-        entryHandledByUserPresent = false
         launcherResumed = true
-        val keyguardLocked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
-        waitingForUserPresent = keyguardLocked
-        entranceReady = !keyguardLocked
-        if (keyguardLocked) startupEntrancePending = true
-        if (!keyguardLocked && !userPresentEntryHandled && (startupEntrancePending || !homeWasPending)) {
-            entranceKind = if (startupEntrancePending) StartEntranceKind.STARTUP else StartEntranceKind.RETURN
-            startupEntrancePending = false
-            entranceRequest++
+
+        val gatedBySystem = deviceRequiresEntranceGate()
+        waitingForUserPresent = gatedBySystem
+        if (gatedBySystem) {
+            startupEntrancePending = true
+            entranceReady = false
+            if (userPresentObserved) scheduleUnlockReleaseIfReady()
+        } else if (startupEntrancePending) {
+            finishStartupEntranceGate()
+        } else {
+            entranceReady = true
+            if (!homeWasPending) {
+                entranceKind = StartEntranceKind.RETURN
+                entranceRequest++
+            }
         }
+
         launchHandoffPending = false
-        // A deliberate Back/Home reversal remains live across a transient pause/resume.
-        // Other interrupted launches keep the previous cleanup behavior.
         if (flipState.isRunning && flipState.direction != FlipAnimationDirection.REVERSE) {
             flipState = FlipAnimationState(isRunning = false)
         }
@@ -266,8 +277,6 @@ class MainActivity : ComponentActivity() {
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
             if (flipState.isRunning) {
-                // HOME during the launcher-owned opening animation is cancellation, not a
-                // new Start entrance. Retrace the live frame first, then resolve HOME.
                 requestFlipReverse(FlipReverseReason.HOME)
                 return
             }
@@ -275,8 +284,7 @@ class MainActivity : ComponentActivity() {
             pendingLaunchIntent = null
             val returningFromOutside = !launcherResumed
             homeIntentPending = returningFromOutside
-            if (returningFromOutside) {
-                // Returning from another app uses the measured short Start entrance.
+            if (returningFromOutside && entranceReady) {
                 entranceKind = StartEntranceKind.RETURN
                 entranceRequest++
             }
@@ -285,11 +293,51 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        unlockReleaseGeneration++
         if (userPresentReceiverRegistered) {
             unregisterReceiver(userPresentReceiver)
             userPresentReceiverRegistered = false
         }
         super.onDestroy()
+    }
+
+    private fun scheduleUnlockReleaseIfReady() {
+        if (!startupEntrancePending) return
+        val generation = unlockReleaseGeneration
+        if (!launcherResumed) return
+
+        window.decorView.postOnAnimation(object : Runnable {
+            override fun run() {
+                if (generation != unlockReleaseGeneration || !startupEntrancePending) return
+                if (!launcherResumed) return
+                if (deviceRequiresEntranceGate()) {
+                    // USER_PRESENT can precede the final keyguard state transition by several
+                    // frames. Retry on the same window rather than leaving entranceReady=false.
+                    window.decorView.postOnAnimation(this)
+                    return
+                }
+                finishStartupEntranceGate()
+            }
+        })
+    }
+
+    private fun finishStartupEntranceGate() {
+        if (!startupEntrancePending) {
+            entranceReady = true
+            return
+        }
+        waitingForUserPresent = false
+        userPresentObserved = false
+        startupEntrancePending = false
+        entranceReady = true
+        entranceKind = StartEntranceKind.STARTUP
+        entranceRequest++
+    }
+
+    private fun deviceRequiresEntranceGate(): Boolean {
+        val keyguardLocked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        val interactive = getSystemService(PowerManager::class.java)?.isInteractive != false
+        return keyguardLocked || !interactive
     }
 
     private fun requestFlipReverse(reason: FlipReverseReason) {
@@ -304,8 +352,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
             reason == FlipReverseReason.HOME && flipState.reverseReason != FlipReverseReason.HOME -> {
-                // HOME has stronger destination semantics than a prior BACK request, but
-                // changing the reason must not restart the already-running reverse motion.
                 flipState = flipState.copy(reverseReason = FlipReverseReason.HOME)
             }
         }
@@ -371,8 +417,6 @@ class MainActivity : ComponentActivity() {
         try {
             launchHandoffPending = true
             startActivityWithCustomAnim(preparedIntent)
-            // Keep the completed launch face until onStop. A fixed fade timeout can
-            // expose Start while a cold app is still creating its first window.
         } catch (_: Exception) {
             launchHandoffPending = false
             activeInAppTile = tile
@@ -431,13 +475,8 @@ fun Tile8LauncherApp(
     var drawerResetRequest by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
 
-    // HOME requests are routed explicitly below so repeatedly pressing HOME on an
-    // already-settled Start screen does not manufacture another entrance request.
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
 
-    // Decorative Start artwork shares the same normalized entrance clock as the tiles but runs
-    // through the wallpaper's existing depth multipliers. Base color is intentionally stationary.
-    // Linear progress is required because StartEntranceMotion already contains the measured curve.
     LaunchedEffect(startEntranceRequest, entranceReady, startEntranceKind) {
         wallpaperEntrance.stop()
         if (!entranceReady) {
@@ -457,11 +496,25 @@ fun Tile8LauncherApp(
         if (flipState.isRunning) wallpaperEntrance.stop()
     }
 
+    // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
+    // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
+    LaunchedEffect(entranceReady) {
+        if (!entranceReady) {
+            showCharms = false
+            selectedTileForCustomization = null
+            showPinAppsDialog = false
+            showPowerDialog = false
+            currentScreen = LauncherScreen.START
+            drawerResetRequest++
+        }
+    }
+
     fun navigateToAllApps() {
-        currentScreen = LauncherScreen.ALL_APPS
+        if (entranceReady) currentScreen = LauncherScreen.ALL_APPS
     }
 
     fun searchApps() {
+        if (!entranceReady) return
         showCharms = false
         if (activeInAppTile != null) onCloseInAppTile()
         navigateToAllApps()
@@ -469,6 +522,7 @@ fun Tile8LauncherApp(
     }
 
     fun openLauncherSettings() {
+        if (!entranceReady) return
         showCharms = false
         val settingsTile = tiles.firstOrNull { it.tileType == TileType.SETTINGS }
             ?: TileModel(id = "tile_settings", title = "PC settings",
@@ -478,6 +532,7 @@ fun Tile8LauncherApp(
     }
 
     fun openDeviceSettings() {
+        if (!entranceReady) return
         showCharms = false
         val intent = Intent(android.provider.Settings.ACTION_CAST_SETTINGS)
         val fallback = Intent(android.provider.Settings.ACTION_SETTINGS)
@@ -502,15 +557,13 @@ fun Tile8LauncherApp(
             currentScreen = LauncherScreen.START
             drawerResetRequest++
         }
-        if (wasAwayFromStart) {
+        if (wasAwayFromStart && entranceReady) {
             startEntranceKind = StartEntranceKind.RETURN
             localStartEntranceRequest++
         }
     }
 
     fun navigateToStart() {
-        // Start <-> All Apps is one continuous Windows surface. Returning by swipe,
-        // the up arrow or Back must not manufacture the separate Home/Back entrance.
         if (currentScreen != LauncherScreen.START) {
             currentScreen = LauncherScreen.START
         }
@@ -519,7 +572,7 @@ fun Tile8LauncherApp(
     fun closeInAppTileAndRetriggerEntrance() {
         val wasOpen = activeInAppTile != null
         onCloseInAppTile()
-        if (wasOpen) {
+        if (wasOpen && entranceReady) {
             startEntranceKind = StartEntranceKind.RETURN
             localStartEntranceRequest++
         }
@@ -542,17 +595,14 @@ fun Tile8LauncherApp(
         value = withContext(Dispatchers.IO) { appsRepository.getCategorizedApps() }
     }
 
-    // Keep the established 140 ms Start/All Apps recession for forward launches.
-    // During a flip, however, derive it from the same raw launch timestamp so a
-    // Back/Home reversal retraces the neighboring tiles at the exact matching time.
     val activeContentRetreat by animateFloatAsState(
         targetValue = if (activeInAppTile != null) 1f else 0f,
         animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
         label = "ActiveContentRetreat",
     )
 
-    // Back button handling
-    BackHandler(enabled = !showCharms && (flipState.isRunning || activeInAppTile != null || currentScreen == LauncherScreen.ALL_APPS)) {
+    BackHandler(enabled = entranceReady && !showCharms &&
+        (flipState.isRunning || activeInAppTile != null || currentScreen == LauncherScreen.ALL_APPS)) {
         if (flipState.isRunning) {
             onRequestFlipReverse(FlipReverseReason.BACK)
         } else if (activeInAppTile != null) {
@@ -562,8 +612,7 @@ fun Tile8LauncherApp(
         }
     }
 
-    // Root Container with Static Windows 8.1 Purple Wallpaper
-    val charmsAvailable = !flipState.isRunning && !showPowerDialog &&
+    val charmsAvailable = entranceReady && !flipState.isRunning && !showPowerDialog &&
         !showPinAppsDialog && selectedTileForCustomization == null
     Box(modifier = Modifier.fillMaxSize()
         .charmsEdgeGesture(enabled = charmsAvailable && !showCharms) { showCharms = true }
@@ -577,8 +626,6 @@ fun Tile8LauncherApp(
         }) {
         WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
-            // Keep entrance motion even when optional scroll parallax is disabled. The setting
-            // still disables user-scroll parallax once the entrance has settled.
             enabled = wallpaperParallaxEnabled || wallpaperEntrance.value < 0.9999f,
             scrollOffsetPx = {
                 fun offset(state: androidx.compose.foundation.lazy.LazyListState): Float {
@@ -598,19 +645,24 @@ fun Tile8LauncherApp(
                 } else {
                     0f
                 }
-                // WindowsWallpaper maps scroll to -scroll*depthRate. Subtracting one viewport
-                // fraction here makes the decorative art begin to the right and settle leftward,
-                // while the base color stays fixed. Because the amount is normalized by current
-                // display width, portrait/landscape preserve the same visual travel fraction.
                 userScroll - viewportWidthPx * entranceTravel
             },
         )
 
-        // Start screen & All Apps drawer
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .then(if (showCharms) Modifier.clearAndSetSemantics {} else Modifier)
+                .pointerInput(entranceReady) {
+                    if (!entranceReady) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+                }
                 .graphicsLayer {
                     val retreat = if (flipState.isRunning) {
                         val fullDuration = flipState.timing.durationMillis.coerceIn(100, 2000).toFloat()
@@ -619,8 +671,6 @@ fun Tile8LauncherApp(
                     } else {
                         activeContentRetreat
                     }
-                    // SCREEN_OFF is a hard foreground gate: wallpaper remains in the layer below,
-                    // while every Start/All Apps element disappears from the newly submitted buffer.
                     val sleepGate = if (entranceReady) 1f else 0f
                     this.alpha = sleepGate * (1f - retreat)
                     this.scaleX = 1f - 0.12f * retreat
@@ -632,7 +682,7 @@ fun Tile8LauncherApp(
                 onShowAllAppsChange = { showAllApps ->
                     if (showAllApps) navigateToAllApps() else navigateToStart()
                 },
-                enabled = !showCharms && !flipState.isRunning && activeInAppTile == null,
+                enabled = entranceReady && !showCharms && !flipState.isRunning && activeInAppTile == null,
                 resetRequest = homeRequest + drawerResetRequest,
                 progressState = drawerProgress,
                 startContent = {
@@ -645,23 +695,25 @@ fun Tile8LauncherApp(
                         entranceEnabled = entranceReady && currentScreen == LauncherScreen.START &&
                             !flipState.isRunning && activeInAppTile == null,
                         prehideForEntrance = !entranceReady,
-                        interactionEnabled = !showCharms && !flipState.isRunning && activeInAppTile == null,
+                        interactionEnabled = entranceReady && !showCharms && !flipState.isRunning && activeInAppTile == null,
                         appsRepository = appsRepository,
                         onTileClick = { tile, bounds ->
-                            onTriggerFlip(tile, bounds, LaunchOrigin.START)
+                            if (entranceReady) onTriggerFlip(tile, bounds, LaunchOrigin.START)
                         },
                         onTileLongClick = { tile ->
-                            selectedTileForCustomization = tile
+                            if (entranceReady) selectedTileForCustomization = tile
                         },
                         onTilesChanged = { updatedTiles ->
-                            tiles.clear()
-                            tiles.addAll(updatedTiles)
-                            appsRepository.savePinnedTiles(updatedTiles)
+                            if (entranceReady) {
+                                tiles.clear()
+                                tiles.addAll(updatedTiles)
+                                appsRepository.savePinnedTiles(updatedTiles)
+                            }
                         },
-                        onPowerClick = { showPowerDialog = true },
+                        onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
-                        onCharmsClick = { showCharms = true },
-                        onAddAppsClick = { showPinAppsDialog = true },
+                        onCharmsClick = { if (entranceReady) showCharms = true },
+                        onAddAppsClick = { if (entranceReady) showPinAppsDialog = true },
                         onNavigateToAllApps = { navigateToAllApps() },
                     )
                 },
@@ -669,87 +721,93 @@ fun Tile8LauncherApp(
                     AllAppsScreen(
                         listState = appsScroll,
                         searchFocusRequest = searchFocusRequest,
-                        searchFocusEnabled = appsFullyVisible && !showCharms && activeInAppTile == null,
+                        searchFocusEnabled = entranceReady && appsFullyVisible && !showCharms && activeInAppTile == null,
                         sections = categorizedApps,
                         appsRepository = appsRepository,
                         onAppClick = { app, bounds ->
-                            val tile = TileModel(
-                                id = "app_${app.packageName}",
-                                title = app.label,
-                                packageName = app.packageName,
-                                activityName = app.activityName,
-                                colorValue = WindowsColors.Purple,
-                                size = TileSize.MEDIUM,
-                            )
-                            onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
+                            if (entranceReady) {
+                                val tile = TileModel(
+                                    id = "app_${app.packageName}",
+                                    title = app.label,
+                                    packageName = app.packageName,
+                                    activityName = app.activityName,
+                                    colorValue = WindowsColors.Purple,
+                                    size = TileSize.MEDIUM,
+                                )
+                                onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
+                            }
                         },
                         isAppPinned = { pkg -> tiles.any { it.packageName == pkg } },
                         onPinApp = { app ->
-                            val newTile = TileModel(
-                                id = "app_${app.packageName}_${System.currentTimeMillis()}",
-                                title = app.label,
-                                packageName = app.packageName,
-                                activityName = app.activityName,
-                                colorValue = WindowsColors.ColorOptions.random(),
-                                size = TileSize.MEDIUM,
-                                order = tiles.size,
-                            )
-                            tiles.add(newTile)
-                            appsRepository.savePinnedTiles(tiles.toList())
+                            if (entranceReady) {
+                                val newTile = TileModel(
+                                    id = "app_${app.packageName}_${System.currentTimeMillis()}",
+                                    title = app.label,
+                                    packageName = app.packageName,
+                                    activityName = app.activityName,
+                                    colorValue = WindowsColors.ColorOptions.random(),
+                                    size = TileSize.MEDIUM,
+                                    order = tiles.size,
+                                )
+                                tiles.add(newTile)
+                                appsRepository.savePinnedTiles(tiles.toList())
+                            }
                         },
                         onUnpinApp = { pkg ->
-                            tiles.removeAll { it.packageName == pkg }
-                            appsRepository.savePinnedTiles(tiles.toList())
+                            if (entranceReady) {
+                                tiles.removeAll { it.packageName == pkg }
+                                appsRepository.savePinnedTiles(tiles.toList())
+                            }
                         },
-                        onOpenAppInfo = onOpenAppInfo,
-                        onUninstallApp = onUninstallApp,
+                        onOpenAppInfo = { pkg -> if (entranceReady) onOpenAppInfo(pkg) },
+                        onUninstallApp = { pkg -> if (entranceReady) onUninstallApp(pkg) },
                         onNavigateToStart = { navigateToStart() },
                     )
                 },
             )
         }
 
-        // Active In-App Screen (Reading List, Money, Desktop, PC settings, Help+Tips)
-        if (activeInAppTile != null) {
+        if (entranceReady && activeInAppTile != null) {
             Box(Modifier.fillMaxSize().then(if (showCharms) Modifier.clearAndSetSemantics {} else Modifier)) {
-            WindowsAppView(
-                onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
-                onWallpaperStyleChanged = { wallpaperStyle = it },
-                tile = activeInAppTile,
-                appsRepository = appsRepository,
-                onTestFlip = { testTile, origin ->
-                    closeInAppTileAndRetriggerEntrance()
-                    onTriggerFlip(testTile, Rect(0f, 0f, 0f, 0f), origin)
-                },
-                onClose = { closeInAppTileAndRetriggerEntrance() },
-            )
+                WindowsAppView(
+                    onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
+                    onWallpaperStyleChanged = { wallpaperStyle = it },
+                    tile = activeInAppTile,
+                    appsRepository = appsRepository,
+                    onTestFlip = { testTile, origin ->
+                        closeInAppTileAndRetriggerEntrance()
+                        onTriggerFlip(testTile, Rect(0f, 0f, 0f, 0f), origin)
+                    },
+                    onClose = { closeInAppTileAndRetriggerEntrance() },
+                )
             }
         }
 
         WindowsCharmsOverlay(
-            visible = showCharms,
+            visible = entranceReady && showCharms,
             apps = remember(categorizedApps) { categorizedApps.flatMap { it.apps } },
             appsRepository = appsRepository,
             onAppClick = { app, bounds ->
-                showCharms = false
-                if (activeInAppTile != null) onCloseInAppTile()
-                onTriggerFlip(TileModel(
-                    id = "app_${app.packageName}", title = app.label,
-                    packageName = app.packageName, activityName = app.activityName,
-                    colorValue = WindowsColors.Purple, size = TileSize.MEDIUM,
-                ), bounds, LaunchOrigin.ALL_APPS)
+                if (entranceReady) {
+                    showCharms = false
+                    if (activeInAppTile != null) onCloseInAppTile()
+                    onTriggerFlip(TileModel(
+                        id = "app_${app.packageName}", title = app.label,
+                        packageName = app.packageName, activityName = app.activityName,
+                        colorValue = WindowsColors.Purple, size = TileSize.MEDIUM,
+                    ), bounds, LaunchOrigin.ALL_APPS)
+                }
             },
             onDismiss = { showCharms = false },
             onStart = { returnToStart() },
             onSearch = { searchApps() },
             onSettings = { openLauncherSettings() },
-            onAddApps = { showCharms = false; showPinAppsDialog = true },
+            onAddApps = { if (entranceReady) { showCharms = false; showPinAppsDialog = true } },
             onDevices = { openDeviceSettings() },
-            onPower = { showCharms = false; showPowerDialog = true },
+            onPower = { if (entranceReady) { showCharms = false; showPowerDialog = true } },
         )
 
-        // 3D Flip App Opening Animation Overlay
-        if (flipState.isRunning) {
+        if (entranceReady && flipState.isRunning) {
             FlipLaunchOverlay(
                 state = flipState,
                 progress = flipProgress,
@@ -767,8 +825,6 @@ fun Tile8LauncherApp(
                 onReverseAnimationEnd = { reason ->
                     onDismissFlip()
                     if (reason == FlipReverseReason.HOME) {
-                        // A START-origin reverse is already visually home, so do not replay
-                        // another entrance. ALL_APPS/internal origins get the short return.
                         returnToStart()
                     }
                 },
@@ -785,38 +841,37 @@ fun Tile8LauncherApp(
             )
         }
 
-        // Customize Tile Dialog (Resize / Color / Unpin). Long-press no longer opens this
-        // directly; it is reached from the Windows-style contextual command bar.
-        selectedTileForCustomization?.let { tile ->
-            CustomizeTileDialog(
-                tile = tile,
-                onDismiss = { selectedTileForCustomization = null },
-                onResize = { newSize ->
-                    val index = tiles.indexOfFirst { it.id == tile.id }
-                    if (index != -1) {
-                        tiles[index] = tile.copy(size = newSize)
+        if (entranceReady) {
+            selectedTileForCustomization?.let { tile ->
+                CustomizeTileDialog(
+                    tile = tile,
+                    onDismiss = { selectedTileForCustomization = null },
+                    onResize = { newSize ->
+                        val index = tiles.indexOfFirst { it.id == tile.id }
+                        if (index != -1) {
+                            tiles[index] = tile.copy(size = newSize)
+                            appsRepository.savePinnedTiles(tiles.toList())
+                        }
+                        selectedTileForCustomization = null
+                    },
+                    onColorChange = { newColor ->
+                        val index = tiles.indexOfFirst { it.id == tile.id }
+                        if (index != -1) {
+                            tiles[index] = tile.copy(colorValue = newColor)
+                            appsRepository.savePinnedTiles(tiles.toList())
+                        }
+                        selectedTileForCustomization = null
+                    },
+                    onUnpin = {
+                        tiles.removeAll { it.id == tile.id }
                         appsRepository.savePinnedTiles(tiles.toList())
+                        selectedTileForCustomization = null
                     }
-                    selectedTileForCustomization = null
-                },
-                onColorChange = { newColor ->
-                    val index = tiles.indexOfFirst { it.id == tile.id }
-                    if (index != -1) {
-                        tiles[index] = tile.copy(colorValue = newColor)
-                        appsRepository.savePinnedTiles(tiles.toList())
-                    }
-                    selectedTileForCustomization = null
-                },
-                onUnpin = {
-                    tiles.removeAll { it.id == tile.id }
-                    appsRepository.savePinnedTiles(tiles.toList())
-                    selectedTileForCustomization = null
-                }
-            )
+                )
+            }
         }
 
-        // Pin Apps to Start Dialog (Accessible via "+" button on Start Screen)
-        if (showPinAppsDialog) {
+        if (entranceReady && showPinAppsDialog) {
             val allInstalled by produceState<List<AppInfo>>(emptyList(), appsRepository) {
                 value = withContext(Dispatchers.IO) { appsRepository.getInstalledApps() }
             }
@@ -845,8 +900,7 @@ fun Tile8LauncherApp(
             )
         }
 
-        // Windows 8.1 Power Dialog
-        if (showPowerDialog) {
+        if (entranceReady && showPowerDialog) {
             PowerDialog(
                 onDismiss = { showPowerDialog = false },
                 onOpenLauncherSettings = {
