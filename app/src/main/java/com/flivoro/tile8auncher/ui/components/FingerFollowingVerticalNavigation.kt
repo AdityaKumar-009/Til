@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.ui.components
 
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -29,10 +30,13 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
+import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenRuntime
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -56,6 +60,20 @@ fun FingerFollowingVerticalNavigation(
     resetRequest: Int = 0,
     progressState: MutableFloatState = remember { mutableFloatStateOf(if (showAllApps) 1f else 0f) },
 ) {
+    val context = LocalContext.current
+
+    // A real screen-off/wake cycle temporarily replaces the Start/All Apps navigator with the
+    // Windows 8.1 surface. Keeping this inside the existing launcher window avoids a second
+    // Activity/window and therefore cannot disturb the launch-flip or Home/Back transition code.
+    if (WindowsLockScreenRuntime.pending) {
+        BackHandler(enabled = true) { }
+        Windows81LockScreen(
+            cameraGestureEnabled = WindowsLockScreenPreferences.isCameraGestureEnabled(context),
+            onDismiss = { WindowsLockScreenRuntime.dismiss() },
+        )
+        return
+    }
+
     var progress by progressState
     val swipeVelocityThreshold = with(LocalDensity.current) { 300.dp.toPx() }
     val focusManager = LocalFocusManager.current
