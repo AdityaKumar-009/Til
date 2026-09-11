@@ -35,13 +35,18 @@ import java.util.WeakHashMap
  * strong enough guarantee: the old settled Start buffer can be flashed before Compose submits the
  * hidden frame. This application-owned curtain is a separate, always-laid-out hardware layer. Its
  * alpha is changed directly on the View at screen-off, so the buffer visible at unlock contains
- * only the Start wallpaper. The curtain is released after two display frames on USER_PRESENT,
- * giving MainActivity/Compose one full hidden frame to prepare entrance frame zero and the next
- * frame to begin the measured animation.
+ * only the Start wallpaper.
+ *
+ * USER_PRESENT and Activity resume do not have a guaranteed order across Android/OEM builds. The
+ * curtain therefore remains held until MainActivity is actually RESUMED and keyguard is gone, then
+ * waits two display frames: one hidden frame for Compose to submit Start progress zero and one frame
+ * for the measured entrance to begin. The release is compositor-only (no fade), so no extra motion
+ * is introduced into the Windows animation itself.
  */
 class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var prefs: SharedPreferences
     private val curtains = WeakHashMap<Activity, ComposeView>()
+    private val resumedActivities = WeakHashMap<Activity, Boolean>()
     private var wallpaperStyle by mutableIntStateOf(0)
     private var holdCurtain = false
     private var curtainGeneration = 0
@@ -52,7 +57,11 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
                 Intent.ACTION_SCREEN_OFF,
                 Intent.ACTION_SCREEN_ON -> showCurtainImmediately()
 
-                Intent.ACTION_USER_PRESENT -> releaseCurtainAfterPreparedFrames()
+                Intent.ACTION_USER_PRESENT -> {
+                    // MainActivity may not be resumed yet. releaseCurtainAfterPreparedFrames()
+                    // only schedules resumed activities; onActivityResumed retries if necessary.
+                    releaseCurtainAfterPreparedFrames()
+                }
             }
         }
     }
@@ -82,20 +91,25 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
 
             override fun onActivityResumed(activity: Activity) {
                 if (activity !is MainActivity) return
+                resumedActivities[activity] = true
                 attachCurtain(activity)
-                if (deviceRequiresCurtain() || holdCurtain) {
-                    showCurtainImmediately()
-                } else {
-                    hideCurtain(activity)
+                when {
+                    deviceRequiresCurtain() -> showCurtainImmediately()
+                    holdCurtain -> releaseCurtainAfterPreparedFrames()
+                    else -> hideCurtain(activity)
                 }
             }
 
+            override fun onActivityPaused(activity: Activity) {
+                resumedActivities.remove(activity)
+            }
+
             override fun onActivityDestroyed(activity: Activity) {
+                resumedActivities.remove(activity)
                 curtains.remove(activity)?.disposeComposition()
             }
 
             override fun onActivityStarted(activity: Activity) = Unit
-            override fun onActivityPaused(activity: Activity) = Unit
             override fun onActivityStopped(activity: Activity) = Unit
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
         })
@@ -166,17 +180,44 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
     }
 
     private fun releaseCurtainAfterPreparedFrames() {
+        if (deviceRequiresCurtain()) return
         val generation = ++curtainGeneration
-        curtains.forEach { (activity, curtain) ->
-            curtain.postOnAnimation {
-                // Frame 1: MainActivity receives USER_PRESENT and composes Start at progress zero
-                // underneath this opaque wallpaper surface.
-                curtain.postOnAnimation {
-                    if (generation != curtainGeneration || deviceRequiresCurtain()) return@postOnAnimation
-                    holdCurtain = false
-                    hideCurtain(activity)
-                }
+        val resumed = resumedActivities.keys.toList()
+        if (resumed.isEmpty()) return
+        resumed.forEach { activity ->
+            val curtain = curtains[activity] ?: return@forEach
+            scheduleReleaseFrame(activity, curtain, generation, framesRemaining = PREPARE_FRAMES)
+        }
+    }
+
+    private fun scheduleReleaseFrame(
+        activity: Activity,
+        curtain: ComposeView,
+        generation: Int,
+        framesRemaining: Int,
+    ) {
+        curtain.postOnAnimation releaseFrame@{
+            if (generation != curtainGeneration) return@releaseFrame
+            if (activity !in resumedActivities) return@releaseFrame
+            if (deviceRequiresCurtain()) {
+                // Some keyguards report locked for a frame or two after USER_PRESENT. Keep the
+                // wallpaper up and retry instead of risking either a flash or a permanently stuck
+                // curtain because one early release callback happened to lose the race.
+                scheduleReleaseFrame(
+                    activity = activity,
+                    curtain = curtain,
+                    generation = generation,
+                    framesRemaining = framesRemaining.coerceAtLeast(1),
+                )
+                return@releaseFrame
             }
+            if (framesRemaining > 1) {
+                scheduleReleaseFrame(activity, curtain, generation, framesRemaining - 1)
+                return@releaseFrame
+            }
+
+            holdCurtain = false
+            hideCurtain(activity)
         }
     }
 
@@ -196,5 +237,6 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
     companion object {
         private const val PREFS_NAME = "tile8_launcher_prefs_v2"
         private const val KEY_WALLPAPER_STYLE = "wallpaper_style"
+        private const val PREPARE_FRAMES = 2
     }
 }
