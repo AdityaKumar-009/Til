@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -57,6 +58,7 @@ import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
+import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
@@ -99,6 +101,9 @@ class MainActivity : ComponentActivity() {
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                // The application-level compositor curtain is raised independently at the same
+                // broadcast. This state gate makes the next Compose buffer background-only too,
+                // so there is no settled Start content waiting underneath the curtain.
                 startupEntrancePending = true
                 entranceReady = false
                 return
@@ -418,6 +423,7 @@ fun Tile8LauncherApp(
         mutableStateOf(false)
     }
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
+    val wallpaperEntrance = remember { Animatable(if (entranceReady) 1f else 0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
     var showCharms by remember { mutableStateOf(false) }
@@ -428,6 +434,28 @@ fun Tile8LauncherApp(
     // HOME requests are routed explicitly below so repeatedly pressing HOME on an
     // already-settled Start screen does not manufacture another entrance request.
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
+
+    // Decorative Start artwork shares the same normalized entrance clock as the tiles but runs
+    // through the wallpaper's existing depth multipliers. Base color is intentionally stationary.
+    // Linear progress is required because StartEntranceMotion already contains the measured curve.
+    LaunchedEffect(startEntranceRequest, entranceReady, startEntranceKind) {
+        wallpaperEntrance.stop()
+        if (!entranceReady) {
+            wallpaperEntrance.snapTo(0f)
+        } else {
+            wallpaperEntrance.snapTo(0f)
+            wallpaperEntrance.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = StartEntranceMotion.durationMillis(startEntranceKind),
+                    easing = LinearEasing,
+                ),
+            )
+        }
+    }
+    LaunchedEffect(flipState.isRunning) {
+        if (flipState.isRunning) wallpaperEntrance.stop()
+    }
 
     fun navigateToAllApps() {
         currentScreen = LauncherScreen.ALL_APPS
@@ -549,7 +577,9 @@ fun Tile8LauncherApp(
         }) {
         WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
-            enabled = wallpaperParallaxEnabled,
+            // Keep entrance motion even when optional scroll parallax is disabled. The setting
+            // still disables user-scroll parallax once the entrance has settled.
+            enabled = wallpaperParallaxEnabled || wallpaperEntrance.value < 0.9999f,
             scrollOffsetPx = {
                 fun offset(state: androidx.compose.foundation.lazy.LazyListState): Float {
                     val info = state.layoutInfo
@@ -558,7 +588,21 @@ fun Tile8LauncherApp(
                         state.firstVisibleItemScrollOffset).coerceAtLeast(0f)
                 }
                 val p = drawerProgress.floatValue
-                offset(startScroll) * (1f - p) + offset(appsScroll) * p
+                val userScroll = offset(startScroll) * (1f - p) + offset(appsScroll) * p
+                val viewportWidthPx = context.resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+                val entranceTravel = if (currentScreen == LauncherScreen.START && activeInAppTile == null) {
+                    StartEntranceMotion.backgroundTravelFraction(
+                        progress = wallpaperEntrance.value,
+                        kind = startEntranceKind,
+                    )
+                } else {
+                    0f
+                }
+                // WindowsWallpaper maps scroll to -scroll*depthRate. Subtracting one viewport
+                // fraction here makes the decorative art begin to the right and settle leftward,
+                // while the base color stays fixed. Because the amount is normalized by current
+                // display width, portrait/landscape preserve the same visual travel fraction.
+                userScroll - viewportWidthPx * entranceTravel
             },
         )
 
@@ -575,7 +619,10 @@ fun Tile8LauncherApp(
                     } else {
                         activeContentRetreat
                     }
-                    this.alpha = 1f - retreat
+                    // SCREEN_OFF is a hard foreground gate: wallpaper remains in the layer below,
+                    // while every Start/All Apps element disappears from the newly submitted buffer.
+                    val sleepGate = if (entranceReady) 1f else 0f
+                    this.alpha = sleepGate * (1f - retreat)
                     this.scaleX = 1f - 0.12f * retreat
                     this.scaleY = 1f - 0.12f * retreat
                 }
