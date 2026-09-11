@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Mosaic Launcher</string>
+    <string name="accessibility_service_description">Allows Mosaic Launcher to perform only the optional launcher gesture action that locks the screen.</string>
 </resources>

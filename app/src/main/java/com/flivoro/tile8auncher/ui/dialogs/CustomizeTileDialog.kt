@@ -1,5 +1,8 @@
 package com.flivoro.tile8auncher.ui.dialogs
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,17 +22,26 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
+import com.flivoro.tile8auncher.features.IconPackManager
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -42,6 +54,33 @@ fun CustomizeTileDialog(
     onColorChange: (Long) -> Unit,
     onUnpin: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var liveTileEnabled by remember(tile.packageName) {
+        mutableStateOf(
+            tile.packageName?.let { LauncherFeatureStore.isLiveTileEnabled(context, it) } ?: false,
+        )
+    }
+    var customIconSet by remember(tile.packageName) {
+        mutableStateOf(
+            tile.packageName?.let { LauncherFeatureStore.customIconUri(context, it) != null } ?: false,
+        )
+    }
+    val iconPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val packageName = tile.packageName ?: return@rememberLauncherForActivityResult
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            LauncherFeatureStore.setCustomIconUri(context, packageName, uri.toString())
+            IconPackManager.clearCaches()
+            LauncherFeatureRuntime.notifyIconsChanged()
+            customIconSet = true
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RectangleShape,
@@ -117,6 +156,70 @@ fun CustomizeTileDialog(
                                 )
                                 .clickable { onColorChange(colorLong) },
                         )
+                    }
+                }
+
+                if (!tile.packageName.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                liveTileEnabled = !liveTileEnabled
+                                LauncherFeatureStore.setLiveTileEnabled(
+                                    context,
+                                    tile.packageName,
+                                    liveTileEnabled,
+                                )
+                            }
+                            .padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Live tile",
+                                style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
+                                color = Color.White,
+                            )
+                            Text(
+                                text = "Use Android notifications as Windows-style upward live updates.",
+                                style = WindowsTypography.labelSmall.copy(fontSize = 10.sp),
+                                color = Color.LightGray,
+                            )
+                        }
+                        Switch(
+                            checked = liveTileEnabled,
+                            onCheckedChange = { checked ->
+                                liveTileEnabled = checked
+                                LauncherFeatureStore.setLiveTileEnabled(context, tile.packageName, checked)
+                            },
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { iconPicker.launch(arrayOf("image/*")) },
+                            shape = RectangleShape,
+                        ) {
+                            Text(
+                                if (customIconSet) "Change custom icon" else "Choose custom icon",
+                                style = WindowsTypography.labelSmall,
+                            )
+                        }
+                        if (customIconSet) {
+                            OutlinedButton(
+                                onClick = {
+                                    LauncherFeatureStore.setCustomIconUri(context, tile.packageName, null)
+                                    IconPackManager.clearCaches()
+                                    LauncherFeatureRuntime.notifyIconsChanged()
+                                    customIconSet = false
+                                },
+                                shape = RectangleShape,
+                            ) {
+                                Text("Reset icon", style = WindowsTypography.labelSmall)
+                            }
+                        }
                     }
                 }
 

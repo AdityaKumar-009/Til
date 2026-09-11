@@ -21,6 +21,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.R
+import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,7 +34,11 @@ private val wallpaperResources = listOf(0, R.drawable.start_wallpaper_1, R.drawa
     R.drawable.start_wallpaper_9)
 
 @Composable
-internal fun WallpaperPicker(selected: Int, onSelect: (Int) -> Unit) {
+internal fun WallpaperPicker(
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    appsRepository: AppsRepository? = null,
+) {
     val context = LocalContext.current
     val resources = context.resources
     var lockScreenEnabled by remember {
@@ -148,4 +154,6 @@ internal fun WallpaperPicker(selected: Int, onSelect: (Int) -> Unit) {
             lineHeight = 15.sp,
         )
     }
+
+    LauncherFeatureSettings(appsRepository = appsRepository)
 }

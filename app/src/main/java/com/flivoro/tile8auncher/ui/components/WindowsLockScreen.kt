@@ -3,15 +3,19 @@ package com.flivoro.tile8auncher.ui.components
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.BatteryManager
 import android.provider.MediaStore
 import android.text.format.DateFormat
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -35,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -43,23 +48,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LiveTileNotificationStore
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -70,6 +84,8 @@ import kotlin.math.roundToInt
  *
  * The panel follows the finger one-for-one. Releasing past the historical swipe direction settles
  * the panel off the top edge; a downward gesture optionally opens the camera, matching Windows 8.1.
+ * Slideshow/status content is deliberately layered inside this surface and never modifies the drag
+ * state or settle timing below.
  */
 @Composable
 fun Windows81LockScreen(
@@ -81,9 +97,12 @@ fun Windows81LockScreen(
     var heightPx by remember { mutableIntStateOf(1) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val slideshowUris = remember { LauncherFeatureStore.lockSlideshowUris(context) }
+    var slideshowIndex by remember(slideshowUris) { mutableIntStateOf(0) }
+    val quickStatusPackages = remember { LauncherFeatureStore.lockStatusPackages(context) }
+    val detailedStatusPackage = remember { LauncherFeatureStore.lockDetailedPackage(context) }
+    val appsRepository = remember(context) { AppsRepository(context.applicationContext) }
 
-    // Windows 8.1's lock screen is an immersive full-window surface. Hide Android chrome only while
-    // this visual layer is present, then restore it immediately when Start is revealed.
     val activity = context as? Activity
     DisposableEffect(activity) {
         val window = activity?.window
@@ -91,15 +110,21 @@ fun Windows81LockScreen(
         controller?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller?.hide(WindowInsetsCompat.Type.systemBars())
-        onDispose {
-            controller?.show(WindowInsetsCompat.Type.systemBars())
-        }
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
     LaunchedEffect(Unit) {
         while (true) {
             nowMillis = System.currentTimeMillis()
             delay(1_000L - (nowMillis % 1_000L))
+        }
+    }
+
+    LaunchedEffect(slideshowUris) {
+        if (slideshowUris.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(10_000L)
+            slideshowIndex = (slideshowIndex + 1) % slideshowUris.size
         }
     }
 
@@ -113,6 +138,7 @@ fun Windows81LockScreen(
     }
     val batteryLevel = remember(nowMillis / 15_000L) { readBatteryLevel(context) }
     val networkConnected = remember(nowMillis / 5_000L) { isNetworkConnected(context) }
+    val detailedStatus = detailedStatusPackage?.let { LiveTileNotificationStore.latest(context, it) }
 
     suspend fun settleTo(target: Float, durationMillis: Int) {
         val start = offsetY
@@ -120,9 +146,7 @@ fun Windows81LockScreen(
             initialValue = start,
             targetValue = target,
             animationSpec = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing),
-        ) { value, _ ->
-            offsetY = value
-        }
+        ) { value, _ -> offsetY = value }
     }
 
     fun dismissUp() {
@@ -139,7 +163,6 @@ fun Windows81LockScreen(
             if (!launched) {
                 settleTo(0f, 210)
             } else {
-                // Reset behind the external camera so returning to Mosaic presents a complete panel.
                 delay(320)
                 offsetY = 0f
             }
@@ -179,7 +202,7 @@ fun Windows81LockScreen(
                 }
             },
     ) {
-        Windows81DefaultLockArtwork(Modifier.fillMaxSize())
+        LockArtwork(slideshowUris = slideshowUris, slideshowIndex = slideshowIndex)
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val portrait = maxHeight > maxWidth
@@ -191,18 +214,37 @@ fun Windows81LockScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = horizontalPadding, bottom = bottomPadding),
+                    .padding(start = horizontalPadding, end = 22.dp, bottom = bottomPadding),
             ) {
-                TextWithWindowsLockStyle(
-                    text = timeText,
-                    sizeSp = timeSize.value,
-                    weight = FontWeight.Light,
-                )
-                TextWithWindowsLockStyle(
-                    text = dateText,
-                    sizeSp = dateSize.value,
-                    weight = FontWeight.Light,
-                )
+                TextWithWindowsLockStyle(timeText, timeSize.value, FontWeight.Light)
+                TextWithWindowsLockStyle(dateText, dateSize.value, FontWeight.Light)
+
+                if (detailedStatus != null &&
+                    (detailedStatus.title.isNotBlank() || detailedStatus.text.isNotBlank())
+                ) {
+                    Spacer(Modifier.height(11.dp))
+                    Column(Modifier.width(if (portrait) 300.dp else 430.dp)) {
+                        if (detailedStatus.title.isNotBlank()) {
+                            androidx.compose.material3.Text(
+                                detailedStatus.title,
+                                color = Color.White,
+                                style = WindowsTypography.titleMedium.copy(fontSize = 13.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (detailedStatus.text.isNotBlank()) {
+                            androidx.compose.material3.Text(
+                                detailedStatus.text,
+                                color = Color.White.copy(alpha = .92f),
+                                style = WindowsTypography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(13.dp))
                 Row(
                     verticalAlignment = Alignment.Bottom,
@@ -210,8 +252,71 @@ fun Windows81LockScreen(
                 ) {
                     NetworkStatusGlyph(connected = networkConnected)
                     BatteryStatusGlyph(level = batteryLevel)
+                    quickStatusPackages.take(7).forEach { packageName ->
+                        QuickStatusGlyph(
+                            packageName = packageName,
+                            repository = appsRepository,
+                            count = LiveTileNotificationStore.latest(context, packageName)?.count ?: 0,
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LockArtwork(slideshowUris: List<String>, slideshowIndex: Int) {
+    val context = LocalContext.current
+    if (slideshowUris.isEmpty()) {
+        Windows81DefaultLockArtwork(Modifier.fillMaxSize())
+        return
+    }
+    Crossfade(
+        targetState = slideshowIndex.coerceIn(0, slideshowUris.lastIndex),
+        animationSpec = tween(900),
+        label = "Windows81LockSlideshow",
+    ) { index ->
+        val uri = slideshowUris.getOrNull(index)
+        val bitmap by produceState<ImageBitmap?>(null, uri, context) {
+            value = uri?.let { withContext(Dispatchers.IO) { decodeLockBitmap(context, Uri.parse(it)) } }
+        }
+        Box(Modifier.fillMaxSize()) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Canvas(Modifier.fillMaxSize()) { drawRect(Color(0x18000000)) }
+            } else {
+                Windows81DefaultLockArtwork(Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickStatusGlyph(
+    packageName: String,
+    repository: AppsRepository,
+    count: Int,
+) {
+    val icon = rememberAppIcon(repository, packageName)
+    Box(Modifier.size(24.dp)) {
+        if (icon != null) {
+            Image(icon, null, Modifier.align(Alignment.Center).size(20.dp))
+        } else {
+            MetroIcon("app", color = Color.White, size = 19.dp, modifier = Modifier.align(Alignment.Center))
+        }
+        if (count > 0) {
+            androidx.compose.material3.Text(
+                text = count.coerceAtMost(99).toString(),
+                color = Color.White,
+                style = WindowsTypography.labelSmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold),
+                modifier = Modifier.align(Alignment.BottomEnd),
+            )
         }
     }
 }
@@ -233,16 +338,10 @@ private fun TextWithWindowsLockStyle(
     )
 }
 
-/**
- * Programmatic reconstruction of the recognizable Windows 8.1 default lock artwork. Keeping the
- * art vector-like makes it resolution independent and avoids stretching a desktop bitmap on phones.
- */
 @Composable
 private fun Windows81DefaultLockArtwork(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         drawRect(Color(0xFF6D6B65))
-
-        // Soft dark corners visible in the original default artwork.
         drawRect(Color(0x1C000000))
 
         val colors = listOf(
@@ -270,8 +369,6 @@ private fun Windows81DefaultLockArtwork(modifier: Modifier = Modifier) {
                 close()
             }
             drawPath(path, color)
-
-            // Fine separators give the layered paper/ribbon texture seen in the original image.
             val separator = Path().apply {
                 moveTo(left, y + bandHeight * 1.24f)
                 lineTo(right, y + slope + bandHeight * 1.24f)
@@ -279,7 +376,6 @@ private fun Windows81DefaultLockArtwork(modifier: Modifier = Modifier) {
             drawPath(separator, Color(0x35000000), style = Stroke(width = 1.1f))
         }
 
-        // A subtle bright rim through the center keeps the artwork from reading as flat color bars.
         drawLine(
             color = Color(0x26FFFFFF),
             start = Offset(-size.width * 0.25f, size.height * 0.38f),
@@ -340,6 +436,18 @@ private fun BatteryStatusGlyph(level: Int) {
         )
     }
 }
+
+private fun decodeLockBitmap(context: Context, uri: Uri): ImageBitmap? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    val longest = maxOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
+    var sample = 1
+    while (longest / sample > 1920) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+    context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
+    }
+}.getOrNull()
 
 private fun readBatteryLevel(context: Context): Int {
     val manager = context.getSystemService(BatteryManager::class.java)

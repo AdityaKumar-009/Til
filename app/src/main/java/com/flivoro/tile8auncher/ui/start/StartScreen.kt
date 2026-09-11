@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -76,6 +77,11 @@ import androidx.compose.ui.zIndex
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
+import com.flivoro.tile8auncher.features.HostedWidgetTile
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.passiveDoubleTap
+import com.flivoro.tile8auncher.features.performStartDoubleTapAction
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.components.MetroIcon
@@ -84,7 +90,9 @@ import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 private const val START_BAND_SPACING_DP = 24f
@@ -93,6 +101,13 @@ private const val TILE_REORDER_DURATION_MS = 180
 private data class EntranceViewportSnapshot(
     val startBand: Int,
     val startOffsetPx: Int,
+)
+
+private data class GroupDialogRequest(
+    val title: String,
+    val initialValue: String,
+    val selectedIds: Set<String>,
+    val renameWholeGroup: Boolean,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -117,6 +132,7 @@ fun StartScreen(
     interactionEnabled: Boolean = true,
     listState: LazyListState = rememberLazyListState(),
 ) {
+    val context = LocalContext.current
     val entrance = remember { Animatable(0f) }
     var playingKind by remember { mutableStateOf(entranceKind) }
     val scope = rememberCoroutineScope()
@@ -128,7 +144,7 @@ fun StartScreen(
     }
 
     // Start customization state. The underlying grid remains packStartTiles; drag changes only
-    // the stable input order, so no second layout model can drift away from the existing layout.
+    // the stable input order, so none of these additions alter StartEntranceMotion geometry.
     var selectedTileIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dragTiles by remember { mutableStateOf<List<TileModel>?>(null) }
     var draggingTileId by remember { mutableStateOf<String?>(null) }
@@ -136,12 +152,27 @@ fun StartScreen(
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
     var lastSwapTargetId by remember { mutableStateOf<String?>(null) }
     var showResizeChoices by remember { mutableStateOf(false) }
+    var openFolderTile by remember { mutableStateOf<TileModel?>(null) }
+    var groupDialog by remember { mutableStateOf<GroupDialogRequest?>(null) }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
 
     val latestInteractionEnabled = rememberUpdatedState(interactionEnabled)
     val latestOnTileClick = rememberUpdatedState(onTileClick)
     val latestOnTileLongClick = rememberUpdatedState(onTileLongClick)
     val latestOnTilesChanged = rememberUpdatedState(onTilesChanged)
+    val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
+    val doubleTapAction = LauncherFeatureStore.doubleTapAction(context)
+
+    // Widget picker / backup restore run outside MainActivity by design. A tiny process-local revision
+    // refreshes only the persisted tile list; it does not touch navigation or entrance requests.
+    LaunchedEffect(externalPinnedRevision) {
+        if (externalPinnedRevision > 0) {
+            val reloaded = withContext(Dispatchers.IO) { appsRepository.loadPinnedTiles() }
+            if (reloaded.map { it.id } != tiles.map { it.id } || reloaded != tiles) {
+                latestOnTilesChanged.value(reloaded)
+            }
+        }
+    }
 
     // Screen-off must prepare frame zero before Android reveals this window again. This is a
     // rendering gate only; StartEntranceMotion itself is intentionally untouched.
@@ -155,6 +186,8 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragOffset = Offset.Zero
+            openFolderTile = null
+            groupDialog = null
         }
     }
 
@@ -166,20 +199,14 @@ fun StartScreen(
             entrance.snapTo(0f)
             return@LaunchedEffect
         }
-
         if (prehideForEntrance) return@LaunchedEffect
-
         if (!entranceEnabled) {
             entrance.stop()
             entranceRunning = false
-            // A return request received while Start is not the visible surface is stale. Consume it
-            // now so returning from an app opened in All Apps cannot replay the short Start entrance
-            // later when the user swipes back to Start.
             lastStartedRequest = entranceRequest
             entrance.snapTo(1f)
             return@LaunchedEffect
         }
-
         if (entranceRequest == lastStartedRequest) {
             entrance.snapTo(1f)
             return@LaunchedEffect
@@ -211,6 +238,8 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragOffset = Offset.Zero
+            openFolderTile = null
+            groupDialog = null
         }
     }
 
@@ -224,8 +253,13 @@ fun StartScreen(
         }
     }
 
-    BackHandler(enabled = interactionEnabled && (showBandOverview || selectedTileIds.isNotEmpty())) {
+    BackHandler(
+        enabled = interactionEnabled &&
+            (showBandOverview || selectedTileIds.isNotEmpty() || openFolderTile != null || groupDialog != null),
+    ) {
         when {
+            groupDialog != null -> groupDialog = null
+            openFolderTile != null -> openFolderTile = null
             showBandOverview -> showBandOverview = false
             selectedTileIds.isNotEmpty() -> {
                 selectedTileIds = emptySet()
@@ -237,28 +271,33 @@ fun StartScreen(
         }
     }
 
+    fun openTileOrFolder(tile: TileModel, bounds: Rect) {
+        val folderPackages = LauncherFeatureStore.folderPackages(context, tile.id)
+        if (folderPackages.isNotEmpty()) {
+            openFolderTile = tile
+        } else {
+            latestOnTileClick.value(tile, bounds)
+        }
+    }
+
     fun handleTileClick(tile: TileModel, bounds: Rect) {
         if (!latestInteractionEnabled.value) return
         if (selectedTileIds.isNotEmpty()) {
-            selectedTileIds = if (tile.id in selectedTileIds) {
-                selectedTileIds - tile.id
-            } else {
-                selectedTileIds + tile.id
-            }
+            selectedTileIds = if (tile.id in selectedTileIds) selectedTileIds - tile.id else selectedTileIds + tile.id
             showResizeChoices = false
             return
         }
         if (!entranceRunning) {
-            latestOnTileClick.value(tile, bounds)
+            openTileOrFolder(tile, bounds)
             return
         }
 
-        // Keep the frame that produced the live bounds. The launch overlay can
-        // then start from the same transformed tile while the motion stops.
+        // Keep the frame that produced the live bounds. The launch overlay can then start from the
+        // same transformed tile while the motion stops. Folder opening uses the same stop point.
         scope.launch {
             entrance.stop()
             entranceRunning = false
-            if (latestInteractionEnabled.value) latestOnTileClick.value(tile, bounds)
+            if (latestInteractionEnabled.value) openTileOrFolder(tile, bounds)
         }
     }
 
@@ -266,6 +305,7 @@ fun StartScreen(
         if (!latestInteractionEnabled.value) return
         fun enterCustomization() {
             showBandOverview = false
+            openFolderTile = null
             selectedTileIds = setOf(tile.id)
             showResizeChoices = false
             dragTiles = tiles.toList()
@@ -290,9 +330,7 @@ fun StartScreen(
         val draggedId = draggingTileId ?: return
         dragOffset += delta
         val center = dragOriginBounds.center + dragOffset
-        val targetEntry = tileBounds.entries.firstOrNull { (id, bounds) ->
-            id != draggedId && bounds.contains(center)
-        }
+        val targetEntry = tileBounds.entries.firstOrNull { (id, bounds) -> id != draggedId && bounds.contains(center) }
         val targetId = targetEntry?.key
         if (targetId == null) {
             lastSwapTargetId = null
@@ -302,8 +340,7 @@ fun StartScreen(
 
         val targetBounds = targetEntry.value
         val sameVisualRow = abs(center.y - targetBounds.center.y) <= targetBounds.height * 0.45f
-        val placeAfter = if (sameVisualRow) center.x >= targetBounds.center.x
-            else center.y >= targetBounds.center.y
+        val placeAfter = if (sameVisualRow) center.x >= targetBounds.center.x else center.y >= targetBounds.center.y
         val current = dragTiles ?: tiles.toList()
         dragTiles = reorderStartTiles(current, draggedId, targetId, placeAfter)
         lastSwapTargetId = targetId
@@ -357,14 +394,23 @@ fun StartScreen(
         modifier = modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .passiveDoubleTap {
+                if (interactionEnabled && selectedTileIds.isEmpty() && openFolderTile == null) {
+                    performStartDoubleTapAction(
+                        context = context,
+                        action = doubleTapAction,
+                        onSearch = onSearchClick,
+                        onAllApps = onNavigateToAllApps,
+                        onCharms = onCharmsClick,
+                    )
+                }
+            },
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Start Screen Header: "Start" and User/Power/Search/Add controls
+            // Start Screen Header: unchanged Windows 8.1 chrome and entrance alpha.
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -372,11 +418,7 @@ fun StartScreen(
                     .graphicsLayer { alpha = StartEntranceMotion.headerAlpha(entranceProgress, playingKind) },
             ) {
                 val availableWidth = maxWidth
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     val isCompact = availableWidth < 400.dp
                     val isVeryNarrow = availableWidth < 280.dp
                     val controlSize = when {
@@ -454,11 +496,7 @@ fun StartScreen(
                                 ),
                             contentAlignment = Alignment.Center,
                         ) {
-                            MetroIcon(
-                                glyph = "power",
-                                color = Color.White,
-                                size = if (isVeryNarrow) 18.dp else 20.dp,
-                            )
+                            MetroIcon("power", color = Color.White, size = if (isVeryNarrow) 18.dp else 20.dp)
                         }
 
                         Box(
@@ -470,11 +508,7 @@ fun StartScreen(
                                 ),
                             contentAlignment = Alignment.Center,
                         ) {
-                            MetroIcon(
-                                glyph = "search",
-                                color = Color.White,
-                                size = if (isVeryNarrow) 18.dp else 20.dp,
-                            )
+                            MetroIcon("search", color = Color.White, size = if (isVeryNarrow) 18.dp else 20.dp)
                         }
                     }
                 }
@@ -482,14 +516,7 @@ fun StartScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) {
-                // Keep the existing tile/grid sizing based on the old padded viewport, while the
-                // actual LazyRow viewport spans the screen. Endpoint spacing now belongs to the
-                // scroll content, so it naturally scrolls away instead of becoming a permanent gutter.
+            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val layoutWidth = maxWidth - 48.dp
                 val metrics = remember(layoutWidth, maxHeight) {
                     calculateStartGridMetrics(
@@ -505,9 +532,7 @@ fun StartScreen(
                     metrics.bandWidthDp.dp.toPx() + START_BAND_SPACING_DP.dp.toPx()
                 }
 
-                val tileSnapshot by remember(visibleTiles) {
-                    derivedStateOf { visibleTiles.toList() }
-                }
+                val tileSnapshot by remember(visibleTiles) { derivedStateOf { visibleTiles.toList() } }
                 val packed = remember(tileSnapshot, metrics.rows, metrics.columns) {
                     packStartTiles(
                         tiles = tileSnapshot,
@@ -519,9 +544,7 @@ fun StartScreen(
                 val canScrollTiles = interactionEnabled && draggingTileId == null
                 val rowModifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier,
-                    )
+                    .then(if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier)
 
                 Box(Modifier.fillMaxSize()) {
                     LazyRow(
@@ -542,8 +565,11 @@ fun StartScreen(
                                     .height(metrics.bandHeightDp.dp)
                                     .graphicsLayer {
                                         val position = StartEntranceMotion.viewportBandPosition(
-                                            bandIndex, viewportSnapshot.startBand,
-                                            viewportSnapshot.startOffsetPx, bandExtentPx)
+                                            bandIndex,
+                                            viewportSnapshot.startBand,
+                                            viewportSnapshot.startOffsetPx,
+                                            bandExtentPx,
+                                        )
                                         val frame = StartEntranceMotion.frame(entranceProgress, position, playingKind)
                                         translationX = StartEntranceMotion.translationX(
                                             frame = frame,
@@ -551,8 +577,10 @@ fun StartScreen(
                                             viewportWidthPx = viewportWidthPx,
                                             bandWidthPx = bandWidthPx,
                                         )
-                                        transformOrigin = TransformOrigin(.5f,
-                                            viewportHeightPx / (2f * size.height.coerceAtLeast(1f)))
+                                        transformOrigin = TransformOrigin(
+                                            .5f,
+                                            viewportHeightPx / (2f * size.height.coerceAtLeast(1f)),
+                                        )
                                         scaleX = frame.scale
                                         scaleY = frame.scale
                                         alpha = frame.alpha
@@ -561,9 +589,7 @@ fun StartScreen(
                                 band.tiles.forEach { placed ->
                                     key(placed.tile.id) {
                                         val tile = placed.tile
-                                        val appIcon = tile.packageName?.let { packageName ->
-                                            rememberAppIcon(appsRepository, packageName)
-                                        }
+                                        val appIcon = tile.packageName?.let { rememberAppIcon(appsRepository, it) }
                                         val tileWidth = (
                                             placed.columns * metrics.cellDp +
                                                 (placed.columns - 1) * metrics.gapDp
@@ -591,6 +617,7 @@ fun StartScreen(
                                             animationSpec = tween(110, easing = FastOutSlowInEasing),
                                             label = "StartTileLift:${tile.id}",
                                         )
+                                        val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
                                         Box(
                                             modifier = Modifier
@@ -598,9 +625,7 @@ fun StartScreen(
                                                 .size(tileWidth, tileHeight)
                                                 .zIndex(if (isDragging) 3f else if (isSelected) 1f else 0f)
                                                 .onGloballyPositioned { coordinates ->
-                                                    if (coordinates.isAttached) {
-                                                        tileBounds[tile.id] = coordinates.boundsInWindow()
-                                                    }
+                                                    if (coordinates.isAttached) tileBounds[tile.id] = coordinates.boundsInWindow()
                                                 }
                                                 .graphicsLayer {
                                                     scaleX = selectionScale
@@ -613,22 +638,47 @@ fun StartScreen(
                                                 }
                                                 .alpha(if (tile.id == launchingTileId) 0f else 1f),
                                         ) {
-                                            WindowsTileView(
-                                                tile = tile,
-                                                appIcon = appIcon,
-                                                modifier = Modifier.fillMaxSize(),
-                                                onClick = { bounds -> handleTileClick(tile, bounds) },
-                                                onLongClick = {
-                                                    // Long press is owned by drag on Start. This fallback
-                                                    // remains for accessibility/non-drag callers.
-                                                    selectedTileIds = setOf(tile.id)
-                                                },
-                                                dragEnabled = interactionEnabled && launchingTileId == null,
-                                                onDragStart = { bounds -> beginTileDrag(tile, bounds) },
-                                                onDrag = ::moveDraggedTile,
-                                                onDragEnd = { finishTileDrag(commit = true) },
-                                                onDragCancel = { finishTileDrag(commit = false) },
-                                            )
+                                            // Android widget views are mounted only when the fitted Start entrance is
+                                            // settled. During its short/long entrance the ordinary tile face stays in
+                                            // the exact existing graphics transform, avoiding AndroidView frame jitter.
+                                            if (widgetIds.isNotEmpty() && !entranceRunning && interactionEnabled) {
+                                                HostedWidgetTile(widgetIds = widgetIds, modifier = Modifier.fillMaxSize())
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(4.dp)
+                                                        .size(28.dp)
+                                                        .background(Color(0xAA180424))
+                                                        .combinedClickable(
+                                                            onClick = {
+                                                                selectedTileIds = if (tile.id in selectedTileIds) {
+                                                                    selectedTileIds - tile.id
+                                                                } else {
+                                                                    selectedTileIds + tile.id
+                                                                }
+                                                            },
+                                                            onLongClick = {
+                                                                tileBounds[tile.id]?.let { beginTileDrag(tile, it) }
+                                                            },
+                                                        ),
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Text("⋮", color = Color.White, fontSize = 17.sp)
+                                                }
+                                            } else {
+                                                WindowsTileView(
+                                                    tile = tile,
+                                                    appIcon = appIcon,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    onClick = { bounds -> handleTileClick(tile, bounds) },
+                                                    onLongClick = { selectedTileIds = setOf(tile.id) },
+                                                    dragEnabled = interactionEnabled && launchingTileId == null,
+                                                    onDragStart = { bounds -> beginTileDrag(tile, bounds) },
+                                                    onDrag = ::moveDraggedTile,
+                                                    onDragEnd = { finishTileDrag(commit = true) },
+                                                    onDragCancel = { finishTileDrag(commit = false) },
+                                                )
+                                            }
 
                                             if (isSelected) {
                                                 Box(
@@ -639,12 +689,7 @@ fun StartScreen(
                                                         .background(Color(0xCC6E6E6E)),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
-                                                    Text(
-                                                        text = "✓",
-                                                        color = Color.White,
-                                                        fontSize = 14.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                    )
+                                                    Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
                                         }
@@ -662,9 +707,7 @@ fun StartScreen(
                         StartBandOverview(
                             bands = packed.bands,
                             onBandClick = ::zoomToBand,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 24.dp),
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                         )
                     }
                 }
@@ -672,7 +715,6 @@ fun StartScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Keep both controls in the chrome row so they never move tile cells.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -691,11 +733,7 @@ fun StartScreen(
                         .semantics { contentDescription = "All apps" },
                     contentAlignment = Alignment.Center,
                 ) {
-                    MetroIcon(
-                        glyph = "arrow_down",
-                        color = Color.White.copy(alpha = 0.9f),
-                        size = 30.dp,
-                    )
+                    MetroIcon("arrow_down", color = Color.White.copy(alpha = 0.9f), size = 30.dp)
                 }
 
                 Box(
@@ -710,17 +748,10 @@ fun StartScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .background(Color(0xFF8A8A8A)),
+                        modifier = Modifier.size(18.dp).background(Color(0xFF8A8A8A)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(10.dp)
-                                .height(2.dp)
-                                .background(Color(0xFF303030)),
-                        )
+                        Box(Modifier.width(10.dp).height(2.dp).background(Color(0xFF303030)))
                     }
                 }
             }
@@ -733,6 +764,13 @@ fun StartScreen(
             exit = slideOutVertically(tween(150, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(100)),
         ) {
             val selectedTiles = tiles.filter { it.id in selectedTileIds }
+            val canCreateFolder = selectedTiles.size >= 2 && selectedTiles.all { !it.packageName.isNullOrBlank() }
+            val selectedWidgetIds = selectedTiles.flatMap { LauncherFeatureStore.widgetStackIds(context, it.id) }
+            val canStackWidgets = selectedTiles.size >= 2 &&
+                selectedTiles.all { LauncherFeatureStore.widgetStackIds(context, it.id).isNotEmpty() }
+            val oneGroup = selectedTiles.map { it.groupName }.distinct().singleOrNull()
+            val existingGroups = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct()
+
             StartCustomizationBar(
                 selectedTiles = selectedTiles,
                 showResizeChoices = showResizeChoices,
@@ -746,6 +784,10 @@ fun StartScreen(
                     showResizeChoices = false
                 },
                 onUnpin = {
+                    selectedTiles.forEach { tile ->
+                        LauncherFeatureStore.removeFolder(context, tile.id)
+                        LauncherFeatureStore.removeWidgetStack(context, tile.id)
+                    }
                     val updated = normalizeStartTileOrder(tiles.filterNot { it.id in selectedTileIds })
                     latestOnTilesChanged.value(updated)
                     selectedTileIds = emptySet()
@@ -756,12 +798,100 @@ fun StartScreen(
                     selectedTileIds = emptySet()
                     showResizeChoices = false
                 },
+                onCreateFolder = if (canCreateFolder) {
+                    {
+                        val first = selectedTiles.first()
+                        val firstIndex = tiles.indexOfFirst { it.id == first.id }.coerceAtLeast(0)
+                        val folder = TileModel(
+                            id = "folder_${System.currentTimeMillis()}",
+                            title = "Folder",
+                            size = TileSize.MEDIUM,
+                            colorValue = first.colorValue,
+                            iconGlyph = "app",
+                            groupName = first.groupName,
+                            order = firstIndex,
+                        )
+                        LauncherFeatureStore.setFolderPackages(
+                            context,
+                            folder.id,
+                            selectedTiles.mapNotNull { it.packageName }.distinct(),
+                        )
+                        val updated = tiles.filterNot { it.id in selectedTileIds }.toMutableList()
+                        updated.add(firstIndex.coerceAtMost(updated.size), folder)
+                        latestOnTilesChanged.value(normalizeStartTileOrder(updated))
+                        selectedTileIds = emptySet()
+                    }
+                } else null,
+                onStackWidgets = if (canStackWidgets) {
+                    {
+                        val first = selectedTiles.first()
+                        val mergedIds = selectedWidgetIds.distinct()
+                        LauncherFeatureStore.setWidgetStackIds(context, first.id, mergedIds)
+                        selectedTiles.drop(1).forEach { LauncherFeatureStore.removeWidgetStack(context, it.id) }
+                        val updated = tiles
+                            .filterNot { it.id in selectedTileIds && it.id != first.id }
+                            .map { tile ->
+                                if (tile.id == first.id) tile.copy(title = "Widget stack", size = TileSize.WIDE)
+                                else tile
+                            }
+                        latestOnTilesChanged.value(normalizeStartTileOrder(updated))
+                        selectedTileIds = emptySet()
+                    }
+                } else null,
+                onRenameGroup = oneGroup?.let { groupName ->
+                    {
+                        groupDialog = GroupDialogRequest(
+                            title = "Name group",
+                            initialValue = groupName,
+                            selectedIds = selectedTileIds,
+                            renameWholeGroup = true,
+                        )
+                    }
+                },
+                onMoveGroup = {
+                    groupDialog = GroupDialogRequest(
+                        title = "Move to group",
+                        initialValue = oneGroup ?: existingGroups.firstOrNull().orEmpty(),
+                        selectedIds = selectedTileIds,
+                        renameWholeGroup = false,
+                    )
+                },
                 onDone = {
                     selectedTileIds = emptySet()
                     showResizeChoices = false
                 },
             )
         }
+    }
+
+    openFolderTile?.let { folder ->
+        StartFolderDialog(
+            tile = folder,
+            appsRepository = appsRepository,
+            onDismiss = { openFolderTile = null },
+        )
+    }
+
+    groupDialog?.let { request ->
+        StartGroupNameDialog(
+            title = request.title,
+            initialValue = request.initialValue,
+            suggestions = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct(),
+            onDismiss = { groupDialog = null },
+            onConfirm = { newName ->
+                val oldGroup = request.initialValue
+                val updated = tiles.map { tile ->
+                    when {
+                        request.renameWholeGroup && tile.groupName == oldGroup -> tile.copy(groupName = newName)
+                        !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(groupName = newName)
+                        else -> tile
+                    }
+                }
+                latestOnTilesChanged.value(normalizeStartTileOrder(updated))
+                groupDialog = null
+                selectedTileIds = emptySet()
+            },
+        )
     }
 }
 
@@ -773,6 +903,10 @@ private fun StartCustomizationBar(
     onResize: (TileSize) -> Unit,
     onUnpin: () -> Unit,
     onCustomize: () -> Unit,
+    onCreateFolder: (() -> Unit)?,
+    onStackWidgets: (() -> Unit)?,
+    onRenameGroup: (() -> Unit)?,
+    onMoveGroup: (() -> Unit)?,
     onDone: () -> Unit,
 ) {
     val singleTile = selectedTiles.singleOrNull()
@@ -813,18 +947,20 @@ private fun StartCustomizationBar(
         }
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(22.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            StartCommandButton(label = "Unpin from Start", glyph = "unpin", onClick = onUnpin)
+            StartCommandButton("Unpin from Start", "unpin", onUnpin)
             if (singleTile != null) {
-                StartCommandButton(label = "Resize", glyph = "app", onClick = onToggleResizeChoices)
-                StartCommandButton(label = "Customize", glyph = "settings", onClick = onCustomize)
+                StartCommandButton("Resize", "app", onToggleResizeChoices)
+                StartCommandButton("Customize", "settings", onCustomize)
             }
-            StartCommandButton(label = "Done", glyph = "arrow_down", onClick = onDone)
+            onCreateFolder?.let { StartCommandButton("Create folder", "app", it) }
+            onStackWidgets?.let { StartCommandButton("Stack widgets", "app", it) }
+            onRenameGroup?.let { StartCommandButton("Name group", "settings", it) }
+            onMoveGroup?.let { StartCommandButton("Move group", "arrow_down", it) }
+            StartCommandButton("Done", "arrow_down", onDone)
         }
     }
 }
@@ -837,14 +973,10 @@ private fun StartCommandButton(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(horizontal = 2.dp),
+        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp),
     ) {
         Box(
-            modifier = Modifier
-                .size(40.dp)
-                .border(2.dp, Color.White, CircleShape),
+            modifier = Modifier.size(40.dp).border(2.dp, Color.White, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             MetroIcon(glyph = glyph, color = Color.White, size = 19.dp)
@@ -867,22 +999,35 @@ private fun StartBandOverview(
 ) {
     BoxWithConstraints(modifier.background(Color(0xFF180052))) {
         val thumbnailHeight = minOf(220.dp, maxHeight - 40.dp).coerceAtLeast(48.dp)
-        LazyRow(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        LazyRow(
+            Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
             itemsIndexed(bands, key = { _, band -> band.key }) { index, band ->
                 val aspect = band.columns.toFloat() / band.rows.coerceAtLeast(1)
-                Column(Modifier.width((thumbnailHeight * aspect).coerceAtLeast(64.dp))
-                    .clickable { onBandClick(index) }
-                    .semantics { contentDescription = "Open ${band.groupName} group ${index + 1}" }) {
-                    Text(band.groupName, color = Color.White, fontSize = 14.sp,
-                        maxLines = 1, modifier = Modifier.padding(bottom = 8.dp))
+                Column(
+                    Modifier
+                        .width((thumbnailHeight * aspect).coerceAtLeast(64.dp))
+                        .clickable { onBandClick(index) }
+                        .semantics { contentDescription = "Open ${band.groupName} group ${index + 1}" },
+                ) {
+                    Text(
+                        band.groupName,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                     Canvas(Modifier.fillMaxWidth().height(thumbnailHeight)) {
                         val cell = minOf(size.width / band.columns, size.height / band.rows)
                         val gap = cell * .08f
                         band.tiles.forEach { placed ->
-                            drawRect(placed.tile.colorValue.toTileColor(),
+                            drawRect(
+                                placed.tile.colorValue.toTileColor(),
                                 topLeft = Offset(placed.column * cell, placed.row * cell),
-                                size = Size(placed.columns * cell - gap, placed.rows * cell - gap))
+                                size = Size(placed.columns * cell - gap, placed.rows * cell - gap),
+                            )
                         }
                     }
                 }
