@@ -491,6 +491,7 @@ fun StartScreen(
                 val density = LocalDensity.current
                 val viewportWidthPx = with(density) { maxWidth.toPx() }
                 val viewportHeightPx = with(density) { maxHeight.toPx() }
+                val bandWidthPx = with(density) { metrics.bandWidthDp.dp.toPx() }
                 val bandExtentPx = with(density) {
                     metrics.bandWidthDp.dp.toPx() + START_BAND_SPACING_DP.dp.toPx()
                 }
@@ -534,7 +535,12 @@ fun StartScreen(
                                             bandIndex, viewportSnapshot.startBand,
                                             viewportSnapshot.startOffsetPx, bandExtentPx)
                                         val frame = StartEntranceMotion.frame(entranceProgress, position, playingKind)
-                                        translationX = frame.offsetFraction * viewportWidthPx
+                                        translationX = StartEntranceMotion.translationX(
+                                            frame = frame,
+                                            kind = playingKind,
+                                            viewportWidthPx = viewportWidthPx,
+                                            bandWidthPx = bandWidthPx,
+                                        )
                                         transformOrigin = TransformOrigin(.5f,
                                             viewportHeightPx / (2f * size.height.coerceAtLeast(1f)))
                                         scaleX = frame.scale

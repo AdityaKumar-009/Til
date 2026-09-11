@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.ui.animation
 
+import kotlin.math.min
 import kotlin.math.pow
 
 enum class StartEntranceKind { RETURN, STARTUP }
@@ -40,7 +41,10 @@ internal object UnlockEntranceMotionOverride {
  * test.mp4 is 30 fps, so actual observations are ~33.333 ms apart; values between those samples
  * are continuous interpolation rather than invented 10 ms source frames.
  *
- * Motion is stored as viewport fractions so portrait and landscape preserve the measured geometry.
+ * STARTUP remains viewport-normalized. RETURN is normalized to the measured 251 px Start band,
+ * because the desktop reference moves the tile group relative to its own width, not relative to the
+ * full 1920 px monitor. That preserves the same perceived sweep/zoom when a phone portrait viewport
+ * contains roughly one Start band, while landscape keeps the same band-relative movement.
  * Real phone unlock deliberately reuses RETURN; first launch/configuration recreation remain STARTUP.
  */
 internal object StartEntranceMotion {
@@ -59,17 +63,41 @@ internal object StartEntranceMotion {
             ReturnDurationMillis
         }
 
-    /*
-     * Short Start-return reference, measured from test.mp4.
-     *
-     * The cyan Mail tile settles at x=120, width=248 in the 1920 px source. Its measured center
-     * displacement is 76, 53.5, 35.5, 26.5, 19, 14.5, 10, 8, 5, 3, 2.5, 2, 1, 0 px at the
-     * corresponding encoded frames below. Translation is therefore only a few viewport percent;
-     * the previous hand fit substantially over-travelled during the visible part of the entrance.
-     *
-     * The 100/300/467 ms plateaus are retained because those are duplicate/near-duplicate encoded
-     * frames in the supplied recording. MotionCurve interpolates continuously between observations.
+
+    /**
+     * Converts the fitted offset into pixels using the same geometry the reference actually moves.
+     * RETURN is relative to one Start band; STARTUP intentionally keeps its existing viewport basis.
      */
+    fun translationX(
+        frame: EntranceFrame,
+        kind: StartEntranceKind,
+        viewportWidthPx: Float,
+        bandWidthPx: Float,
+    ): Float {
+        val safeViewport = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: 1f
+        val safeBand = bandWidthPx.takeIf { it.isFinite() && it > 0f } ?: safeViewport
+        val basis = if (UnlockEntranceMotionOverride.resolve(kind) == StartEntranceKind.RETURN) {
+            safeBand
+        } else {
+            safeViewport
+        }
+        return (frame.offsetFraction * basis).takeIf(Float::isFinite) ?: 0f
+    }
+
+    /*
+     * Short Start-return reference, measured from every encoded frame of test.mp4 after cropping
+     * the desktop sequence to a 350x630 portrait window around the first Start band.
+     *
+     * Blank background is still present at 56.033 s. At 56.067 s the Mail band is first visible at
+     * 193/251 of final size, ~6.5% opacity, and its center is 75 px to the right of the settled
+     * center. It then follows the recorded 53.5, 53.5, 34.5, 26, 19, 15, 10, 10, 8.5, 4.5,
+     * 2.5, 2.5, 2.5, 1.5, .5, 0 px deceleration tail through 56.600 s.
+     *
+     * Those displacements are divided by the measured final 251 px band width, NOT the 1920 px
+     * desktop width. StartScreen multiplies this ratio by its real band width so portrait and
+     * landscape preserve the reference's group-relative geometry.
+     */
+    private const val ReturnReferenceBandWidthPx = 251f
     private val returnTime = floatArrayOf(
         0f, 33.333f, 66.667f, 100f, 133.333f, 166.667f, 200f, 233.333f, 266.667f,
         300f, 333.333f, 366.667f, 400f, 433.333f, 466.667f, 500f, 533.333f, 566.667f, 600f,
@@ -77,25 +105,24 @@ internal object StartEntranceMotion {
     private val returnTravel = MotionCurve(
         returnTime,
         floatArrayOf(
-            // t=0 is inferred from the measured deceleration immediately before the first visible
-            // 33 ms frame; alpha is zero there, so it cannot introduce a visible jump.
-            .049300f,
-            76f / 1920f,
-            53.5f / 1920f,
-            53.5f / 1920f,
-            35.5f / 1920f,
-            26.5f / 1920f,
-            19f / 1920f,
-            14.5f / 1920f,
-            10f / 1920f,
-            10f / 1920f,
-            8f / 1920f,
-            5f / 1920f,
-            3f / 1920f,
-            2.5f / 1920f,
-            2.5f / 1920f,
-            2f / 1920f,
-            1f / 1920f,
+            // t=0 is invisible; 94.656 px extrapolates the measured first-frame deceleration.
+            94.656f / ReturnReferenceBandWidthPx,
+            75f / ReturnReferenceBandWidthPx,
+            53.5f / ReturnReferenceBandWidthPx,
+            53.5f / ReturnReferenceBandWidthPx,
+            34.5f / ReturnReferenceBandWidthPx,
+            26f / ReturnReferenceBandWidthPx,
+            19f / ReturnReferenceBandWidthPx,
+            15f / ReturnReferenceBandWidthPx,
+            10f / ReturnReferenceBandWidthPx,
+            10f / ReturnReferenceBandWidthPx,
+            8.5f / ReturnReferenceBandWidthPx,
+            4.5f / ReturnReferenceBandWidthPx,
+            2.5f / ReturnReferenceBandWidthPx,
+            2.5f / ReturnReferenceBandWidthPx,
+            2.5f / ReturnReferenceBandWidthPx,
+            1.5f / ReturnReferenceBandWidthPx,
+            .5f / ReturnReferenceBandWidthPx,
             0f,
             0f,
         ),
@@ -104,27 +131,25 @@ internal object StartEntranceMotion {
         returnTime,
         floatArrayOf(
             .680000f,
-            192f / 248f,
-            225f / 248f,
-            225f / 248f,
-            237f / 248f,
-            241f / 248f,
-            244f / 248f,
-            245f / 248f,
-            246f / 248f,
-            246f / 248f,
-            1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f,
+            193f / ReturnReferenceBandWidthPx,
+            226f / ReturnReferenceBandWidthPx,
+            226f / ReturnReferenceBandWidthPx,
+            238f / ReturnReferenceBandWidthPx,
+            243f / ReturnReferenceBandWidthPx,
+            247f / ReturnReferenceBandWidthPx,
+            249f / ReturnReferenceBandWidthPx,
+            1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f,
         ),
     )
     private val returnOpacity = MotionCurve(
         returnTime,
         floatArrayOf(
             0f,
-            .029f,
-            .377f,
-            .384f,
-            .741f,
-            .996f,
+            .064516f,
+            .411290f,
+            .411290f,
+            .755245f,
+            .993007f,
             1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f,
         ),
     )
@@ -207,7 +232,10 @@ internal object StartEntranceMotion {
         )
     }
 
-    /** Decorative wallpaper anchor; base color itself remains stationary. */
+    /**
+     * Decorative wallpaper anchor; base color itself remains stationary. RETURN uses the same
+     * band-relative fit as the tiles. The caller converts it through backgroundEntranceOffsetPx().
+     */
     fun backgroundTravelFraction(
         progress: Float,
         kind: StartEntranceKind = StartEntranceKind.RETURN,
@@ -226,6 +254,28 @@ internal object StartEntranceMotion {
             val milliseconds = (safeProgress * DurationMillis).coerceIn(0f, TileMotionDurationMillis)
             travel.at(milliseconds).coerceIn(0f, 1f)
         }
+    }
+
+    /**
+     * Synthetic scroll offset used only for entrance parallax. For RETURN the phone's short side is
+     * the stable physical motion basis, so rotating the device does not multiply the wallpaper
+     * sweep by the landscape width. STARTUP keeps its existing full-width behavior unchanged.
+     */
+    fun backgroundEntranceOffsetPx(
+        progress: Float,
+        kind: StartEntranceKind,
+        viewportWidthPx: Float,
+        viewportHeightPx: Float,
+    ): Float {
+        val width = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: 1f
+        val height = viewportHeightPx.takeIf { it.isFinite() && it > 0f } ?: width
+        val basis = if (UnlockEntranceMotionOverride.resolve(kind) == StartEntranceKind.RETURN) {
+            min(width, height)
+        } else {
+            width
+        }
+        return (backgroundTravelFraction(progress, kind) * basis)
+            .takeIf(Float::isFinite) ?: 0f
     }
 
     fun viewportBandPosition(

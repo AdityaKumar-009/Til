@@ -636,16 +636,20 @@ fun Tile8LauncherApp(
                 }
                 val p = drawerProgress.floatValue
                 val userScroll = offset(startScroll) * (1f - p) + offset(appsScroll) * p
-                val viewportWidthPx = context.resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
-                val entranceTravel = if (currentScreen == LauncherScreen.START && activeInAppTile == null) {
-                    StartEntranceMotion.backgroundTravelFraction(
+                val displayMetrics = context.resources.displayMetrics
+                val viewportWidthPx = displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+                val viewportHeightPx = displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
+                val entranceOffsetPx = if (currentScreen == LauncherScreen.START && activeInAppTile == null) {
+                    StartEntranceMotion.backgroundEntranceOffsetPx(
                         progress = wallpaperEntrance.value,
                         kind = startEntranceKind,
+                        viewportWidthPx = viewportWidthPx,
+                        viewportHeightPx = viewportHeightPx,
                     )
                 } else {
                     0f
                 }
-                userScroll - viewportWidthPx * entranceTravel
+                userScroll - entranceOffsetPx
             },
         )
 

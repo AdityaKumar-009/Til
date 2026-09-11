@@ -31,14 +31,45 @@ class StartEntranceMotionTest {
         assertEquals(2800, StartEntranceMotion.durationMillis(StartEntranceKind.STARTUP))
 
         val at133 = StartEntranceMotion.frame(133.333f / 600f, 0f, StartEntranceKind.RETURN)
-        assertEquals(35.5f / 1920f, at133.offsetFraction, .00005f)
-        assertEquals(237f / 248f, at133.scale, .0005f)
-        assertEquals(.741f, at133.alpha, .002f)
+        assertEquals(34.5f / 251f, at133.offsetFraction, .00005f)
+        assertEquals(238f / 251f, at133.scale, .0005f)
+        assertEquals(.755245f, at133.alpha, .002f)
 
         val at200 = StartEntranceMotion.frame(200f / 600f, 0f, StartEntranceKind.RETURN)
-        assertEquals(19f / 1920f, at200.offsetFraction, .00005f)
-        assertEquals(244f / 248f, at200.scale, .0005f)
+        assertEquals(19f / 251f, at200.offsetFraction, .00005f)
+        assertEquals(247f / 251f, at200.scale, .0005f)
         assertEquals(1f, at200.alpha, .0001f)
+    }
+
+    @Test fun returnTranslationPreservesBandRelativeMotionAcrossPhoneOrientations() {
+        val frame = StartEntranceMotion.frame(33.333f / 600f, 0f, StartEntranceKind.RETURN)
+        val portraitBandWidth = 312f
+        val landscapeBandWidth = 312f
+        val expected = 75f / 251f * portraitBandWidth
+
+        val portrait = StartEntranceMotion.translationX(
+            frame, StartEntranceKind.RETURN, viewportWidthPx = 312f, bandWidthPx = portraitBandWidth)
+        val landscape = StartEntranceMotion.translationX(
+            frame, StartEntranceKind.RETURN, viewportWidthPx = 760f, bandWidthPx = landscapeBandWidth)
+
+        assertEquals(expected, portrait, .001f)
+        assertEquals(expected, landscape, .001f)
+        assertTrue(landscape < 760f * frame.offsetFraction)
+    }
+
+    @Test fun returnWallpaperEntranceUsesThePhysicalShortSide() {
+        val progress = 33.333f / 600f
+        val portrait = StartEntranceMotion.backgroundEntranceOffsetPx(
+            progress, StartEntranceKind.RETURN, viewportWidthPx = 1080f, viewportHeightPx = 2400f)
+        val landscape = StartEntranceMotion.backgroundEntranceOffsetPx(
+            progress, StartEntranceKind.RETURN, viewportWidthPx = 2400f, viewportHeightPx = 1080f)
+        assertEquals(portrait, landscape, .001f)
+
+        val startupPortrait = StartEntranceMotion.backgroundEntranceOffsetPx(
+            100f / 2800f, StartEntranceKind.STARTUP, viewportWidthPx = 1080f, viewportHeightPx = 2400f)
+        val startupLandscape = StartEntranceMotion.backgroundEntranceOffsetPx(
+            100f / 2800f, StartEntranceKind.STARTUP, viewportWidthPx = 2400f, viewportHeightPx = 1080f)
+        assertTrue(startupLandscape > startupPortrait)
     }
 
     @Test fun returnHeaderUsesItsSlowerMeasuredFade() {
