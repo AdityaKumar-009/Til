@@ -137,28 +137,27 @@ fun FingerFollowingVerticalNavigation(
         }
 
         settleJob.value = scope.launch {
-            try {
-                // The animation starts at the exact value currently submitted to the graphics
-                // layers, and with the velocity measured from those rendered frames. This makes
-                // finger-following and auto-settle one continuous motion rather than two phases.
-                settleAnimation.snapTo(progress)
-                settleAnimation.animateTo(
-                    targetValue = target,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                    initialVelocity = initialVelocity.coerceIn(-4f, 4f),
-                ) {
-                    progress = value.coerceIn(0f, 1f)
-                    dragTargetProgress[0] = progress
-                }
-                progress = target.coerceIn(0f, 1f)
+            // The animation starts at the exact value currently submitted to the graphics layers,
+            // and with the velocity measured from those rendered frames. This makes finger-following
+            // and auto-settle one continuous motion rather than two phases.
+            settleAnimation.snapTo(progress)
+            settleAnimation.animateTo(
+                targetValue = target,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                initialVelocity = initialVelocity.coerceIn(-4f, 4f),
+            ) {
+                progress = value.coerceIn(0f, 1f)
                 dragTargetProgress[0] = progress
-                onSettled?.invoke()
-            } finally {
-                settleJob.value = null
             }
+            progress = target.coerceIn(0f, 1f)
+            dragTargetProgress[0] = progress
+            onSettled?.invoke()
+            // Cancellation is handled synchronously by cancelSettle(). Only a normally completed
+            // job clears itself here, so an interrupted old settle can never erase a newer job.
+            settleJob.value = null
         }
     }
 
