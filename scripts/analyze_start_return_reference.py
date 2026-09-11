@@ -1,8 +1,8 @@
 """Analyze the short Start-menu return in the repository's test.mp4.
 
 The source is 30 fps, so real observations are ~33.333 ms apart. This script measures every
-encoded source frame around the Start return, then writes a 10 ms *interpolated* table only between
-those real observations. It also writes contact sheets so the measurements can be checked visually.
+encoded source frame around the Start return, saves lossless source crops (including the faint
+pre-detection phase), then writes a 10 ms *interpolated* table only between real observations.
 """
 from pathlib import Path
 import csv
@@ -16,13 +16,15 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "test.mp4"
 OUT = ROOT / "build" / "start-return-analysis"
+FRAMES = OUT / "frames"
 OUT.mkdir(parents=True, exist_ok=True)
+FRAMES.mkdir(parents=True, exist_ok=True)
 
 START_S = 55.80
 END_S = 56.90
-ROI_X2 = 560
-ROI_Y1 = 120
-ROI_Y2 = 430
+ROI_X2 = 720
+ROI_Y1 = 100
+ROI_Y2 = 480
 
 
 def detect_mail(frame):
@@ -36,12 +38,12 @@ def detect_mail(frame):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = [c for c in contours if cv2.contourArea(c) >= 250]
     if not contours:
-        return None, mask
+        return None
     contour = max(contours, key=cv2.contourArea)
     x, y, w, h = cv2.boundingRect(contour)
     if w < 20 or h < 15:
-        return None, mask
-    return (x, y, w, h, float(cv2.contourArea(contour))), mask
+        return None
+    return x, y, w, h, float(cv2.contourArea(contour))
 
 
 def main():
@@ -63,7 +65,7 @@ def main():
         ok, frame = cap.read()
         if not ok:
             continue
-        detection, _ = detect_mail(frame)
+        detection = detect_mail(frame)
         seconds = index / fps
         change = None if previous is None else float(np.mean(cv2.absdiff(frame, previous)))
         row = {
@@ -87,6 +89,10 @@ def main():
         observations.append(row)
         previous = frame
 
+        # Preserve the source pixels for the early low-opacity phase, where HSV segmentation is
+        # intentionally conservative and cannot supply trustworthy geometry by itself.
+        cv2.imwrite(str(FRAMES / f"frame_{index:04d}_{seconds:.3f}.png"), frame[:650, :900])
+
         rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(rgb)
         image.thumbnail((480, 270))
@@ -98,29 +104,34 @@ def main():
         writer.writeheader()
         writer.writerows(observations)
 
-    # Use the final stable detection as the settled geometry.
     detected = [r for r in observations if r["x"] != ""]
     if not detected:
         raise SystemExit("Mail tile was not detected")
-    settled = detected[-1]
+    # Pick the first stable 248x120 geometry after the entrance, rather than blindly trusting the
+    # last frame if another cyan element later enters the broad ROI.
+    stable = [r for r in detected if r["width"] == 248 and r["height"] == 120]
+    settled = stable[-1] if stable else detected[-1]
     settled_cx = float(settled["center_x"])
     settled_w = float(settled["width"])
     settled_h = float(settled["height"])
 
     measured = []
     for r in detected:
+        # Reject false detections that are not plausibly the Mail tile's aspect/size near this clip.
+        w, h = float(r["width"]), float(r["height"])
+        if not (0.75 <= (w / max(h, 1.0)) <= 2.35 and w <= 300 and h <= 180):
+            continue
         measured.append({
             **r,
             "center_dx": round(float(r["center_x"]) - settled_cx, 4),
-            "scale_x": round(float(r["width"]) / settled_w, 6),
-            "scale_y": round(float(r["height"]) / settled_h, 6),
+            "scale_x": round(w / settled_w, 6),
+            "scale_y": round(h / settled_h, 6),
         })
     with (OUT / "measured_geometry.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=measured[0].keys())
         writer.writeheader()
         writer.writerows(measured)
 
-    # Interpolate only across the actual detected sample interval.
     times_ms = np.array([float(r["seconds"]) * 1000.0 for r in measured])
     dx = np.array([float(r["center_dx"]) for r in measured])
     sx = np.array([float(r["scale_x"]) for r in measured])
@@ -154,34 +165,12 @@ def main():
         draw.text((x + 6, y + 273), f"f{index} {seconds:.3f}s | {geom}", fill="white")
     sheet.save(OUT / "every_frame_contact.jpg", quality=94)
 
-    # A second sheet crops the left Start region for easier motion inspection.
-    crop_w = min(width, 720)
-    crop_h = min(height, 650)
-    detail = Image.new("RGB", (cols * 360, rows * 350), "#181818")
-    ddraw = ImageDraw.Draw(detail)
-    cap = cv2.VideoCapture(str(SOURCE))
-    for n, (index, seconds, row, _) in enumerate(images):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, index)
-        ok, frame = cap.read()
-        if not ok:
-            continue
-        crop = frame[:crop_h, :crop_w]
-        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-        im = Image.fromarray(rgb)
-        im.thumbnail((360, 320))
-        x = (n % cols) * 360
-        y = (n // cols) * 350
-        detail.paste(im, (x, y))
-        ddraw.text((x + 5, y + 323), f"{seconds:.3f}s", fill="white")
-    cap.release()
-    detail.save(OUT / "left_detail_contact.jpg", quality=95)
-
     summary = {
         "fps": fps,
         "frame_interval_ms": 1000.0 / fps,
         "frames_scanned": len(observations),
         "first_detected_seconds": measured[0]["seconds"],
-        "last_detected_seconds": measured[-1]["seconds"],
+        "last_measured_seconds": measured[-1]["seconds"],
         "settled": {"x": settled["x"], "y": settled["y"], "width": settled["width"], "height": settled["height"]},
         "measured": measured,
     }
