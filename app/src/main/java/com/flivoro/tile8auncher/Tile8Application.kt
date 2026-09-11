@@ -11,8 +11,26 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.flivoro.tile8auncher.ui.animation.UnlockEntranceMotionOverride
+
+/**
+ * Process-wide revision for the installed launcher app catalog.
+ *
+ * It changes only when Android reports a real package add/remove/change. Compose surfaces can use
+ * it as a refresh key while ordinary launcher navigation keeps reusing the already-loaded catalog.
+ */
+object PackageCatalogUpdates {
+    var revision by mutableIntStateOf(0)
+        private set
+
+    internal fun notifyPackageChanged() {
+        revision++
+    }
+}
 
 /**
  * Process application for Mosaic Launcher.
@@ -48,6 +66,27 @@ class Tile8Application : Application() {
         }
     }
 
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            // Android can emit remove/add around an in-place package replacement. Ignore those two
+            // duplicate replacement legs because ACTION_PACKAGE_REPLACED follows with the final state.
+            val replacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
+            if (replacing &&
+                (intent.action == Intent.ACTION_PACKAGE_ADDED ||
+                    intent.action == Intent.ACTION_PACKAGE_REMOVED)
+            ) {
+                return
+            }
+
+            when (intent.action) {
+                Intent.ACTION_PACKAGE_ADDED,
+                Intent.ACTION_PACKAGE_REMOVED,
+                Intent.ACTION_PACKAGE_REPLACED,
+                Intent.ACTION_PACKAGE_CHANGED -> PackageCatalogUpdates.notifyPackageChanged()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
 
@@ -66,6 +105,21 @@ class Tile8Application : Application() {
                 addAction(Intent.ACTION_USER_PRESENT)
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+
+        // Keep the fast process-local app cache, but refresh it only when Android says the package
+        // set actually changed. This avoids polling/re-scanning during normal Start <-> All Apps use.
+        ContextCompat.registerReceiver(
+            this,
+            packageReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addAction(Intent.ACTION_PACKAGE_CHANGED)
+                addDataScheme("package")
+            },
+            ContextCompat.RECEIVER_EXPORTED,
         )
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
