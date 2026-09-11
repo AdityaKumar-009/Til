@@ -37,6 +37,33 @@ class StartEntranceMotionTest {
         assertEquals(0f, StartEntranceMotion.headerAlpha(200f / 2800, StartEntranceKind.STARTUP), .0001f)
     }
 
+    @Test fun wallpaperAnchorUsesSameMeasuredTravelAndSettlesMonotonically() {
+        for (kind in StartEntranceKind.entries) {
+            val duration = StartEntranceMotion.durationMillis(kind)
+            var previous = StartEntranceMotion.backgroundTravelFraction(0f, kind)
+            assertEquals(StartEntranceMotion.frame(0f, 0f, kind).offsetFraction, previous, .000001f)
+            for (ms in 10..duration step 10) {
+                val progress = ms.toFloat() / duration
+                val current = StartEntranceMotion.backgroundTravelFraction(progress, kind)
+                assertTrue("wallpaper anchor moved backwards at $ms ms for $kind", current <= previous + .000001f)
+                assertTrue(current in 0f..1f)
+                previous = current
+            }
+            assertEquals(0f, StartEntranceMotion.backgroundTravelFraction(1f, kind), 0f)
+        }
+    }
+
+    @Test fun normalizedTravelProducesSameFractionInPortraitAndLandscape() {
+        val p = 100f / StartEntranceMotion.durationMillis(StartEntranceKind.STARTUP)
+        val fraction = StartEntranceMotion.backgroundTravelFraction(p, StartEntranceKind.STARTUP)
+        val portraitWidth = 1080f
+        val landscapeWidth = 2400f
+        val portraitNormalized = (portraitWidth * fraction) / portraitWidth
+        val landscapeNormalized = (landscapeWidth * fraction) / landscapeWidth
+        assertEquals(fraction, portraitNormalized, .000001f)
+        assertEquals(fraction, landscapeNormalized, .000001f)
+    }
+
     @Test fun staggerFollowsViewportAfterManyBandsHaveScrolledAway() {
         val first = StartEntranceMotion.viewportBandPosition(20, 20, 100, 400f)
         val neighbor = StartEntranceMotion.viewportBandPosition(21, 20, 100, 400f)
@@ -52,6 +79,7 @@ class StartEntranceMotionTest {
         for (kind in StartEntranceKind.entries) for (p in listOf(Float.NaN, Float.POSITIVE_INFINITY, -1f, 2f)) {
             val f = StartEntranceMotion.frame(p, Float.NaN, kind)
             assertTrue(f.offsetFraction.isFinite() && f.scale.isFinite() && f.alpha.isFinite())
+            assertTrue(StartEntranceMotion.backgroundTravelFraction(p, kind).isFinite())
         }
     }
 }
