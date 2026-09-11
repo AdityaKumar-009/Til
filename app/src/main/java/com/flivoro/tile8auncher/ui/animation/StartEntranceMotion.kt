@@ -3,6 +3,34 @@ package com.flivoro.tile8auncher.ui.animation
 enum class StartEntranceKind { RETURN, STARTUP }
 
 /**
+ * Narrow runtime override used only for a real screen-off -> unlock cycle.
+ *
+ * MainActivity keeps requesting STARTUP for its existing startup/unlock gate so none of its
+ * lifecycle, rendering or pre-hide behavior changes. Tile8Application arms this flag only when the
+ * display actually goes to sleep. While armed, STARTUP resolves to the already-fitted RETURN motion.
+ * Cold launcher creation and configuration/orientation recreation remain genuine STARTUP motion.
+ */
+internal object UnlockEntranceMotionOverride {
+    @Volatile
+    private var useReturnMotionForStartup = false
+
+    fun arm() {
+        useReturnMotionForStartup = true
+    }
+
+    fun cancel() {
+        useReturnMotionForStartup = false
+    }
+
+    fun resolve(kind: StartEntranceKind): StartEntranceKind =
+        if (useReturnMotionForStartup && kind == StartEntranceKind.STARTUP) {
+            StartEntranceKind.RETURN
+        } else {
+            kind
+        }
+}
+
+/**
  * Windows 8.1 Start entrance fit.
  *
  * Startup is fitted to the repository's 1920x1080/60-fps Windows 8.1 comparison capture. The
@@ -10,14 +38,20 @@ enum class StartEntranceKind { RETURN, STARTUP }
  * the same fitted path without inventing unrecorded source frames. Motion is stored as viewport
  * fractions rather than pixels so portrait and landscape preserve the same geometry.
  *
- * Home/Back return keeps the separate short fit from test.mp4.
+ * Home/Back return keeps the separate short fit from test.mp4. A real phone unlock deliberately
+ * reuses that same RETURN fit; first launch and orientation/configuration recreation remain STARTUP.
  */
 internal object StartEntranceMotion {
     const val DurationMillis = 2_800
     const val BandStaggerMillis = 120f
+    private const val ReturnDurationMillis = 680
 
     fun durationMillis(kind: StartEntranceKind): Int =
-        if (kind == StartEntranceKind.STARTUP) DurationMillis else 680
+        if (UnlockEntranceMotionOverride.resolve(kind) == StartEntranceKind.STARTUP) {
+            DurationMillis
+        } else {
+            ReturnDurationMillis
+        }
 
     private val returnTime = floatArrayOf(0f, 34f, 67f, 134f, 167f, 200f, 234f, 267f, 334f, 400f, 500f, 600f)
     private val returnTravel = MotionCurve(returnTime,
@@ -56,8 +90,9 @@ internal object StartEntranceMotion {
             .takeIf(Float::isFinite)
             ?.coerceAtLeast(0f)
             ?: 0f
-        if (kind == StartEntranceKind.RETURN) {
-            val milliseconds = (safeProgress * durationMillis(kind) -
+        val resolvedKind = UnlockEntranceMotionOverride.resolve(kind)
+        if (resolvedKind == StartEntranceKind.RETURN) {
+            val milliseconds = (safeProgress * durationMillis(resolvedKind) -
                 (safePosition * 36f).coerceIn(0f, 72f)).coerceIn(0f, 600f)
             return EntranceFrame(returnTravel.at(milliseconds), returnGrowth.at(milliseconds),
                 returnOpacity.at(milliseconds))
@@ -94,8 +129,9 @@ internal object StartEntranceMotion {
             ?.coerceIn(0f, 1f)
             ?: 0f
         if (safeProgress >= 1f) return 0f
-        return if (kind == StartEntranceKind.RETURN) {
-            val milliseconds = (safeProgress * durationMillis(kind)).coerceIn(0f, 600f)
+        val resolvedKind = UnlockEntranceMotionOverride.resolve(kind)
+        return if (resolvedKind == StartEntranceKind.RETURN) {
+            val milliseconds = (safeProgress * durationMillis(resolvedKind)).coerceIn(0f, 600f)
             returnTravel.at(milliseconds).coerceIn(0f, 1f)
         } else {
             val milliseconds = (safeProgress * DurationMillis).coerceIn(0f, TileMotionDurationMillis)
@@ -132,7 +168,10 @@ internal object StartEntranceMotion {
             .takeIf(Float::isFinite)
             ?.coerceIn(0f, 1f)
             ?: 0f
-        if (kind == StartEntranceKind.RETURN) return returnOpacity.at(safeProgress * durationMillis(kind))
+        val resolvedKind = UnlockEntranceMotionOverride.resolve(kind)
+        if (resolvedKind == StartEntranceKind.RETURN) {
+            return returnOpacity.at(safeProgress * durationMillis(resolvedKind))
+        }
         val milliseconds = safeProgress * DurationMillis
         if (milliseconds <= HeaderFadeStartMillis) return 0f
         if (milliseconds >= HeaderFadeEndMillis) return 1f
