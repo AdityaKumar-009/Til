@@ -1,0 +1,39 @@
+name: Apply portrait Start return refinement
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-portrait-return-refinement.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply measured portrait refinement
+        run: python scripts/apply_portrait_return_refinement.py
+      - name: Remove temporary migration files
+        run: |
+          rm -f scripts/apply_portrait_return_refinement.py
+          rm -f .github/workflows/apply-portrait-return-refinement.yml
+      - name: Commit refinement
+        run: |
+          git config user.name "Aditya Kumar"
+          git config user.email "adityakumar10012@gmail.com"
+          git add app/src/main/java/com/flivoro/tile8auncher/ui/animation/StartEntranceMotion.kt \
+                  app/src/main/java/com/flivoro/tile8auncher/ui/start/StartScreen.kt \
+                  app/src/main/java/com/flivoro/tile8auncher/MainActivity.kt \
+                  app/src/test/java/com/flivoro/tile8auncher/ui/animation/StartEntranceMotionTest.kt \
+                  scripts/apply_portrait_return_refinement.py \
+                  .github/workflows/apply-portrait-return-refinement.yml
+          git commit -m "Refine short Start return for phone aspect ratios"
+          git push origin HEAD:main
