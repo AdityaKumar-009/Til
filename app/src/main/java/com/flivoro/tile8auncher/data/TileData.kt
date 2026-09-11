@@ -1,5 +1,7 @@
 package com.flivoro.tile8auncher.data
 
+import androidx.compose.runtime.Immutable
+
 enum class TileSize {
     SMALL,   // 1x1 unit
     MEDIUM,  // 2x2 unit (standard square)
@@ -28,6 +30,7 @@ enum class FlipAnimationMode(val displayName: String, val description: String) {
     MODERN("Modern", "Smooth expanding card from tile to full screen")
 }
 
+@Immutable
 data class TileModel(
     val id: String,
     val title: String,
@@ -41,6 +44,7 @@ data class TileModel(
     val order: Int = 0,
 )
 
+@Immutable
 data class AppInfo(
     val label: String,
     val packageName: String,
@@ -48,6 +52,7 @@ data class AppInfo(
     val firstInstallTime: Long = 0L,
 )
 
+@Immutable
 data class AppSection(
     val letter: String,
     val apps: List<AppInfo>,
