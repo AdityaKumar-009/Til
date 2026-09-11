@@ -16,13 +16,19 @@ enum class StartDoubleTapAction {
     LOCK_DEVICE,
 }
 
-/** Process-local signal for feature activities that mutate the persisted Start layout. */
+/** Process-local signals for feature changes that visible launcher surfaces should re-read. */
 object LauncherFeatureRuntime {
     var pinnedTilesRevision by mutableIntStateOf(0)
+        private set
+    var iconsRevision by mutableIntStateOf(0)
         private set
 
     fun notifyPinnedTilesChanged() {
         pinnedTilesRevision++
+    }
+
+    fun notifyIconsChanged() {
+        iconsRevision++
     }
 }
 
