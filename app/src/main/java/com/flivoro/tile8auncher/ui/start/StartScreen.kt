@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -359,9 +360,7 @@ fun StartScreen(
             .navigationBarsPadding(),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
+            modifier = Modifier.fillMaxSize(),
         ) {
             Spacer(modifier = Modifier.height(18.dp))
 
@@ -369,6 +368,7 @@ fun StartScreen(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
                     .graphicsLayer { alpha = StartEntranceMotion.headerAlpha(entranceProgress, playingKind) },
             ) {
                 val availableWidth = maxWidth
@@ -487,14 +487,18 @@ fun StartScreen(
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
-                val metrics = remember(maxWidth, maxHeight) {
+                // Keep the existing tile/grid sizing based on the old padded viewport, while the
+                // actual LazyRow viewport spans the screen. Endpoint spacing now belongs to the
+                // scroll content, so it naturally scrolls away instead of becoming a permanent gutter.
+                val layoutWidth = maxWidth - 48.dp
+                val metrics = remember(layoutWidth, maxHeight) {
                     calculateStartGridMetrics(
-                        availableWidthDp = maxWidth.value,
+                        availableWidthDp = layoutWidth.value,
                         availableHeightDp = maxHeight.value,
                     )
                 }
                 val density = LocalDensity.current
-                val viewportWidthPx = with(density) { maxWidth.toPx() }
+                val viewportWidthPx = with(density) { layoutWidth.toPx() }
                 val viewportHeightPx = with(density) { maxHeight.toPx() }
                 val bandWidthPx = with(density) { metrics.bandWidthDp.dp.toPx() }
                 val bandExtentPx = with(density) {
@@ -524,6 +528,7 @@ fun StartScreen(
                         state = listState,
                         userScrollEnabled = canScrollTiles,
                         modifier = rowModifier,
+                        contentPadding = PaddingValues(horizontal = 24.dp),
                         horizontalArrangement = Arrangement.spacedBy(START_BAND_SPACING_DP.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
@@ -657,7 +662,9 @@ fun StartScreen(
                         StartBandOverview(
                             bands = packed.bands,
                             onBandClick = ::zoomToBand,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 24.dp),
                         )
                     }
                 }
@@ -669,6 +676,7 @@ fun StartScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
                     .padding(bottom = 14.dp),
             ) {
                 Box(
