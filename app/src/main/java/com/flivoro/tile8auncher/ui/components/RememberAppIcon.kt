@@ -8,11 +8,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import com.flivoro.tile8auncher.data.AppsRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
- * Returns a cached icon synchronously and schedules a cache miss on the repository's IO
+ * Returns a cached icon synchronously and schedules a cache miss on the repository's bounded IO
  * loader. A missing package is deliberately a no-op so placeholder tiles never query the
  * PackageManager during composition.
  */
@@ -27,9 +25,9 @@ fun rememberAppIcon(
 
     LaunchedEffect(repository, packageName) {
         val name = packageName ?: return@LaunchedEffect
-        icon = withContext(Dispatchers.IO) {
-            repository.loadAppIcon(name)
-        }
+        // loadAppIcon owns its IO dispatcher and decode throttling. Awaiting it here suspends this
+        // effect without blocking the main thread, and avoids an unnecessary extra dispatcher hop.
+        icon = repository.loadAppIcon(name)
     }
 
     return icon
