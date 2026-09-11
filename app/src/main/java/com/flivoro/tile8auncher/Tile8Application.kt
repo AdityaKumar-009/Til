@@ -8,8 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.graphics.Color
 import android.os.Bundle
 import android.os.PowerManager
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,20 +30,18 @@ import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import java.util.WeakHashMap
 
 /**
- * Keeps a pre-rendered wallpaper-only surface above the launcher while the display is asleep.
+ * Pre-rendered wallpaper-only guard used while the display/keyguard owns the screen.
  *
- * Android/OEM compositors are allowed to reuse the last submitted app buffer for the first frame
- * after keyguard dismissal. Merely changing Compose state in ACTION_SCREEN_OFF is therefore not a
- * strong enough guarantee: the old settled Start buffer can be flashed before Compose submits the
- * hidden frame. This application-owned curtain is a separate, always-laid-out hardware layer. Its
- * alpha is changed directly on the View at screen-off, so the buffer visible at unlock contains
- * only the Start wallpaper.
+ * The guard stays allocated and hardware-backed so ACTION_SCREEN_OFF / ACTION_SCREEN_ON only need
+ * an alpha/visibility property change; the launcher does not wait for a new Compose frame before
+ * hiding Start content. It may never expose an uninitialised white surface: a Windows-purple base
+ * is installed on the View itself before Compose renders the full selected wallpaper.
  *
- * USER_PRESENT and Activity resume do not have a guaranteed order across Android/OEM builds. The
- * curtain therefore remains held until MainActivity is actually RESUMED and keyguard is gone, then
- * waits two display frames: one hidden frame for Compose to submit Start progress zero and one frame
- * for the measured entrance to begin. The release is compositor-only (no fade), so no extra motion
- * is introduced into the Windows animation itself.
+ * USER_PRESENT, keyguard dismissal and Activity resume can arrive in different orders on OEM
+ * builds. Release is therefore state-driven rather than one-shot: once unlock was requested, a
+ * resumed activity keeps checking until the device is genuinely interactive and unlocked, waits
+ * two prepared display frames, then removes the guard with no fade. A subsequent screen-off bumps
+ * the generation and cancels every pending release callback.
  */
 class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChangeListener {
     private lateinit var prefs: SharedPreferences
@@ -49,18 +49,21 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
     private val resumedActivities = WeakHashMap<Activity, Boolean>()
     private var wallpaperStyle by mutableIntStateOf(0)
     private var holdCurtain = false
+    private var releaseRequested = false
     private var curtainGeneration = 0
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF,
-                Intent.ACTION_SCREEN_ON -> showCurtainImmediately()
+                Intent.ACTION_SCREEN_ON -> {
+                    releaseRequested = false
+                    showCurtainImmediately()
+                }
 
                 Intent.ACTION_USER_PRESENT -> {
-                    // MainActivity may not be resumed yet. releaseCurtainAfterPreparedFrames()
-                    // only schedules resumed activities; onActivityResumed retries if necessary.
-                    releaseCurtainAfterPreparedFrames()
+                    releaseRequested = true
+                    requestCurtainRelease()
                 }
             }
         }
@@ -93,10 +96,11 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
                 if (activity !is MainActivity) return
                 resumedActivities[activity] = true
                 attachCurtain(activity)
+
                 when {
-                    deviceRequiresCurtain() -> showCurtainImmediately()
-                    holdCurtain -> releaseCurtainAfterPreparedFrames()
-                    else -> hideCurtain(activity)
+                    !holdCurtain -> hideCurtain(activity)
+                    releaseRequested || !deviceRequiresCurtain() -> requestCurtainRelease()
+                    else -> showCurtainImmediately()
                 }
             }
 
@@ -124,16 +128,25 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
     private fun attachCurtain(activity: MainActivity) {
         if (curtains.containsKey(activity)) return
 
+        val activeInitially = holdCurtain || deviceRequiresCurtain()
         val curtain = ComposeView(activity).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            visibility = View.VISIBLE
-            alpha = if (holdCurtain || deviceRequiresCurtain()) 1f else 0f
-            isClickable = alpha > 0f
+
+            // This is intentionally set before setContent. Even if the Compose wallpaper has not
+            // produced its first buffer yet, the guard can only display purple, never window white.
+            setBackgroundColor(WINDOWS_PURPLE_FALLBACK)
+            visibility = if (activeInitially) View.VISIBLE else View.INVISIBLE
+            alpha = if (activeInitially) 1f else 0f
+            isClickable = activeInitially
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            // Keep the wallpaper buffer resident so screen-off can switch compositor alpha without
-            // depending on a new Compose draw landing before the display powers down.
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
+            // A visible unlock guard must never pass taps to invisible Start tiles underneath.
+            setOnTouchListener { view, _: MotionEvent ->
+                view.visibility == View.VISIBLE && view.alpha > ACTIVE_ALPHA_THRESHOLD
+            }
+
             setContent {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val viewportWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
@@ -145,10 +158,6 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
                         modifier = Modifier.fillMaxSize(),
                         wallpaperStyle = wallpaperStyle,
                         enabled = true,
-                        // WindowsWallpaper converts scroll to art translation using each layer's
-                        // depth rate. A negative synthetic scroll places the art at the same
-                        // parallax-depth start pose used by the unlock entrance while its base
-                        // color remains stationary.
                         scrollOffsetPx = { -viewportWidthPx * initialTravel },
                     )
                 }
@@ -171,6 +180,7 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
         curtainGeneration++
         curtains.forEach { (_, curtain) ->
             curtain.animate().cancel()
+            curtain.setBackgroundColor(WINDOWS_PURPLE_FALLBACK)
             curtain.visibility = View.VISIBLE
             curtain.alpha = 1f
             curtain.isClickable = true
@@ -179,14 +189,20 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
         }
     }
 
-    private fun releaseCurtainAfterPreparedFrames() {
-        if (deviceRequiresCurtain()) return
-        val generation = ++curtainGeneration
+    private fun requestCurtainRelease() {
+        if (!holdCurtain) return
         val resumed = resumedActivities.keys.toList()
         if (resumed.isEmpty()) return
+
+        val generation = ++curtainGeneration
         resumed.forEach { activity ->
             val curtain = curtains[activity] ?: return@forEach
-            scheduleReleaseFrame(activity, curtain, generation, framesRemaining = PREPARE_FRAMES)
+            scheduleReleaseFrame(
+                activity = activity,
+                curtain = curtain,
+                generation = generation,
+                preparedFramesRemaining = PREPARE_FRAMES,
+            )
         }
     }
 
@@ -194,29 +210,37 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
         activity: Activity,
         curtain: ComposeView,
         generation: Int,
-        framesRemaining: Int,
+        preparedFramesRemaining: Int,
     ) {
         curtain.postOnAnimation releaseFrame@{
             if (generation != curtainGeneration) return@releaseFrame
             if (activity !in resumedActivities) return@releaseFrame
+
             if (deviceRequiresCurtain()) {
-                // Some keyguards report locked for a frame or two after USER_PRESENT. Keep the
-                // wallpaper up and retry instead of risking either a flash or a permanently stuck
-                // curtain because one early release callback happened to lose the race.
+                // Do not abandon the release because the OEM reports keyguard locked for an extra
+                // frame after USER_PRESENT. Keep checking until it really clears. The next
+                // SCREEN_OFF/SCREEN_ON generation cancels this loop immediately.
                 scheduleReleaseFrame(
                     activity = activity,
                     curtain = curtain,
                     generation = generation,
-                    framesRemaining = framesRemaining.coerceAtLeast(1),
+                    preparedFramesRemaining = PREPARE_FRAMES,
                 )
                 return@releaseFrame
             }
-            if (framesRemaining > 1) {
-                scheduleReleaseFrame(activity, curtain, generation, framesRemaining - 1)
+
+            if (preparedFramesRemaining > 1) {
+                scheduleReleaseFrame(
+                    activity = activity,
+                    curtain = curtain,
+                    generation = generation,
+                    preparedFramesRemaining = preparedFramesRemaining - 1,
+                )
                 return@releaseFrame
             }
 
             holdCurtain = false
+            releaseRequested = false
             hideCurtain(activity)
         }
     }
@@ -224,8 +248,9 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
     private fun hideCurtain(activity: Activity) {
         val curtain = curtains[activity] ?: return
         curtain.animate().cancel()
-        curtain.alpha = 0f
         curtain.isClickable = false
+        curtain.alpha = 0f
+        curtain.visibility = View.INVISIBLE
     }
 
     private fun deviceRequiresCurtain(): Boolean {
@@ -238,5 +263,7 @@ class Tile8Application : Application(), SharedPreferences.OnSharedPreferenceChan
         private const val PREFS_NAME = "tile8_launcher_prefs_v2"
         private const val KEY_WALLPAPER_STYLE = "wallpaper_style"
         private const val PREPARE_FRAMES = 2
+        private const val ACTIVE_ALPHA_THRESHOLD = 0.5f
+        private val WINDOWS_PURPLE_FALLBACK = Color.rgb(35, 5, 61)
     }
 }
