@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -37,6 +38,9 @@ import kotlin.math.roundToInt
 private const val REPEATED_LAYER_WIDTHS = 3f
 private const val WALLPAPER_STYLE_MIN = 0
 private const val WALLPAPER_STYLE_MAX = 9
+private val DEFAULT_WALLPAPER_BASE = Color(0xFF23053D)
+private val DEFAULT_WALLPAPER_ACCENT = Color(0xFF5A148C)
+private val DEFAULT_WALLPAPER_HIGHLIGHT = Color(0xFF8824B8)
 
 /**
  * Windows 8.1-inspired Start wallpaper and Motion Accent compositor.
@@ -46,17 +50,34 @@ private const val WALLPAPER_STYLE_MAX = 9
  * Motion Accent behavior is composited as a separate interaction-driven layer for the animated
  * families (robots, city, bubbles/swirls, dragon and gears). The entire decorative plane remains
  * behind Start content and follows one continuous parallax track.
+ *
+ * Background and accent colors are independent Personalize settings, as on Windows 8.1. Existing
+ * callers that explicitly supply colors still win; the persisted Personalize palette is used only
+ * for this composable's historical default values.
  */
 @Composable
 fun WindowsWallpaper(
     modifier: Modifier = Modifier,
-    baseColor: Color = Color(0xFF23053D),
-    accentColor: Color = Color(0xFF5A148C),
-    highlightColor: Color = Color(0xFF8824B8),
+    baseColor: Color = DEFAULT_WALLPAPER_BASE,
+    accentColor: Color = DEFAULT_WALLPAPER_ACCENT,
+    highlightColor: Color = DEFAULT_WALLPAPER_HIGHLIGHT,
     enabled: Boolean = true,
     scrollOffsetPx: () -> Float = { 0f },
     wallpaperStyle: Int = 0,
 ) {
+    val context = LocalContext.current
+    LaunchedEffect(context) { StartPersonalization.ensureLoaded(context) }
+
+    val personalizedBase = StartPersonalization.backgroundColor
+    val personalizedAccent = StartPersonalization.accentColor
+    val effectiveBaseColor = if (baseColor == DEFAULT_WALLPAPER_BASE) personalizedBase else baseColor
+    val effectiveAccentColor = if (accentColor == DEFAULT_WALLPAPER_ACCENT) personalizedAccent else accentColor
+    val effectiveHighlightColor = if (highlightColor == DEFAULT_WALLPAPER_HIGHLIGHT) {
+        StartPersonalization.highlightFor(effectiveAccentColor)
+    } else {
+        highlightColor
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val viewportWidthPx = with(density) { maxWidth.toPx() }
@@ -68,7 +89,7 @@ fun WindowsWallpaper(
             scrollOffsetPx = scrollOffsetPx,
         )
 
-        WallpaperBase(baseColor = baseColor)
+        WallpaperBase(baseColor = effectiveBaseColor)
 
         if (selectedStyle == 0) {
             PurpleGlowLayer(
@@ -76,22 +97,23 @@ fun WindowsWallpaper(
                 viewportWidthPx = viewportWidthPx,
                 enabled = enabled,
                 scrollOffsetPx = scrollOffsetPx,
+                baseColor = effectiveBaseColor,
             )
             PurpleRibbonLayer(
                 viewportWidthDp = maxWidth,
                 viewportWidthPx = viewportWidthPx,
                 enabled = enabled,
                 scrollOffsetPx = scrollOffsetPx,
-                accentColor = accentColor,
-                highlightColor = highlightColor,
+                accentColor = effectiveAccentColor,
+                highlightColor = effectiveHighlightColor,
             )
             PurpleHighlightLayer(
                 viewportWidthDp = maxWidth,
                 viewportWidthPx = viewportWidthPx,
                 enabled = enabled,
                 scrollOffsetPx = scrollOffsetPx,
-                accentColor = accentColor,
-                highlightColor = highlightColor,
+                accentColor = effectiveAccentColor,
+                highlightColor = effectiveHighlightColor,
             )
         } else {
             val bitmap = rememberWallpaperBitmap(wallpaperResourceId(selectedStyle))
@@ -103,8 +125,9 @@ fun WindowsWallpaper(
                     enabled = enabled,
                     scrollOffsetPx = scrollOffsetPx,
                     motionFrame = motionFrame,
-                    accentColor = accentColor,
-                    highlightColor = highlightColor,
+                    baseColor = effectiveBaseColor,
+                    accentColor = effectiveAccentColor,
+                    highlightColor = effectiveHighlightColor,
                 )
             }
         }
@@ -117,12 +140,11 @@ private fun WallpaperBase(baseColor: Color) {
         modifier = Modifier
             .fillMaxSize()
             .drawWithCache {
+                val defaultPalette = baseColor == DEFAULT_WALLPAPER_BASE
+                val middle = if (defaultPalette) Color(0xFF140224) else baseColor.scaledRgb(0.55f)
+                val end = if (defaultPalette) Color(0xFF0C0117) else baseColor.scaledRgb(0.30f)
                 val baseBrush = Brush.linearGradient(
-                    colors = listOf(
-                        baseColor,
-                        Color(0xFF140224),
-                        Color(0xFF0C0117),
-                    ),
+                    colors = listOf(baseColor, middle, end),
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
                 )
@@ -137,6 +159,7 @@ private fun PurpleGlowLayer(
     viewportWidthPx: Float,
     enabled: Boolean,
     scrollOffsetPx: () -> Float,
+    baseColor: Color,
 ) {
     Spacer(
         modifier = Modifier
@@ -158,12 +181,14 @@ private fun PurpleGlowLayer(
                         y = tileHeight * 0.20f,
                     )
                 }
+                val glowColor = if (baseColor == DEFAULT_WALLPAPER_BASE) {
+                    Color(0xFF4A0E72)
+                } else {
+                    baseColor.lightened(0.18f)
+                }
                 val brushes = Array(origins.size) { index ->
                     Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF4A0E72).copy(alpha = 0.35f),
-                            Color.Transparent,
-                        ),
+                        colors = listOf(glowColor.copy(alpha = 0.35f), Color.Transparent),
                         center = centers[index],
                         radius = tileWidth * 0.60f,
                     )
@@ -288,6 +313,7 @@ private fun BitmapWallpaper(
     enabled: Boolean,
     scrollOffsetPx: () -> Float,
     motionFrame: WindowsMotionAccentFrame,
+    baseColor: Color,
     accentColor: Color,
     highlightColor: Color,
 ) {
@@ -315,6 +341,7 @@ private fun BitmapWallpaper(
                 }
                 val shaderMatrix = Matrix()
                 val matrixValues = FloatArray(9)
+                val customBackground = baseColor != DEFAULT_WALLPAPER_BASE
 
                 onDrawBehind {
                     val tileHeight = size.height.coerceAtLeast(1f)
@@ -342,6 +369,15 @@ private fun BitmapWallpaper(
 
                     drawIntoCanvas { canvas ->
                         canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                    }
+
+                    // The repository carries flattened stock captures rather than Microsoft's
+                    // original tintable layer masks. Preserve the untouched stock pixels for the
+                    // default palette; when the user changes Background color, apply only the
+                    // restrained color wash that a flattened asset can support without destroying
+                    // its original shading/detail.
+                    if (customBackground) {
+                        drawRect(color = baseColor.copy(alpha = 0.18f), size = size)
                     }
 
                     drawWindowsMotionAccent(
@@ -422,11 +458,13 @@ private fun mainRibbonBrush(
 ): Brush {
     val startFraction = if (mirrored) 0.65f else 0.35f
     val endFraction = if (mirrored) 0.25f else 0.75f
+    val defaultPalette = accentColor == DEFAULT_WALLPAPER_ACCENT && highlightColor == DEFAULT_WALLPAPER_HIGHLIGHT
+    val shadow = if (defaultPalette) Color(0xFF32094D) else accentColor.scaledRgb(0.50f)
     return Brush.linearGradient(
         colors = listOf(
             accentColor.copy(alpha = 0.45f),
             highlightColor.copy(alpha = 0.35f),
-            Color(0xFF32094D).copy(alpha = 0.20f),
+            shadow.copy(alpha = 0.20f),
         ),
         start = Offset(originX + tileWidth * startFraction, 0f),
         end = Offset(originX + tileWidth * endFraction, tileHeight),
@@ -470,6 +508,20 @@ private fun highlightRibbonBrush(
         end = Offset(originX + tileWidth * endFraction, tileHeight),
     )
 }
+
+private fun Color.scaledRgb(scale: Float): Color = Color(
+    red = (red * scale).coerceIn(0f, 1f),
+    green = (green * scale).coerceIn(0f, 1f),
+    blue = (blue * scale).coerceIn(0f, 1f),
+    alpha = alpha,
+)
+
+private fun Color.lightened(amount: Float): Color = Color(
+    red = (red + (1f - red) * amount).coerceIn(0f, 1f),
+    green = (green + (1f - green) * amount).coerceIn(0f, 1f),
+    blue = (blue + (1f - blue) * amount).coerceIn(0f, 1f),
+    alpha = alpha,
+)
 
 private fun wallpaperResourceId(style: Int): Int = when (style) {
     1 -> R.drawable.start_wallpaper_1
