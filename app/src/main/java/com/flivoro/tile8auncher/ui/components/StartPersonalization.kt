@@ -23,8 +23,8 @@ internal object StartPersonalization {
     private const val KEY_ACCENT = "accent_argb"
 
     private var initialized = false
-    private val backgroundState = mutableStateOf(Color(DEFAULT_BACKGROUND_ARGB.toULong()))
-    private val accentState = mutableStateOf(Color(DEFAULT_ACCENT_ARGB.toULong()))
+    private val backgroundState = mutableStateOf(Color(DEFAULT_BACKGROUND_ARGB))
+    private val accentState = mutableStateOf(Color(DEFAULT_ACCENT_ARGB))
 
     val backgroundColor: Color get() = backgroundState.value
     val accentColor: Color get() = accentState.value
@@ -36,8 +36,8 @@ internal object StartPersonalization {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val background = prefs.getLong(KEY_BACKGROUND, DEFAULT_BACKGROUND_ARGB)
             val accent = prefs.getLong(KEY_ACCENT, DEFAULT_ACCENT_ARGB)
-            backgroundState.value = Color(background.toULong())
-            accentState.value = Color(accent.toULong())
+            backgroundState.value = Color(background)
+            accentState.value = Color(accent)
             initialized = true
         }
     }
@@ -45,7 +45,7 @@ internal object StartPersonalization {
     fun setBackgroundColor(context: Context, color: Color) {
         ensureLoaded(context)
         val argb = color.toArgbLong()
-        backgroundState.value = Color(argb.toULong())
+        backgroundState.value = Color(argb)
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_BACKGROUND, argb)
@@ -55,7 +55,7 @@ internal object StartPersonalization {
     fun setAccentColor(context: Context, color: Color) {
         ensureLoaded(context)
         val argb = color.toArgbLong()
-        accentState.value = Color(argb.toULong())
+        accentState.value = Color(argb)
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_ACCENT, argb)
@@ -64,7 +64,7 @@ internal object StartPersonalization {
 
     fun highlightFor(accent: Color): Color {
         if (accent.toArgbLong() == DEFAULT_ACCENT_ARGB) {
-            return Color(DEFAULT_HIGHLIGHT_ARGB.toULong())
+            return Color(DEFAULT_HIGHLIGHT_ARGB)
         }
         return Color(
             red = (accent.red * 0.72f + 0.28f).coerceIn(0f, 1f),
@@ -75,18 +75,18 @@ internal object StartPersonalization {
     }
 
     val backgroundChoices: List<Color> = listOf(
-        0xFF180052, 0xFF23053D, 0xFF3B0B59, 0xFF5133AB, 0xFF6A00FF,
-        0xFF001E4E, 0xFF004050, 0xFF006A6A, 0xFF008272, 0xFF007233,
-        0xFF0A5A20, 0xFF4C5F00, 0xFF7A5C00, 0xFF9A4600, 0xFF9A1B00,
-        0xFF8E1730, 0xFF7A174A, 0xFF5E2750, 0xFF3A3A3A, 0xFF111111,
-    ).map { Color(it) }
+        0xFF180052L, 0xFF23053DL, 0xFF3B0B59L, 0xFF5133ABL, 0xFF6A00FFL,
+        0xFF001E4EL, 0xFF004050L, 0xFF006A6AL, 0xFF008272L, 0xFF007233L,
+        0xFF0A5A20L, 0xFF4C5F00L, 0xFF7A5C00L, 0xFF9A4600L, 0xFF9A1B00L,
+        0xFF8E1730L, 0xFF7A174AL, 0xFF5E2750L, 0xFF3A3A3AL, 0xFF111111L,
+    ).map(::Color)
 
     val accentChoices: List<Color> = listOf(
-        0xFF5133AB, 0xFF6A00FF, 0xFF8C0095, 0xFFAC193D, 0xFFD13438,
-        0xFFE81123, 0xFFE66C00, 0xFFF0A30A, 0xFF60A917, 0xFF008A00,
-        0xFF00A300, 0xFF00ABA9, 0xFF1BA1E2, 0xFF0078D7, 0xFF0050EF,
-        0xFF2D89EF, 0xFF6B69D6, 0xFFAA00FF, 0xFFC239B3, 0xFF767676,
-    ).map { Color(it) }
+        0xFF5133ABL, 0xFF6A00FFL, 0xFF8C0095L, 0xFFAC193DL, 0xFFD13438L,
+        0xFFE81123L, 0xFFE66C00L, 0xFFF0A30AL, 0xFF60A917L, 0xFF008A00L,
+        0xFF00A300L, 0xFF00ABA9L, 0xFF1BA1E2L, 0xFF0078D7L, 0xFF0050EFL,
+        0xFF2D89EFL, 0xFF6B69D6L, 0xFFAA00FFL, 0xFFC239B3L, 0xFF767676L,
+    ).map(::Color)
 }
 
 private fun Color.toArgbLong(): Long {
