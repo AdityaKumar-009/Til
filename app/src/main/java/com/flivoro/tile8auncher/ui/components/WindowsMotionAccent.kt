@@ -149,10 +149,13 @@ internal object WindowsMotionAccent {
 /**
  * Efficient Motion Accent clock:
  * - static themes sleep completely;
- * - city updates at ~8 fps when idle because only lights change;
- * - bubbles update at ~25 fps because their movement is slow;
- * - interaction-driven themes temporarily update at display-friendly cadence, then sleep after the
+ * - city updates slowly when idle because only lights change;
+ * - bubbles use a modest idle cadence because their movement is deliberately slow;
+ * - interaction-driven themes temporarily update at a smooth cadence, then sleep after the
  *   documented ~7 second activity window.
+ *
+ * On Android low-RAM devices only the sampling cadence is reduced; motion is still advanced by
+ * real elapsed time, so speed, direction and settling behavior remain unchanged.
  *
  * Mechanical/creature themes advance their phase with the last horizontal scroll direction. A
  * direction reversal therefore reverses cogs/body motion continuously instead of flipping an
@@ -164,6 +167,7 @@ internal fun rememberWindowsMotionAccentFrame(
     enabled: Boolean,
     viewportWidthPx: Float,
     sceneState: StartBackgroundSceneState,
+    lowRamMode: Boolean = false,
 ): WindowsMotionAccentFrame {
     val kind = WindowsMotionAccent.kindForStyle(wallpaperStyle)
     val frame = remember(wallpaperStyle) { WindowsMotionAccentFrame(kind = kind) }
@@ -191,7 +195,7 @@ internal fun rememberWindowsMotionAccentFrame(
         }
     }
 
-    LaunchedEffect(enabled, kind, frame) {
+    LaunchedEffect(enabled, kind, frame, lowRamMode) {
         if (!enabled || kind == WindowsMotionAccentKind.NONE) return@LaunchedEffect
 
         var previousNanos = System.nanoTime()
@@ -212,20 +216,20 @@ internal fun rememberWindowsMotionAccentFrame(
                     frame.velocityState.floatValue = 0f
                 }
                 previousNanos = now
-                delay(120L)
+                delay(if (lowRamMode) 180L else 120L)
                 continue
             }
 
             val intervalMillis = when {
-                interactionActive -> 16L
-                kind == WindowsMotionAccentKind.BUBBLES -> 40L
-                kind == WindowsMotionAccentKind.CITY -> 120L
-                else -> 80L
+                interactionActive -> if (lowRamMode) 24L else 16L
+                kind == WindowsMotionAccentKind.BUBBLES -> if (lowRamMode) 64L else 40L
+                kind == WindowsMotionAccentKind.CITY -> if (lowRamMode) 180L else 120L
+                else -> if (lowRamMode) 120L else 80L
             }
             delay(intervalMillis)
 
             val tick = System.nanoTime()
-            val deltaSeconds = ((tick - previousNanos) / 1_000_000_000f).coerceIn(0f, 0.15f)
+            val deltaSeconds = ((tick - previousNanos) / 1_000_000_000f).coerceIn(0f, 0.20f)
             previousNanos = tick
 
             // City/bubbles are independent ambient clocks. Interactive artwork instead advances in
