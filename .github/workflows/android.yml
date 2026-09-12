@@ -2,7 +2,7 @@ name: Android build
 
 on:
   push:
-    branches: [ main, win81-fidelity ]
+    branches: [ main, win81-fidelity, wallpaper-fidelity-portrait ]
   workflow_dispatch:
 
 permissions:
