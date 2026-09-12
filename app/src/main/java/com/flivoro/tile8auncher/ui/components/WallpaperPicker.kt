@@ -1,7 +1,5 @@
 package com.flivoro.tile8auncher.ui.components
 
-import android.graphics.BitmapFactory
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,19 +11,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 private val wallpaperNames = listOf(
     "Purple ribbons",
@@ -39,18 +31,6 @@ private val wallpaperNames = listOf(
     "Dragon",
     "Gears",
 )
-private val wallpaperResources = listOf(
-    0,
-    R.drawable.start_wallpaper_1,
-    R.drawable.start_wallpaper_2,
-    R.drawable.start_wallpaper_3,
-    R.drawable.start_wallpaper_4,
-    R.drawable.start_wallpaper_5,
-    R.drawable.start_wallpaper_6,
-    R.drawable.start_wallpaper_7,
-    R.drawable.start_wallpaper_8,
-    R.drawable.start_wallpaper_9,
-)
 
 @Composable
 internal fun WallpaperPicker(
@@ -59,7 +39,6 @@ internal fun WallpaperPicker(
     appsRepository: AppsRepository? = null,
 ) {
     val context = LocalContext.current
-    val resources = context.resources
     LaunchedEffect(context) { StartPersonalization.ensureLoaded(context) }
 
     var lockScreenEnabled by remember {
@@ -84,7 +63,8 @@ internal fun WallpaperPicker(
     Text("Start background", color = Color(0xFF5133AB), fontSize = 20.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Motion Accents wake when you move across Start, then settle like Windows 8.1.",
+        "Artwork is rendered from the same transparent vector scene used on Start. Motion Accents " +
+            "wake with horizontal interaction while the background color stays independent.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -94,18 +74,6 @@ internal fun WallpaperPicker(
         wallpaperNames.indices.chunked(2).forEach { indices ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 indices.forEach { index ->
-                    val preview by produceState<ImageBitmap?>(null, index) {
-                        if (index > 0) value = withContext(Dispatchers.IO) {
-                            BitmapFactory.decodeResource(
-                                resources,
-                                wallpaperResources[index],
-                                BitmapFactory.Options().apply {
-                                    inSampleSize = 8
-                                    inScaled = false
-                                },
-                            )?.asImageBitmap()
-                        }
-                    }
                     val motionKind = WindowsMotionAccent.kindForStyle(index)
                     Column(
                         Modifier
@@ -127,25 +95,11 @@ internal fun WallpaperPicker(
                                 .height(86.dp)
                                 .background(backgroundColor),
                         ) {
-                            if (index == 0) {
-                                WindowsWallpaper(enabled = false)
-                            } else {
-                                preview?.let {
-                                    Image(
-                                        bitmap = it,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                    if (backgroundColor != Color(StartPersonalization.DEFAULT_BACKGROUND_ARGB)) {
-                                        Box(
-                                            Modifier
-                                                .fillMaxSize()
-                                                .background(backgroundColor.copy(alpha = 0.18f)),
-                                        )
-                                    }
-                                }
-                            }
+                            WindowsWallpaper(
+                                wallpaperStyle = index,
+                                enabled = false,
+                                trackLauncherScroll = false,
+                            )
                         }
                         Text(
                             wallpaperNames[index],
@@ -173,7 +127,7 @@ internal fun WallpaperPicker(
     Text("Background color", color = Color(0xFF5133AB), fontSize = 18.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Changes the Start background independently of the selected artwork.",
+        "Changes the solid Start color underneath every transparent artwork layer.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -189,7 +143,7 @@ internal fun WallpaperPicker(
     Text("Accent color", color = Color(0xFF5133AB), fontSize = 18.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Controls Start highlights and Motion Accent details.",
+        "Recolors the artwork, shadows, highlights and Motion Accent parts without tinting the background.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -262,7 +216,8 @@ internal fun WallpaperPicker(
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "Android's device lock remains unchanged; Mosaic's Windows surface appears within the launcher after Android has finished its own unlock flow.",
+            "Android's device lock remains unchanged; Mosaic's Windows surface appears within the " +
+                "launcher after Android has finished its own unlock flow.",
             color = Color(0xFF777777),
             fontSize = 11.sp,
             lineHeight = 15.sp,
