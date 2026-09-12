@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.ui.components
 
+import android.app.ActivityManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,6 +58,9 @@ fun WindowsWallpaper(
     } else {
         highlightColor
     }
+    val lowRamDevice = remember(context) {
+        context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+    }
 
     val ownedScene = remember { StartBackgroundSceneState() }
     val scene = sceneState ?: ownedScene
@@ -87,6 +91,7 @@ fun WindowsWallpaper(
             enabled = enabled,
             viewportWidthPx = viewportWidthPx,
             sceneState = scene,
+            lowRamMode = lowRamDevice,
         )
 
         Canvas(Modifier.fillMaxSize()) {
