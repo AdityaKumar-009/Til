@@ -152,6 +152,10 @@ internal object WindowsMotionAccent {
  * - bubbles update at ~25 fps because their movement is slow;
  * - interaction-driven themes temporarily update at display-friendly cadence, then sleep after the
  *   documented ~7 second activity window.
+ *
+ * Mechanical/creature themes advance their phase with the last horizontal scroll direction. A
+ * direction reversal therefore reverses cogs/body motion continuously instead of flipping an
+ * already accumulated absolute angle.
  */
 @Composable
 internal fun rememberWindowsMotionAccentFrame(
@@ -171,16 +175,16 @@ internal fun rememberWindowsMotionAccentFrame(
         }
     }
 
-    LaunchedEffect(frame, viewportWidthPx, enabled) {
+    LaunchedEffect(frame, viewportWidthPx, enabled, sceneState) {
         if (!enabled || kind == WindowsMotionAccentKind.NONE) return@LaunchedEffect
         var lastSerial = sceneState.interactionSerial
         snapshotFlow { sceneState.interactionSerial }.collect { serial ->
             if (serial == lastSerial) return@collect
             lastSerial = serial
             val delta = sceneState.lastScrollDeltaPx
+            val sample = WindowsMotionAccent.normalizedVelocity(delta, viewportWidthPx)
             frame.velocityState.floatValue =
-                frame.velocityState.floatValue * 0.48f +
-                    WindowsMotionAccent.normalizedVelocity(delta, viewportWidthPx) * 0.52f
+                frame.velocityState.floatValue * 0.48f + sample * 0.52f
             frame.lastInteractionNanos = System.nanoTime()
             frame.activityState.floatValue = 1f
         }
@@ -222,8 +226,12 @@ internal fun rememberWindowsMotionAccentFrame(
             val tick = System.nanoTime()
             val deltaSeconds = ((tick - previousNanos) / 1_000_000_000f).coerceIn(0f, 0.15f)
             previousNanos = tick
-            frame.phaseState.floatValue += deltaSeconds
-            if (frame.phaseState.floatValue > 3_600f) {
+
+            // City/bubbles are independent ambient clocks. Interactive artwork instead advances in
+            // the user's current horizontal direction, preserving continuity when direction flips.
+            val phaseDirection = if (ambient || frame.velocityState.floatValue >= 0f) 1f else -1f
+            frame.phaseState.floatValue += deltaSeconds * phaseDirection
+            if (abs(frame.phaseState.floatValue) > 3_600f) {
                 frame.phaseState.floatValue %= 60f
             }
 
