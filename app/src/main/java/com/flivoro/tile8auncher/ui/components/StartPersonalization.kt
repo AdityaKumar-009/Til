@@ -79,14 +79,14 @@ internal object StartPersonalization {
         0xFF001E4EL, 0xFF004050L, 0xFF006A6AL, 0xFF008272L, 0xFF007233L,
         0xFF0A5A20L, 0xFF4C5F00L, 0xFF7A5C00L, 0xFF9A4600L, 0xFF9A1B00L,
         0xFF8E1730L, 0xFF7A174AL, 0xFF5E2750L, 0xFF3A3A3AL, 0xFF111111L,
-    ).map(::Color)
+    ).map { argb -> Color(argb) }
 
     val accentChoices: List<Color> = listOf(
         0xFF5133ABL, 0xFF6A00FFL, 0xFF8C0095L, 0xFFAC193DL, 0xFFD13438L,
         0xFFE81123L, 0xFFE66C00L, 0xFFF0A30AL, 0xFF60A917L, 0xFF008A00L,
         0xFF00A300L, 0xFF00ABA9L, 0xFF1BA1E2L, 0xFF0078D7L, 0xFF0050EFL,
         0xFF2D89EFL, 0xFF6B69D6L, 0xFFAA00FFL, 0xFFC239B3L, 0xFF767676L,
-    ).map(::Color)
+    ).map { argb -> Color(argb) }
 }
 
 private fun Color.toArgbLong(): Long {
