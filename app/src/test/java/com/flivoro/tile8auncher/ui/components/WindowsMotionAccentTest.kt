@@ -6,20 +6,21 @@ import org.junit.Test
 
 class WindowsMotionAccentTest {
     @Test
-    fun animatedStylesMapToTheirOwnWindowsMotionFamilies() {
+    fun animatedStylesMapToTheirOwnMotionFamilies() {
         assertEquals(WindowsMotionAccentKind.ROBOTS, WindowsMotionAccent.kindForStyle(1))
         assertEquals(WindowsMotionAccentKind.CITY, WindowsMotionAccent.kindForStyle(2))
         assertEquals(WindowsMotionAccentKind.BUBBLES, WindowsMotionAccent.kindForStyle(3))
+        assertEquals(WindowsMotionAccentKind.BIRD, WindowsMotionAccent.kindForStyle(5))
         assertEquals(WindowsMotionAccentKind.DRAGON, WindowsMotionAccent.kindForStyle(8))
         assertEquals(WindowsMotionAccentKind.GEARS, WindowsMotionAccent.kindForStyle(9))
 
-        listOf(0, 4, 5, 6, 7).forEach { style ->
+        listOf(0, 4, 6, 7).forEach { style ->
             assertEquals(WindowsMotionAccentKind.NONE, WindowsMotionAccent.kindForStyle(style))
         }
     }
 
     @Test
-    fun windowsPostInteractionWindowStaysWithinDocumentedSixToEightSeconds() {
+    fun robotsPostInteractionWindowStaysWithinHistoricalSixToEightSeconds() {
         assertTrue(WindowsMotionAccent.ACTIVE_DURATION_MILLIS in 6_000L..8_000L)
         assertEquals(
             WindowsMotionAccent.ACTIVE_DURATION_MILLIS,
@@ -42,7 +43,6 @@ class WindowsMotionAccentTest {
             val alpha = WindowsMotionAccent.cityLightAlpha(
                 phaseSeconds = index * 0.37f,
                 lightIndex = index,
-                activity = 1f,
             )
             assertTrue(alpha in 0f..1f)
 
@@ -79,5 +79,13 @@ class WindowsMotionAccentTest {
         assertTrue(left > 0f)
         assertTrue(kotlin.math.abs(right) <= 20f)
         assertTrue(kotlin.math.abs(left) <= 20f)
+    }
+
+    @Test
+    fun ambientFamiliesRemainLimitedToCityAndBubbles() {
+        assertTrue(WindowsMotionAccent.isAmbient(WindowsMotionAccentKind.CITY))
+        assertTrue(WindowsMotionAccent.isAmbient(WindowsMotionAccentKind.BUBBLES))
+        assertTrue(!WindowsMotionAccent.isAmbient(WindowsMotionAccentKind.ROBOTS))
+        assertTrue(!WindowsMotionAccent.isAmbient(WindowsMotionAccentKind.DRAGON))
     }
 }
