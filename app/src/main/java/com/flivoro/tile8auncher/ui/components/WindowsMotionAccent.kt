@@ -5,13 +5,11 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
@@ -29,13 +27,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 
-/**
- * Windows 8.1 Motion Accent families represented by the supplied Start backgrounds.
- *
- * Windows did not treat these as continuously-running live wallpapers. Interaction wakes a motion
- * accent, it keeps moving briefly, then settles. That contract is intentionally part of this model
- * so the Android recreation has the same quiet-at-rest character and does not waste frames/battery.
- */
+/** Windows 8.1 Motion Accent families represented by the supplied Start backgrounds. */
 internal enum class WindowsMotionAccentKind {
     NONE,
     ROBOTS,
@@ -53,9 +45,31 @@ internal data class WindowsMotionAccentFrame(
     val scrollPosition: Float = 0f,
 )
 
+/**
+ * Stable holder read by the drawing block rather than by composition on every animation frame.
+ * This mirrors the compositor-style nature of Windows Motion Accents and avoids rebuilding the
+ * bitmap shader/Compose hierarchy while an accent is awake.
+ */
+@Stable
+internal class WindowsMotionAccentRuntime internal constructor(
+    val kind: WindowsMotionAccentKind,
+) {
+    internal val activity = Animatable(0f)
+    internal val phaseSeconds = mutableFloatStateOf(0f)
+    internal val scrollVelocity = mutableFloatStateOf(0f)
+    internal val scrollPosition = mutableFloatStateOf(0f)
+
+    fun frame(): WindowsMotionAccentFrame = WindowsMotionAccentFrame(
+        kind = kind,
+        phaseSeconds = phaseSeconds.floatValue,
+        activity = activity.value.coerceIn(0f, 1f),
+        scrollVelocity = scrollVelocity.floatValue.coerceIn(-1f, 1f),
+        scrollPosition = scrollPosition.floatValue.takeIf(Float::isFinite) ?: 0f,
+    )
+}
+
 internal object WindowsMotionAccent {
-    // Period reports described roughly 6-8 seconds of post-interaction motion. Use the midpoint,
-    // with a short fade tail rather than a hard compositor stop.
+    // Contemporary Windows 8.1 reports describe roughly 6-8 seconds of post-interaction motion.
     const val ACTIVE_DURATION_MILLIS = 7_000L
     internal const val HOLD_DURATION_MILLIS = 6_250L
     internal const val FADE_DURATION_MILLIS = 750
@@ -130,30 +144,25 @@ internal object WindowsMotionAccent {
 }
 
 /**
- * Tracks Start/Apps horizontal interaction and wakes a Motion Accent for Windows' characteristic
- * short post-scroll animation window. Idle styles consume no per-frame work.
+ * Tracks horizontal Start/Apps interaction. Animated profiles wake for about seven seconds and then
+ * settle. Static profiles do not run a frame loop at all.
  */
 @Composable
-internal fun rememberWindowsMotionAccentFrame(
+internal fun rememberWindowsMotionAccentRuntime(
     wallpaperStyle: Int,
     enabled: Boolean,
     viewportWidthPx: Float,
     scrollOffsetPx: () -> Float,
-): WindowsMotionAccentFrame {
+): WindowsMotionAccentRuntime {
     val kind = WindowsMotionAccent.kindForStyle(wallpaperStyle)
+    val runtime = remember(wallpaperStyle) { WindowsMotionAccentRuntime(kind) }
     val latestScrollOffset = rememberUpdatedState(scrollOffsetPx)
-    val activity = remember(wallpaperStyle) { Animatable(0f) }
-    var phaseSeconds by remember(wallpaperStyle) { mutableFloatStateOf(0f) }
-    var scrollVelocity by remember(wallpaperStyle) { mutableFloatStateOf(0f) }
-    var scrollPosition by remember(wallpaperStyle) { mutableFloatStateOf(0f) }
-    var interactionSerial by remember(wallpaperStyle) { mutableIntStateOf(0) }
-    var runtimeEnabled by remember(wallpaperStyle) { mutableStateOf(enabled && kind != WindowsMotionAccentKind.NONE) }
+    val interactionSerial = remember(wallpaperStyle) { mutableIntStateOf(0) }
 
-    LaunchedEffect(enabled, kind, viewportWidthPx) {
-        runtimeEnabled = enabled && kind != WindowsMotionAccentKind.NONE
-        if (!runtimeEnabled) {
-            activity.snapTo(0f)
-            scrollVelocity = 0f
+    LaunchedEffect(enabled, kind, viewportWidthPx, runtime) {
+        if (!enabled || kind == WindowsMotionAccentKind.NONE) {
+            runtime.activity.snapTo(0f)
+            runtime.scrollVelocity.floatValue = 0f
             return@LaunchedEffect
         }
 
@@ -167,40 +176,41 @@ internal fun rememberWindowsMotionAccentFrame(
             .collect { current ->
                 val before = previous
                 previous = current
-                scrollPosition = current / max(viewportWidthPx, 1f)
+                runtime.scrollPosition.floatValue = current / max(viewportWidthPx, 1f)
                 if (before != null) {
                     val delta = current - before
                     if (abs(delta) >= 0.35f) {
                         val sample = WindowsMotionAccent.normalizedVelocity(delta, viewportWidthPx)
-                        scrollVelocity = scrollVelocity * 0.58f + sample * 0.42f
-                        interactionSerial++
+                        runtime.scrollVelocity.floatValue =
+                            runtime.scrollVelocity.floatValue * 0.58f + sample * 0.42f
+                        interactionSerial.intValue++
                     }
                 }
             }
     }
 
-    LaunchedEffect(interactionSerial, enabled, kind) {
-        if (!enabled || kind == WindowsMotionAccentKind.NONE || interactionSerial == 0) {
-            if (!enabled || kind == WindowsMotionAccentKind.NONE) activity.snapTo(0f)
+    LaunchedEffect(interactionSerial.intValue, enabled, kind, runtime) {
+        if (!enabled || kind == WindowsMotionAccentKind.NONE || interactionSerial.intValue == 0) {
+            if (!enabled || kind == WindowsMotionAccentKind.NONE) runtime.activity.snapTo(0f)
             return@LaunchedEffect
         }
-        activity.snapTo(1f)
+        runtime.activity.snapTo(1f)
         delay(WindowsMotionAccent.HOLD_DURATION_MILLIS)
-        activity.animateTo(
+        runtime.activity.animateTo(
             targetValue = 0f,
             animationSpec = tween(
                 durationMillis = WindowsMotionAccent.FADE_DURATION_MILLIS,
                 easing = LinearEasing,
             ),
         )
-        scrollVelocity = 0f
+        runtime.scrollVelocity.floatValue = 0f
     }
 
-    LaunchedEffect(enabled, kind) {
+    LaunchedEffect(enabled, kind, runtime) {
         if (!enabled || kind == WindowsMotionAccentKind.NONE) return@LaunchedEffect
         var previousFrameNanos = 0L
         while (isActive) {
-            if (activity.value <= 0.001f) {
+            if (runtime.activity.value <= 0.001f) {
                 previousFrameNanos = 0L
                 delay(96L)
             } else {
@@ -208,8 +218,10 @@ internal fun rememberWindowsMotionAccentFrame(
                     if (previousFrameNanos != 0L) {
                         val deltaSeconds = ((now - previousFrameNanos) / 1_000_000_000f)
                             .coerceIn(0f, 0.050f)
-                        phaseSeconds += deltaSeconds
-                        if (phaseSeconds > 3_600f) phaseSeconds %= 60f
+                        runtime.phaseSeconds.floatValue += deltaSeconds
+                        if (runtime.phaseSeconds.floatValue > 3_600f) {
+                            runtime.phaseSeconds.floatValue %= 60f
+                        }
                     }
                     previousFrameNanos = now
                 }
@@ -217,13 +229,7 @@ internal fun rememberWindowsMotionAccentFrame(
         }
     }
 
-    return WindowsMotionAccentFrame(
-        kind = kind,
-        phaseSeconds = phaseSeconds,
-        activity = activity.value.coerceIn(0f, 1f),
-        scrollVelocity = scrollVelocity.coerceIn(-1f, 1f),
-        scrollPosition = scrollPosition.takeIf(Float::isFinite) ?: 0f,
-    )
+    return runtime
 }
 
 /** Draw only the accent behavior; the exact supplied artwork stays underneath this layer. */
@@ -237,8 +243,6 @@ internal fun DrawScope.drawWindowsMotionAccent(
     val viewportWidth = viewportWidthPx.coerceAtLeast(1f)
     val height = size.height.coerceAtLeast(1f)
 
-    // The backing layer is three viewports wide. Repeating the subtle accent into each panel keeps
-    // it available during continuous parallax without introducing a phase wrap in the layer itself.
     repeat(3) { panel ->
         val originX = panel * viewportWidth
         val mirrored = panel % 2 == 1
