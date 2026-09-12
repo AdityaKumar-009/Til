@@ -2,7 +2,7 @@ name: Android build
 
 on:
   push:
-    branches: [ main, win81-fidelity, wallpaper-fidelity-portrait ]
+    branches: [ main, win81-fidelity ]
   workflow_dispatch:
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   verify-and-build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
