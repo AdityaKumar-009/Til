@@ -1,45 +1,33 @@
 package com.flivoro.tile8auncher.ui.components
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
+import kotlin.math.floor
 import kotlin.math.sin
 
-/** Windows 8.1 Motion Accent families represented by the supplied Start backgrounds. */
+/** Windows 8.1-style Motion Accent families represented by the reconstructed vector themes. */
 internal enum class WindowsMotionAccentKind {
     NONE,
     ROBOTS,
     CITY,
     BUBBLES,
+    BIRD,
     DRAGON,
     GEARS,
 }
 
 /**
- * Stable draw-time state. The public-looking properties are snapshot-backed so a draw block that
- * reads them is invalidated without recomposing/rebuilding the wallpaper hierarchy every frame.
+ * Draw-time state only. Snapshot state is read directly by Canvas, so animation invalidates drawing
+ * without rebuilding the launcher hierarchy.
  */
 @Stable
 internal class WindowsMotionAccentFrame(
@@ -47,33 +35,43 @@ internal class WindowsMotionAccentFrame(
     phaseSeconds: Float = 0f,
     activity: Float = 0f,
     scrollVelocity: Float = 0f,
-    scrollPosition: Float = 0f,
 ) {
-    internal val activityAnimatable = Animatable(activity.coerceIn(0f, 1f))
     internal val phaseState = mutableFloatStateOf(phaseSeconds)
+    internal val activityState = mutableFloatStateOf(activity.coerceIn(0f, 1f))
     internal val velocityState = mutableFloatStateOf(scrollVelocity.coerceIn(-1f, 1f))
-    internal val positionState = mutableFloatStateOf(scrollPosition)
+    internal val enabledState = mutableStateOf(true)
+
+    @Volatile
+    internal var lastInteractionNanos: Long = 0L
 
     val phaseSeconds: Float get() = phaseState.floatValue
-    val activity: Float get() = activityAnimatable.value.coerceIn(0f, 1f)
+    val activity: Float
+        get() = if (!enabledState.value) 0f else if (WindowsMotionAccent.isAmbient(kind)) {
+            1f
+        } else {
+            activityState.floatValue.coerceIn(0f, 1f)
+        }
     val scrollVelocity: Float get() = velocityState.floatValue.coerceIn(-1f, 1f)
-    val scrollPosition: Float get() = positionState.floatValue.takeIf(Float::isFinite) ?: 0f
 }
 
 internal object WindowsMotionAccent {
-    // Contemporary Windows 8.1 reports describe roughly 6-8 seconds of post-interaction motion.
+    // Historical reports for the Robots theme describe about 6-8 seconds after interaction.
     const val ACTIVE_DURATION_MILLIS = 7_000L
     internal const val HOLD_DURATION_MILLIS = 6_250L
-    internal const val FADE_DURATION_MILLIS = 750
+    internal const val FADE_DURATION_MILLIS = 750L
 
     fun kindForStyle(style: Int): WindowsMotionAccentKind = when (style) {
         1 -> WindowsMotionAccentKind.ROBOTS
         2 -> WindowsMotionAccentKind.CITY
         3 -> WindowsMotionAccentKind.BUBBLES
+        5 -> WindowsMotionAccentKind.BIRD
         8 -> WindowsMotionAccentKind.DRAGON
         9 -> WindowsMotionAccentKind.GEARS
         else -> WindowsMotionAccentKind.NONE
     }
+
+    fun isAmbient(kind: WindowsMotionAccentKind): Boolean =
+        kind == WindowsMotionAccentKind.CITY || kind == WindowsMotionAccentKind.BUBBLES
 
     fun normalizedVelocity(deltaPx: Float, viewportWidthPx: Float): Float {
         val width = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: 1f
@@ -81,33 +79,31 @@ internal object WindowsMotionAccent {
         return (delta / width * 12f).coerceIn(-1f, 1f)
     }
 
+    /** Subtle whole-object follow used by the reconstructed interactive layers. */
     fun artworkOffsetX(frame: WindowsMotionAccentFrame, viewportWidthPx: Float): Float {
         val width = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: return 0f
-        val activity = frame.activity
-        if (activity <= 0f) return 0f
+        if (frame.activity <= 0f) return 0f
         val phase = frame.phaseSeconds
         val fraction = when (frame.kind) {
-            WindowsMotionAccentKind.ROBOTS -> sin(phase * 1.55f) * 0.0045f
-            WindowsMotionAccentKind.CITY -> 0f
-            WindowsMotionAccentKind.BUBBLES -> sin(phase * 0.62f) * 0.0025f
+            WindowsMotionAccentKind.ROBOTS -> sin(phase * 1.55f) * 0.0035f
+            WindowsMotionAccentKind.BIRD -> -frame.scrollVelocity * 0.012f
             WindowsMotionAccentKind.DRAGON ->
                 (-frame.scrollVelocity * 0.016f) + sin(phase * 1.18f) * 0.0035f
-            WindowsMotionAccentKind.GEARS -> 0f
-            WindowsMotionAccentKind.NONE -> 0f
+            else -> 0f
         }
-        return (fraction * width * activity).takeIf(Float::isFinite) ?: 0f
+        return (fraction * width * frame.activity).takeIf(Float::isFinite) ?: 0f
     }
 
     fun artworkOffsetY(frame: WindowsMotionAccentFrame, viewportHeightPx: Float): Float {
         val height = viewportHeightPx.takeIf { it.isFinite() && it > 0f } ?: return 0f
-        val activity = frame.activity
+        if (frame.activity <= 0f) return 0f
         val fraction = when (frame.kind) {
             WindowsMotionAccentKind.ROBOTS -> cos(frame.phaseSeconds * 1.25f) * 0.0025f
-            WindowsMotionAccentKind.BUBBLES -> sin(frame.phaseSeconds * 0.55f) * 0.0018f
+            WindowsMotionAccentKind.BIRD -> sin(frame.phaseSeconds * 4.0f) * 0.002f
             WindowsMotionAccentKind.DRAGON -> sin(frame.phaseSeconds * 1.62f) * 0.0022f
             else -> 0f
         }
-        return (fraction * height * activity).takeIf(Float::isFinite) ?: 0f
+        return (fraction * height * frame.activity).takeIf(Float::isFinite) ?: 0f
     }
 
     fun robotGearDegrees(phaseSeconds: Float, gearIndex: Int): Float {
@@ -122,319 +118,133 @@ internal object WindowsMotionAccent {
         return phaseSeconds * speed * direction
     }
 
-    fun cityLightAlpha(phaseSeconds: Float, lightIndex: Int, activity: Float): Float {
+    fun birdWingDegrees(phaseSeconds: Float, velocity: Float, activity: Float): Float {
+        if (activity <= 0f) return 0f
+        val flutter = sin(phaseSeconds * 9.0f) * 16f
+        return (flutter + velocity.coerceIn(-1f, 1f) * 10f) * activity
+    }
+
+    fun dragonTailDegrees(phaseSeconds: Float, velocity: Float, activity: Float): Float {
+        if (activity <= 0f) return 0f
+        return (
+            sin(phaseSeconds * 2.2f) * 5f -
+                velocity.coerceIn(-1f, 1f) * 12f
+            ) * activity
+    }
+
+    fun cityLightAlpha(phaseSeconds: Float, lightIndex: Int, activity: Float = 1f): Float {
         val pulse = (sin(phaseSeconds * 1.7f + lightIndex * 1.91f) + 1f) * 0.5f
-        return (0.06f + pulse * 0.24f) * activity.coerceIn(0f, 1f)
+        return ((0.07f + pulse * 0.28f) * activity.coerceIn(0f, 1f)).coerceIn(0f, 1f)
     }
 
     fun bubbleTravel(phaseSeconds: Float, bubbleIndex: Int): Float {
-        val speed = 0.055f + (bubbleIndex % 5) * 0.012f
+        val speed = 0.050f + (bubbleIndex % 5) * 0.010f
         val initial = (bubbleIndex * 0.137f) % 1f
         val raw = initial + phaseSeconds * speed
-        return raw - kotlin.math.floor(raw)
+        return raw - floor(raw)
     }
 }
 
 /**
- * Tracks horizontal Start/Apps interaction. Animated profiles wake for about seven seconds and then
- * settle. Static profiles do not run a frame loop at all.
+ * Efficient Motion Accent clock:
+ * - static themes sleep completely;
+ * - city updates at ~8 fps when idle because only lights change;
+ * - bubbles update at ~25 fps because their movement is slow;
+ * - interaction-driven themes temporarily update at display-friendly cadence, then sleep after the
+ *   documented ~7 second activity window.
  */
 @Composable
 internal fun rememberWindowsMotionAccentFrame(
     wallpaperStyle: Int,
     enabled: Boolean,
     viewportWidthPx: Float,
-    scrollOffsetPx: () -> Float,
+    sceneState: StartBackgroundSceneState,
 ): WindowsMotionAccentFrame {
     val kind = WindowsMotionAccent.kindForStyle(wallpaperStyle)
     val frame = remember(wallpaperStyle) { WindowsMotionAccentFrame(kind = kind) }
-    val latestScrollOffset = rememberUpdatedState(scrollOffsetPx)
-    val interactionSerial = remember(wallpaperStyle) { mutableIntStateOf(0) }
 
-    LaunchedEffect(enabled, kind, viewportWidthPx, frame) {
-        if (!enabled || kind == WindowsMotionAccentKind.NONE) {
-            frame.activityAnimatable.snapTo(0f)
+    LaunchedEffect(enabled, frame) {
+        frame.enabledState.value = enabled
+        if (!enabled) {
+            frame.activityState.floatValue = 0f
             frame.velocityState.floatValue = 0f
-            return@LaunchedEffect
         }
-
-        var previous: Float? = null
-        snapshotFlow {
-            latestScrollOffset.value()
-                .takeIf(Float::isFinite)
-                ?: 0f
-        }
-            .distinctUntilChanged()
-            .collect { current ->
-                val before = previous
-                previous = current
-                frame.positionState.floatValue = current / max(viewportWidthPx, 1f)
-                if (before != null) {
-                    val delta = current - before
-                    if (abs(delta) >= 0.35f) {
-                        val sample = WindowsMotionAccent.normalizedVelocity(delta, viewportWidthPx)
-                        frame.velocityState.floatValue =
-                            frame.velocityState.floatValue * 0.58f + sample * 0.42f
-                        interactionSerial.intValue++
-                    }
-                }
-            }
     }
 
-    LaunchedEffect(interactionSerial.intValue, enabled, kind, frame) {
-        if (!enabled || kind == WindowsMotionAccentKind.NONE || interactionSerial.intValue == 0) {
-            if (!enabled || kind == WindowsMotionAccentKind.NONE) frame.activityAnimatable.snapTo(0f)
-            return@LaunchedEffect
+    LaunchedEffect(frame, viewportWidthPx, enabled) {
+        if (!enabled || kind == WindowsMotionAccentKind.NONE) return@LaunchedEffect
+        var lastSerial = sceneState.interactionSerial
+        snapshotFlow { sceneState.interactionSerial }.collect { serial ->
+            if (serial == lastSerial) return@collect
+            lastSerial = serial
+            val delta = sceneState.lastScrollDeltaPx
+            frame.velocityState.floatValue =
+                frame.velocityState.floatValue * 0.48f +
+                    WindowsMotionAccent.normalizedVelocity(delta, viewportWidthPx) * 0.52f
+            frame.lastInteractionNanos = System.nanoTime()
+            frame.activityState.floatValue = 1f
         }
-        frame.activityAnimatable.snapTo(1f)
-        delay(WindowsMotionAccent.HOLD_DURATION_MILLIS)
-        frame.activityAnimatable.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(
-                durationMillis = WindowsMotionAccent.FADE_DURATION_MILLIS,
-                easing = LinearEasing,
-            ),
-        )
-        frame.velocityState.floatValue = 0f
     }
 
     LaunchedEffect(enabled, kind, frame) {
         if (!enabled || kind == WindowsMotionAccentKind.NONE) return@LaunchedEffect
-        var previousFrameNanos = 0L
+
+        var previousNanos = System.nanoTime()
         while (isActive) {
-            if (frame.activityAnimatable.value <= 0.001f) {
-                previousFrameNanos = 0L
-                delay(96L)
+            val now = System.nanoTime()
+            val sinceInteractionMillis = if (frame.lastInteractionNanos == 0L) {
+                Long.MAX_VALUE
             } else {
-                withFrameNanos { now ->
-                    if (previousFrameNanos != 0L) {
-                        val deltaSeconds = ((now - previousFrameNanos) / 1_000_000_000f)
-                            .coerceIn(0f, 0.050f)
-                        frame.phaseState.floatValue += deltaSeconds
-                        if (frame.phaseState.floatValue > 3_600f) frame.phaseState.floatValue %= 60f
-                    }
-                    previousFrameNanos = now
+                ((now - frame.lastInteractionNanos) / 1_000_000L).coerceAtLeast(0L)
+            }
+            val interactionActive = sinceInteractionMillis < WindowsMotionAccent.ACTIVE_DURATION_MILLIS
+            val ambient = WindowsMotionAccent.isAmbient(kind)
+
+            if (!interactionActive && !ambient) {
+                frame.activityState.floatValue = 0f
+                frame.velocityState.floatValue *= 0.65f
+                if (abs(frame.velocityState.floatValue) < 0.002f) {
+                    frame.velocityState.floatValue = 0f
                 }
+                previousNanos = now
+                delay(120L)
+                continue
+            }
+
+            val intervalMillis = when {
+                interactionActive -> 16L
+                kind == WindowsMotionAccentKind.BUBBLES -> 40L
+                kind == WindowsMotionAccentKind.CITY -> 120L
+                else -> 80L
+            }
+            delay(intervalMillis)
+
+            val tick = System.nanoTime()
+            val deltaSeconds = ((tick - previousNanos) / 1_000_000_000f).coerceIn(0f, 0.15f)
+            previousNanos = tick
+            frame.phaseState.floatValue += deltaSeconds
+            if (frame.phaseState.floatValue > 3_600f) {
+                frame.phaseState.floatValue %= 60f
+            }
+
+            if (interactionActive) {
+                val elapsed = if (frame.lastInteractionNanos == 0L) 0L else
+                    ((tick - frame.lastInteractionNanos) / 1_000_000L).coerceAtLeast(0L)
+                frame.activityState.floatValue = when {
+                    elapsed <= WindowsMotionAccent.HOLD_DURATION_MILLIS -> 1f
+                    elapsed >= WindowsMotionAccent.ACTIVE_DURATION_MILLIS -> 0f
+                    else -> 1f - (
+                        (elapsed - WindowsMotionAccent.HOLD_DURATION_MILLIS).toFloat() /
+                            WindowsMotionAccent.FADE_DURATION_MILLIS.toFloat()
+                        ).coerceIn(0f, 1f)
+                }
+                frame.velocityState.floatValue *= 0.965f
+            } else {
+                frame.activityState.floatValue = 0f
+                frame.velocityState.floatValue = 0f
             }
         }
     }
 
     return frame
-}
-
-/** Draw only the accent behavior; the exact supplied artwork stays underneath this layer. */
-internal fun DrawScope.drawWindowsMotionAccent(
-    frame: WindowsMotionAccentFrame,
-    viewportWidthPx: Float,
-    accentColor: Color,
-    highlightColor: Color,
-) {
-    if (frame.kind == WindowsMotionAccentKind.NONE || frame.activity <= 0.001f) return
-    val viewportWidth = viewportWidthPx.coerceAtLeast(1f)
-    val height = size.height.coerceAtLeast(1f)
-
-    repeat(3) { panel ->
-        val originX = panel * viewportWidth
-        val mirrored = panel % 2 == 1
-        when (frame.kind) {
-            WindowsMotionAccentKind.ROBOTS -> drawRobotAccents(
-                originX, viewportWidth, height, mirrored, frame, highlightColor,
-            )
-            WindowsMotionAccentKind.CITY -> drawCityAccents(
-                originX, viewportWidth, height, mirrored, frame, highlightColor,
-            )
-            WindowsMotionAccentKind.BUBBLES -> drawBubbleAccents(
-                originX, viewportWidth, height, mirrored, frame, highlightColor,
-            )
-            WindowsMotionAccentKind.DRAGON -> drawDragonAccent(
-                originX, viewportWidth, height, mirrored, frame, accentColor, highlightColor,
-            )
-            WindowsMotionAccentKind.GEARS -> drawGearAccents(
-                originX, viewportWidth, height, mirrored, frame, highlightColor,
-            )
-            WindowsMotionAccentKind.NONE -> Unit
-        }
-    }
-}
-
-private fun DrawScope.drawRobotAccents(
-    originX: Float,
-    width: Float,
-    height: Float,
-    mirrored: Boolean,
-    frame: WindowsMotionAccentFrame,
-    color: Color,
-) {
-    val positions = arrayOf(
-        Triple(0.18f, 0.28f, 0.055f),
-        Triple(0.53f, 0.72f, 0.072f),
-        Triple(0.81f, 0.39f, 0.047f),
-    )
-    positions.forEachIndexed { index, (fx, fy, fr) ->
-        val xFraction = if (mirrored) 1f - fx else fx
-        val bob = sin(frame.phaseSeconds * (1.1f + index * 0.17f) + index) * height * 0.006f
-        drawGear(
-            center = Offset(originX + width * xFraction, height * fy + bob),
-            radius = width * fr,
-            teeth = 9 + index,
-            rotationDegrees = WindowsMotionAccent.robotGearDegrees(frame.phaseSeconds, index),
-            color = color.copy(alpha = frame.activity * (0.10f + index * 0.018f)),
-            strokeWidth = max(1.25f, width * 0.0021f),
-        )
-    }
-}
-
-private fun DrawScope.drawCityAccents(
-    originX: Float,
-    width: Float,
-    height: Float,
-    mirrored: Boolean,
-    frame: WindowsMotionAccentFrame,
-    color: Color,
-) {
-    repeat(18) { index ->
-        val column = index % 9
-        val row = index / 9
-        val rawX = 0.08f + column * 0.105f
-        val xFraction = if (mirrored) 1f - rawX else rawX
-        val yFraction = 0.70f + row * 0.085f + (column % 3) * 0.014f
-        val lightWidth = max(2f, width * 0.008f)
-        val lightHeight = max(2f, height * 0.008f)
-        drawRect(
-            color = color.copy(
-                alpha = WindowsMotionAccent.cityLightAlpha(
-                    frame.phaseSeconds,
-                    index,
-                    frame.activity,
-                ),
-            ),
-            topLeft = Offset(
-                originX + width * xFraction - lightWidth / 2f,
-                height * yFraction,
-            ),
-            size = androidx.compose.ui.geometry.Size(lightWidth, lightHeight),
-        )
-    }
-}
-
-private fun DrawScope.drawBubbleAccents(
-    originX: Float,
-    width: Float,
-    height: Float,
-    mirrored: Boolean,
-    frame: WindowsMotionAccentFrame,
-    color: Color,
-) {
-    repeat(11) { index ->
-        val rawX = 0.08f + ((index * 0.173f) % 0.84f)
-        val xFraction = if (mirrored) 1f - rawX else rawX
-        val travel = WindowsMotionAccent.bubbleTravel(frame.phaseSeconds, index)
-        val y = height * (1.08f - travel * 1.22f)
-        val sway = sin(frame.phaseSeconds * 0.72f + index * 0.9f) * width * 0.018f
-        val radius = width * (0.010f + (index % 4) * 0.005f)
-        drawCircle(
-            color = color.copy(alpha = frame.activity * (0.055f + (index % 3) * 0.018f)),
-            radius = radius,
-            center = Offset(originX + width * xFraction + sway, y),
-            style = Stroke(width = max(1f, radius * 0.12f)),
-        )
-    }
-}
-
-private fun DrawScope.drawDragonAccent(
-    originX: Float,
-    width: Float,
-    height: Float,
-    mirrored: Boolean,
-    frame: WindowsMotionAccentFrame,
-    accentColor: Color,
-    highlightColor: Color,
-) {
-    val direction = if (mirrored) -1f else 1f
-    val velocityPull = frame.scrollVelocity * width * 0.055f * direction
-    val wave = sin(frame.phaseSeconds * 2.15f) * height * 0.014f
-    val path = Path().apply {
-        val startX = originX + width * if (mirrored) 0.84f else 0.16f
-        moveTo(startX + velocityPull, height * 0.22f + wave)
-        cubicTo(
-            originX + width * if (mirrored) 0.70f else 0.30f,
-            height * 0.30f - wave,
-            originX + width * if (mirrored) 0.52f else 0.48f,
-            height * 0.16f + wave,
-            originX + width * if (mirrored) 0.35f else 0.65f,
-            height * 0.28f - wave,
-        )
-    }
-    drawPath(
-        path = path,
-        color = highlightColor.copy(alpha = frame.activity * 0.075f),
-        style = Stroke(width = max(1.5f, width * 0.0045f)),
-    )
-    drawCircle(
-        color = accentColor.copy(alpha = frame.activity * 0.055f),
-        radius = width * 0.075f,
-        center = Offset(
-            originX + width * if (mirrored) 0.26f else 0.74f,
-            height * 0.20f + wave,
-        ),
-    )
-}
-
-private fun DrawScope.drawGearAccents(
-    originX: Float,
-    width: Float,
-    height: Float,
-    mirrored: Boolean,
-    frame: WindowsMotionAccentFrame,
-    color: Color,
-) {
-    val positions = arrayOf(
-        Triple(0.13f, 0.80f, 0.085f),
-        Triple(0.35f, 0.70f, 0.054f),
-        Triple(0.62f, 0.84f, 0.095f),
-        Triple(0.84f, 0.66f, 0.060f),
-    )
-    positions.forEachIndexed { index, (fx, fy, fr) ->
-        val xFraction = if (mirrored) 1f - fx else fx
-        drawGear(
-            center = Offset(originX + width * xFraction, height * fy),
-            radius = width * fr,
-            teeth = 10 + (index % 3) * 2,
-            rotationDegrees = WindowsMotionAccent.gearDegrees(frame.phaseSeconds, index),
-            color = color.copy(alpha = frame.activity * (0.075f + index * 0.012f)),
-            strokeWidth = max(1.25f, width * 0.002f),
-        )
-    }
-}
-
-private fun DrawScope.drawGear(
-    center: Offset,
-    radius: Float,
-    teeth: Int,
-    rotationDegrees: Float,
-    color: Color,
-    strokeWidth: Float,
-) {
-    if (radius <= 0f || teeth < 3) return
-    rotate(rotationDegrees, pivot = center) {
-        val path = Path()
-        val steps = teeth * 2
-        repeat(steps + 1) { step ->
-            val angle = (step.toFloat() / steps.toFloat()) * PI.toFloat() * 2f
-            val r = if (step % 2 == 0) radius else radius * 0.82f
-            val point = Offset(
-                center.x + cos(angle) * r,
-                center.y + sin(angle) * r,
-            )
-            if (step == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
-        }
-        path.close()
-        drawPath(path, color = color, style = Stroke(width = strokeWidth))
-        drawCircle(
-            color = color,
-            radius = radius * 0.30f,
-            center = center,
-            style = Stroke(width = strokeWidth),
-        )
-    }
 }
