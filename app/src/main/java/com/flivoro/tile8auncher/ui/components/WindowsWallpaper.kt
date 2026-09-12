@@ -41,9 +41,10 @@ private const val WALLPAPER_STYLE_MAX = 9
 /**
  * Windows 8.1-inspired Start wallpaper.
  *
- * Style 0 is the original vector wallpaper. Styles 1..9 are the supplied flattened Start-screen
- * artworks. Repeated layers are three viewport widths wide, so the bounded graphics-layer phase
- * can never expose an edge while the source translation remains linear for the complete scroll.
+ * Style 0 is the vector wallpaper. Styles 1..9 are flattened Windows-style Start artworks. The
+ * moving decorative layer is three viewport widths wide and travels on one continuous parallax
+ * track. Bitmap artwork is uniformly center-cropped against one viewport, so portrait devices do
+ * not squash a 4:3 source into a tall screen.
  */
 @Composable
 fun WindowsWallpaper(
@@ -311,32 +312,21 @@ private fun BitmapWallpaper(
 
                 onDrawBehind {
                     val tileHeight = size.height.coerceAtLeast(1f)
-                    val scaleX = bitmap.width.toFloat() / tileWidth
-                    val scaleY = bitmap.height.toFloat() / tileHeight
-                    val rawTranslation = if (enabled) {
-                        WallpaperParallax.translationX(
-                            scrollOffsetPx = scrollOffsetPx(),
-                            rate = WallpaperParallax.IMAGE_RATE,
-                        )
-                    } else {
-                        0f
-                    }
-                    val phaseTranslation = WallpaperParallax.wrapTranslationX(
-                        linearTranslationPx = rawTranslation,
-                        repeatPeriodPx = tileWidth * 2f,
+                    val transform = WallpaperParallax.coverTransform(
+                        bitmapWidthPx = bitmap.width.toFloat(),
+                        bitmapHeightPx = bitmap.height.toFloat(),
+                        viewportWidthPx = tileWidth,
+                        viewportHeightPx = tileHeight,
+                        // The screen initially sees the middle third of this three-viewport layer.
+                        viewportCenterXPx = tileWidth * 1.5f,
                     )
 
-                    // The layer is placed one viewport to the left. Compensating the wrapped
-                    // layer phase here preserves the unwrapped linear image position. MIRROR
-                    // makes every phase reset pixel-continuous and the shader fills the whole
-                    // three-viewport layer without a crop or exposed right edge.
-                    val sourceShiftPx = -tileWidth + phaseTranslation - rawTranslation
-                    matrixValues[0] = scaleX
+                    matrixValues[0] = transform.scale
                     matrixValues[1] = 0f
-                    matrixValues[2] = sourceShiftPx * scaleX
+                    matrixValues[2] = transform.offsetX
                     matrixValues[3] = 0f
-                    matrixValues[4] = scaleY
-                    matrixValues[5] = 0f
+                    matrixValues[4] = transform.scale
+                    matrixValues[5] = transform.offsetY
                     matrixValues[6] = 0f
                     matrixValues[7] = 0f
                     matrixValues[8] = 1f
@@ -368,10 +358,9 @@ private fun Modifier.repeatingWallpaperLayer(
     .offset { IntOffset(-viewportWidthPx.roundToInt(), 0) }
     .graphicsLayer {
         translationX = if (enabled) {
-            WallpaperParallax.repeatingTranslationX(
+            WallpaperParallax.translationX(
                 scrollOffsetPx = scrollOffsetPx(),
                 rate = rate,
-                repeatPeriodPx = viewportWidthPx * 2f,
             )
         } else {
             0f
