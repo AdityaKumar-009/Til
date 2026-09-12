@@ -39,12 +39,13 @@ private const val WALLPAPER_STYLE_MIN = 0
 private const val WALLPAPER_STYLE_MAX = 9
 
 /**
- * Windows 8.1-inspired Start wallpaper.
+ * Windows 8.1-inspired Start wallpaper and Motion Accent compositor.
  *
- * Style 0 is the vector wallpaper. Styles 1..9 are flattened Windows-style Start artworks. The
- * moving decorative layer is three viewport widths wide and travels on one continuous parallax
- * track. Bitmap artwork is uniformly center-cropped against one viewport, so portrait devices do
- * not squash a 4:3 source into a tall screen.
+ * Style 0 is the vector wallpaper. Styles 1..9 keep the supplied stock artwork as the visual base.
+ * The bitmap is aspect-preserving and center-cropped for the current viewport, then Windows 8.1
+ * Motion Accent behavior is composited as a separate interaction-driven layer for the animated
+ * families (robots, city, bubbles/swirls, dragon and gears). The entire decorative plane remains
+ * behind Start content and follows one continuous parallax track.
  */
 @Composable
 fun WindowsWallpaper(
@@ -57,8 +58,15 @@ fun WindowsWallpaper(
     wallpaperStyle: Int = 0,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val viewportWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+        val density = LocalDensity.current
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
         val selectedStyle = wallpaperStyle.coerceIn(WALLPAPER_STYLE_MIN, WALLPAPER_STYLE_MAX)
+        val motionFrame = rememberWindowsMotionAccentFrame(
+            wallpaperStyle = selectedStyle,
+            enabled = enabled,
+            viewportWidthPx = viewportWidthPx,
+            scrollOffsetPx = scrollOffsetPx,
+        )
 
         WallpaperBase(baseColor = baseColor)
 
@@ -94,6 +102,9 @@ fun WindowsWallpaper(
                     viewportWidthPx = viewportWidthPx,
                     enabled = enabled,
                     scrollOffsetPx = scrollOffsetPx,
+                    motionFrame = motionFrame,
+                    accentColor = accentColor,
+                    highlightColor = highlightColor,
                 )
             }
         }
@@ -115,9 +126,7 @@ private fun WallpaperBase(baseColor: Color) {
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
                 )
-                onDrawBehind {
-                    drawRect(brush = baseBrush, size = size)
-                }
+                onDrawBehind { drawRect(brush = baseBrush, size = size) }
             },
     )
 }
@@ -216,9 +225,7 @@ private fun PurpleRibbonLayer(
                 }
 
                 onDrawBehind {
-                    for (index in paths.indices) {
-                        drawPath(path = paths[index], brush = brushes[index])
-                    }
+                    for (index in paths.indices) drawPath(path = paths[index], brush = brushes[index])
                 }
             },
     )
@@ -267,9 +274,7 @@ private fun PurpleHighlightLayer(
                 }
 
                 onDrawBehind {
-                    for (index in paths.indices) {
-                        drawPath(path = paths[index], brush = brushes[index])
-                    }
+                    for (index in paths.indices) drawPath(path = paths[index], brush = brushes[index])
                 }
             },
     )
@@ -282,6 +287,9 @@ private fun BitmapWallpaper(
     viewportWidthPx: Float,
     enabled: Boolean,
     scrollOffsetPx: () -> Float,
+    motionFrame: WindowsMotionAccentFrame,
+    accentColor: Color,
+    highlightColor: Color,
 ) {
     Spacer(
         modifier = Modifier
@@ -300,9 +308,7 @@ private fun BitmapWallpaper(
                     Shader.TileMode.CLAMP,
                 )
                 val paint = Paint(
-                    Paint.ANTI_ALIAS_FLAG or
-                        Paint.FILTER_BITMAP_FLAG or
-                        Paint.DITHER_FLAG,
+                    Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG,
                 ).apply {
                     style = Paint.Style.FILL
                     this.shader = shader
@@ -317,16 +323,17 @@ private fun BitmapWallpaper(
                         bitmapHeightPx = bitmap.height.toFloat(),
                         viewportWidthPx = tileWidth,
                         viewportHeightPx = tileHeight,
-                        // The screen initially sees the middle third of this three-viewport layer.
                         viewportCenterXPx = tileWidth * 1.5f,
                     )
+                    val motionX = WindowsMotionAccent.artworkOffsetX(motionFrame, tileWidth)
+                    val motionY = WindowsMotionAccent.artworkOffsetY(motionFrame, tileHeight)
 
                     matrixValues[0] = transform.scale
                     matrixValues[1] = 0f
-                    matrixValues[2] = transform.offsetX
+                    matrixValues[2] = transform.offsetX + motionX
                     matrixValues[3] = 0f
                     matrixValues[4] = transform.scale
-                    matrixValues[5] = transform.offsetY
+                    matrixValues[5] = transform.offsetY + motionY
                     matrixValues[6] = 0f
                     matrixValues[7] = 0f
                     matrixValues[8] = 1f
@@ -334,14 +341,15 @@ private fun BitmapWallpaper(
                     shader.setLocalMatrix(shaderMatrix)
 
                     drawIntoCanvas { canvas ->
-                        canvas.nativeCanvas.drawRect(
-                            0f,
-                            0f,
-                            size.width,
-                            size.height,
-                            paint,
-                        )
+                        canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
                     }
+
+                    drawWindowsMotionAccent(
+                        frame = motionFrame,
+                        viewportWidthPx = tileWidth,
+                        accentColor = accentColor,
+                        highlightColor = highlightColor,
+                    )
                 }
             },
     )
@@ -496,9 +504,7 @@ private object WallpaperBitmapCache {
             value.allocationByteCount.coerceAtLeast(1)
     }
 
-    fun peek(resourceId: Int): Bitmap? = synchronized(cache) {
-        cache.get(resourceId)
-    }
+    fun peek(resourceId: Int): Bitmap? = synchronized(cache) { cache.get(resourceId) }
 
     fun getOrDecode(resources: Resources, resourceId: Int): Bitmap? {
         peek(resourceId)?.let { return it }
