@@ -28,48 +28,52 @@ internal class WindowsBackgroundGeometry(
     val dragonPeriod = viewportWidth * 2.20f
     val swirlPeriod = viewportWidth * 1.90f
 
+    // Both ribbon edges start/end at the same Y. Adjacent world cells therefore join as one
+    // continuous wave instead of exposing a repeated-image seam.
     val ribbonMain: Path = Path().apply {
-        moveTo(0f, viewportHeight * 0.12f)
+        moveTo(0f, viewportHeight * 0.25f)
         cubicTo(
-            ribbonPeriod * 0.20f, viewportHeight * 0.02f,
-            ribbonPeriod * 0.28f, viewportHeight * 0.58f,
-            ribbonPeriod * 0.50f, viewportHeight * 0.52f,
+            ribbonPeriod * 0.20f, viewportHeight * 0.08f,
+            ribbonPeriod * 0.31f, viewportHeight * 0.57f,
+            ribbonPeriod * 0.50f, viewportHeight * 0.50f,
         )
         cubicTo(
-            ribbonPeriod * 0.72f, viewportHeight * 0.46f,
-            ribbonPeriod * 0.78f, viewportHeight * 0.96f,
-            ribbonPeriod, viewportHeight * 0.84f,
+            ribbonPeriod * 0.70f, viewportHeight * 0.43f,
+            ribbonPeriod * 0.82f, viewportHeight * 0.08f,
+            ribbonPeriod, viewportHeight * 0.25f,
         )
-        lineTo(ribbonPeriod, viewportHeight)
+        lineTo(ribbonPeriod, viewportHeight * 0.48f)
         cubicTo(
-            ribbonPeriod * 0.74f, viewportHeight * 0.98f,
-            ribbonPeriod * 0.66f, viewportHeight * 0.62f,
-            ribbonPeriod * 0.49f, viewportHeight * 0.66f,
+            ribbonPeriod * 0.82f, viewportHeight * 0.33f,
+            ribbonPeriod * 0.70f, viewportHeight * 0.69f,
+            ribbonPeriod * 0.50f, viewportHeight * 0.65f,
         )
         cubicTo(
-            ribbonPeriod * 0.27f, viewportHeight * 0.72f,
-            ribbonPeriod * 0.17f, viewportHeight * 0.28f,
-            0f, viewportHeight * 0.35f,
+            ribbonPeriod * 0.30f, viewportHeight * 0.70f,
+            ribbonPeriod * 0.18f, viewportHeight * 0.34f,
+            0f, viewportHeight * 0.48f,
         )
         close()
     }
 
     val ribbonHighlight: Path = Path().apply {
-        moveTo(0f, viewportHeight * 0.32f)
+        moveTo(0f, viewportHeight * 0.365f)
         cubicTo(
-            ribbonPeriod * 0.18f, viewportHeight * 0.24f,
-            ribbonPeriod * 0.32f, viewportHeight * 0.76f,
-            ribbonPeriod * 0.53f, viewportHeight * 0.69f,
+            ribbonPeriod * 0.18f, viewportHeight * 0.21f,
+            ribbonPeriod * 0.33f, viewportHeight * 0.64f,
+            ribbonPeriod * 0.52f, viewportHeight * 0.57f,
         )
         cubicTo(
-            ribbonPeriod * 0.74f, viewportHeight * 0.61f,
-            ribbonPeriod * 0.84f, viewportHeight * 0.89f,
-            ribbonPeriod, viewportHeight * 0.79f,
+            ribbonPeriod * 0.72f, viewportHeight * 0.49f,
+            ribbonPeriod * 0.84f, viewportHeight * 0.22f,
+            ribbonPeriod, viewportHeight * 0.365f,
         )
     }
 
+    // Blossom is intentionally a discrete branch cluster; keeping it away from the cell edges is
+    // preferable to cutting a branch and pretending the next cell is its continuation.
     val blossomBranch: Path = Path().apply {
-        moveTo(0f, viewportHeight * 0.91f)
+        moveTo(blossomPeriod * 0.05f, viewportHeight * 0.91f)
         cubicTo(
             blossomPeriod * 0.17f, viewportHeight * 0.78f,
             blossomPeriod * 0.20f, viewportHeight * 0.42f,
@@ -83,10 +87,11 @@ internal class WindowsBackgroundGeometry(
         cubicTo(
             blossomPeriod * 0.77f, viewportHeight * 0.14f,
             blossomPeriod * 0.86f, viewportHeight * 0.23f,
-            blossomPeriod, viewportHeight * 0.10f,
+            blossomPeriod * 0.95f, viewportHeight * 0.10f,
         )
     }
 
+    // Mountain horizons are periodic: the first and last ridge height are identical.
     val mountainFar: Path = Path().apply {
         moveTo(0f, viewportHeight)
         lineTo(0f, viewportHeight * 0.70f)
@@ -96,7 +101,7 @@ internal class WindowsBackgroundGeometry(
         lineTo(mountainPeriod * 0.52f, viewportHeight * 0.66f)
         lineTo(mountainPeriod * 0.67f, viewportHeight * 0.50f)
         lineTo(mountainPeriod * 0.83f, viewportHeight * 0.69f)
-        lineTo(mountainPeriod, viewportHeight * 0.54f)
+        lineTo(mountainPeriod, viewportHeight * 0.70f)
         lineTo(mountainPeriod, viewportHeight)
         close()
     }
@@ -109,7 +114,7 @@ internal class WindowsBackgroundGeometry(
         lineTo(mountainPeriod * 0.52f, viewportHeight * 0.62f)
         lineTo(mountainPeriod * 0.69f, viewportHeight * 0.82f)
         lineTo(mountainPeriod * 0.86f, viewportHeight * 0.68f)
-        lineTo(mountainPeriod, viewportHeight * 0.82f)
+        lineTo(mountainPeriod, viewportHeight * 0.84f)
         lineTo(mountainPeriod, viewportHeight)
         close()
     }
@@ -160,7 +165,7 @@ internal class WindowsBackgroundGeometry(
  * Draws transparent vector artwork over the already-painted solid Background color.
  *
  * The viewport never moves and no backing bitmap exists. Every layer samples a Double world
- * coordinate and draws only the two/three cells that intersect the screen, so it cannot run out of
+ * coordinate and draws only the cells that can intersect the screen, so it cannot run out of
  * artwork regardless of scroll distance.
  */
 internal fun DrawScope.drawWindowsBackgroundArtwork(
@@ -193,7 +198,9 @@ private inline fun DrawScope.forEachWorldCell(
     val period = periodPx.coerceAtLeast(1f).toDouble()
     val sceneX = worldX * rate.toDouble()
     val baseCell = BackgroundWorldMath.cellIndex(sceneX, period)
-    val visibleCells = (size.width / periodPx.coerceAtLeast(1f)).toInt() + 4
+    // One cell before the viewport plus enough cells to cover its width and one trailing cell.
+    // All current periods exceed one viewport, so this normally means only three draw cells.
+    val visibleCells = (size.width / periodPx.coerceAtLeast(1f)).toInt() + 2
     for (relative in -1..visibleCells) {
         val cell = baseCell + relative
         val left = BackgroundWorldMath.localCellX(sceneX, period, cell)
