@@ -73,4 +73,39 @@ class WallpaperParallaxTest {
             0f,
         )
     }
+
+    @Test
+    fun portraitCoverPreservesArtworkAspectRatio() {
+        val transform = WallpaperParallax.coverTransform(
+            bitmapWidthPx = 2_560f,
+            bitmapHeightPx = 1_920f,
+            viewportWidthPx = 1_080f,
+            viewportHeightPx = 2_400f,
+        )
+
+        assertEquals(1.25f, transform.scale, 0.0001f)
+        assertEquals(3_200f, transform.renderedWidth, 0.01f)
+        assertEquals(2_400f, transform.renderedHeight, 0.01f)
+        assertEquals(-1_060f, transform.offsetX, 0.01f)
+        assertEquals(0f, transform.offsetY, 0.01f)
+        assertEquals(
+            2_560f / 1_920f,
+            transform.renderedWidth / transform.renderedHeight,
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun centeredBackingLayerTargetsMiddleViewportWithoutChangingScale() {
+        val transform = WallpaperParallax.coverTransform(
+            bitmapWidthPx = 2_560f,
+            bitmapHeightPx = 1_920f,
+            viewportWidthPx = 1_080f,
+            viewportHeightPx = 2_400f,
+            viewportCenterXPx = 1_620f,
+        )
+
+        assertEquals(20f, transform.offsetX, 0.01f)
+        assertEquals(1_620f, transform.offsetX + transform.renderedWidth / 2f, 0.01f)
+    }
 }

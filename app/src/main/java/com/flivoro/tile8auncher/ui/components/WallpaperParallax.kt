@@ -1,11 +1,13 @@
 package com.flivoro.tile8auncher.ui.components
 
+import kotlin.math.max
+
 /**
- * Scroll-to-translation math for wallpaper layers.
+ * Scroll-to-translation and crop math for Windows-style Start wallpaper layers.
  *
- * The raw translation is deliberately linear. A separate wrapped phase is used only when a
- * finite repeated layer is handed to graphicsLayer; its repeated artwork makes that phase reset
- * invisible while the artwork still advances at the same rate for the whole scroll range.
+ * Windows' depth effect is a continuous, slower horizontal track behind the Start content. Keep
+ * the source position linear and never modulo-wrap the moving layer itself: wrapping a live layer
+ * creates a visible phase jump when the viewport crosses the artificial period.
  */
 internal object WallpaperParallax {
     const val GLOW_RATE = 0.025f
@@ -15,6 +17,14 @@ internal object WallpaperParallax {
 
     private const val FALLBACK_VIEWPORT_WIDTH_PX = 1080f
     private const val FALLBACK_MAX_TRAVEL = 0.20f
+
+    data class CoverTransform(
+        val scale: Float,
+        val offsetX: Float,
+        val offsetY: Float,
+        val renderedWidth: Float,
+        val renderedHeight: Float,
+    )
 
     /** Returns the unbounded, constant-rate translation for a scroll position. */
     @Suppress("UNUSED_PARAMETER")
@@ -31,8 +41,8 @@ internal object WallpaperParallax {
     }
 
     /**
-     * Folds a linear translation into one mirrored/repeated period for a finite graphics layer.
-     * The period is an implementation detail of the repeated artwork, not a motion limit.
+     * Legacy phase helper kept for compatibility/tests. Rendering no longer uses this value for a
+     * moving layer; it is useful only for artwork that is intrinsically periodic.
      */
     fun repeatingTranslationX(
         scrollOffsetPx: Float,
@@ -54,5 +64,37 @@ internal object WallpaperParallax {
         val wrapped = ((safeTranslation.toDouble() + halfPeriod) % period + period) % period -
             halfPeriod
         return wrapped.toFloat().takeIf { it.isFinite() } ?: 0f
+    }
+
+    /**
+     * Aspect-preserving center-crop transform for one viewport.
+     *
+     * The returned X center can be moved into the middle panel of a wider backing layer. This is
+     * what lets portrait phones show the same artwork geometry as landscape instead of stretching
+     * a 4:3 Windows asset independently on X and Y.
+     */
+    fun coverTransform(
+        bitmapWidthPx: Float,
+        bitmapHeightPx: Float,
+        viewportWidthPx: Float,
+        viewportHeightPx: Float,
+        viewportCenterXPx: Float = viewportWidthPx / 2f,
+    ): CoverTransform {
+        val bitmapWidth = bitmapWidthPx.takeIf { it.isFinite() && it > 0f } ?: 1f
+        val bitmapHeight = bitmapHeightPx.takeIf { it.isFinite() && it > 0f } ?: 1f
+        val viewportWidth = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: 1f
+        val viewportHeight = viewportHeightPx.takeIf { it.isFinite() && it > 0f } ?: 1f
+        val centerX = viewportCenterXPx.takeIf { it.isFinite() } ?: viewportWidth / 2f
+
+        val scale = max(viewportWidth / bitmapWidth, viewportHeight / bitmapHeight)
+        val renderedWidth = bitmapWidth * scale
+        val renderedHeight = bitmapHeight * scale
+        return CoverTransform(
+            scale = scale,
+            offsetX = centerX - renderedWidth / 2f,
+            offsetY = (viewportHeight - renderedHeight) / 2f,
+            renderedWidth = renderedWidth,
+            renderedHeight = renderedHeight,
+        )
     }
 }
