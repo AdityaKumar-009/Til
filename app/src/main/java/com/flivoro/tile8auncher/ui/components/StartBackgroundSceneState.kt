@@ -1,9 +1,7 @@
 package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import kotlin.math.abs
 
 /**
@@ -12,33 +10,44 @@ import kotlin.math.abs
  * Horizontal lists report the distance they actually consumed through [StartBackgroundScrollRuntime].
  * The world coordinate is intentionally a Double: the renderer can reduce it to a local repeating
  * phase at draw time without losing sub-pixel precision after very long launcher sessions.
+ *
+ * Only a single primitive snapshot revision is written per scroll sample. The world coordinate and
+ * last delta remain raw primitives, avoiding boxed Double/Float state churn on low-end devices.
  */
 @Stable
 internal class StartBackgroundSceneState {
-    private val worldXState = mutableStateOf(0.0)
+    private var worldXRaw: Double = 0.0
+
+    @Volatile
+    private var lastScrollDeltaRaw: Float = 0f
+
     private val interactionSerialState = mutableIntStateOf(0)
-    private val lastScrollDeltaState = mutableFloatStateOf(0f)
 
     /** Logical artwork-world position. It is never reset by Start <-> All Apps navigation. */
-    val worldX: Double get() = worldXState.value
+    val worldX: Double
+        get() {
+            // Register one snapshot dependency for the Canvas draw observer.
+            interactionSerialState.intValue
+            return worldXRaw
+        }
 
     /** Monotonic interaction token observed by Motion Accent animation code. */
     val interactionSerial: Int get() = interactionSerialState.intValue
 
     /** Last consumed horizontal content delta in pixels. */
-    val lastScrollDeltaPx: Float get() = lastScrollDeltaState.floatValue
+    val lastScrollDeltaPx: Float get() = lastScrollDeltaRaw
 
     /**
-     * Updated by the currently mounted horizontal list. This flag is controlled by the wallpaper
-     * preference so disabling parallax also stops Motion Accent input work.
+     * Updated by the currently mounted horizontal-scroll modifier. This flag is controlled by the
+     * wallpaper preference so disabling parallax also stops Motion Accent input work.
      */
     @Volatile
     var inputEnabled: Boolean = true
 
     fun onHorizontalScroll(deltaPx: Float) {
         if (!inputEnabled || !deltaPx.isFinite() || abs(deltaPx) < 0.01f) return
-        worldXState.value += deltaPx.toDouble()
-        lastScrollDeltaState.floatValue = deltaPx
+        worldXRaw += deltaPx.toDouble()
+        lastScrollDeltaRaw = deltaPx
         interactionSerialState.intValue++
     }
 }
