@@ -13,6 +13,9 @@ internal object SharedWallpaperScroll {
     @Volatile
     private var worldOffsetPx: Double = 0.0
 
+    @Volatile
+    private var hasHorizontalInteraction: Boolean = false
+
     fun onContentConsumed(consumedX: Float) {
         if (!consumedX.isFinite() || consumedX == 0f) return
 
@@ -20,17 +23,17 @@ internal object SharedWallpaperScroll {
         // advance positively when the list advances toward content on the right.
         val next = worldOffsetPx - consumedX.toDouble()
         worldOffsetPx = if (next.isFinite()) next else 0.0
+        hasHorizontalInteraction = true
     }
 
     /**
-     * The normal non-negative list offsets are deliberately ignored: Start and All Apps must look
-     * into the same persistent wallpaper world even while the vertical navigator is mid-gesture.
-     * A negative legacy value can only be the launcher's existing entrance displacement, so keep
-     * that transient effect without allowing either screen to reset the persistent world position.
+     * Keep the existing pure/entrance offset until the user has actually moved either horizontal
+     * list. From that first movement onward, Start and All Apps use exactly one persistent world X.
+     * A negative legacy value is an entrance-only displacement and remains honored.
      */
     fun effectiveOffset(legacyOffsetPx: Float): Float {
         val legacy = legacyOffsetPx.takeIf { it.isFinite() } ?: 0f
-        if (legacy < 0f) return legacy
+        if (!hasHorizontalInteraction || legacy < 0f) return legacy
         val shared = worldOffsetPx.toFloat()
         return if (shared.isFinite()) shared else 0f
     }
