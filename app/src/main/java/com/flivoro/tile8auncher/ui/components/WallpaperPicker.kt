@@ -18,6 +18,10 @@ import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val wallpaperNames = listOf(
     "Purple ribbons",
@@ -39,8 +43,10 @@ internal fun WallpaperPicker(
     appsRepository: AppsRepository? = null,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     LaunchedEffect(context) { StartPersonalization.ensureLoaded(context) }
 
+    var paletteJob by remember { mutableStateOf<Job?>(null) }
     var lockScreenEnabled by remember {
         mutableStateOf(WindowsLockScreenPreferences.isEnabled(context))
     }
@@ -49,6 +55,21 @@ internal fun WallpaperPicker(
     }
     val backgroundColor = StartPersonalization.backgroundColor
     val accentColor = StartPersonalization.accentColor
+
+    fun selectStockWallpaper(index: Int) {
+        onSelect(index)
+        paletteJob?.cancel()
+        paletteJob = scope.launch {
+            val defaults = withContext(Dispatchers.Default) {
+                WindowsWallpaperArtCache.defaultColors(context.applicationContext, index)
+            }
+            StartPersonalization.setColors(
+                context = context,
+                backgroundArgb = defaults.backgroundArgb,
+                accentArgb = defaults.accentArgb,
+            )
+        }
+    }
 
     fun updateLockScreen(enabled: Boolean) {
         lockScreenEnabled = enabled
@@ -63,8 +84,8 @@ internal fun WallpaperPicker(
     Text("Start background", color = Color(0xFF5133AB), fontSize = 20.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Artwork is rendered from the same transparent vector scene used on Start. Motion Accents " +
-            "wake with horizontal interaction while the background color stays independent.",
+        "Stock artwork is recovered from the supplied Windows pixels into cached native masks. " +
+            "Selecting a wallpaper restores its own default Background and Accent colors.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -81,7 +102,7 @@ internal fun WallpaperPicker(
                             .selectable(
                                 selected = selected == index,
                                 role = Role.RadioButton,
-                                onClick = { onSelect(index) },
+                                onClick = { selectStockWallpaper(index) },
                             )
                             .border(
                                 if (selected == index) 3.dp else 1.dp,
@@ -99,6 +120,7 @@ internal fun WallpaperPicker(
                                 wallpaperStyle = index,
                                 enabled = false,
                                 trackLauncherScroll = false,
+                                previewMode = true,
                             )
                         }
                         Text(
@@ -127,7 +149,7 @@ internal fun WallpaperPicker(
     Text("Background color", color = Color(0xFF5133AB), fontSize = 18.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Changes the solid Start color underneath every transparent artwork layer.",
+        "Changes only the solid Start color underneath the transparent stock artwork.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -143,7 +165,7 @@ internal fun WallpaperPicker(
     Text("Accent color", color = Color(0xFF5133AB), fontSize = 18.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Recolors the artwork, shadows, highlights and Motion Accent parts without tinting the background.",
+        "Recolors the recovered artwork masks without tinting or replacing the Background color.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,

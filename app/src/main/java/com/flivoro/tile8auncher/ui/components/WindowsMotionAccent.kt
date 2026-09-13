@@ -15,7 +15,7 @@ import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
 
-/** Windows 8.1-style Motion Accent families represented by the reconstructed vector themes. */
+/** Windows 8.1 Motion Accent families represented by the recovered stock-art masks. */
 internal enum class WindowsMotionAccentKind {
     NONE,
     ROBOTS,
@@ -27,8 +27,8 @@ internal enum class WindowsMotionAccentKind {
 }
 
 /**
- * Draw-time state only. Snapshot state is read directly by Canvas, so animation invalidates drawing
- * without rebuilding the launcher hierarchy.
+ * Draw-time state only. Snapshot values invalidate the wallpaper draw layer without recomposing the
+ * launcher hierarchy. Actual artwork geometry is static/cached; motion changes only shader matrices.
  */
 @Stable
 internal class WindowsMotionAccentFrame(
@@ -56,7 +56,7 @@ internal class WindowsMotionAccentFrame(
 }
 
 internal object WindowsMotionAccent {
-    // Historical reports for the Robots theme describe about 6-8 seconds after interaction.
+    // Contemporary reports of the Robots background consistently describe about 6-8 seconds.
     const val ACTIVE_DURATION_MILLIS = 7_000L
     internal const val HOLD_DURATION_MILLIS = 6_250L
     internal const val FADE_DURATION_MILLIS = 750L
@@ -80,16 +80,15 @@ internal object WindowsMotionAccent {
         return (delta / width * 12f).coerceIn(-1f, 1f)
     }
 
-    /** Subtle whole-object follow used by the reconstructed interactive layers. */
+    /** Whole-art follow is intentionally tiny; the exact recovered source geometry stays intact. */
     fun artworkOffsetX(frame: WindowsMotionAccentFrame, viewportWidthPx: Float): Float {
         val width = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: return 0f
         if (frame.activity <= 0f) return 0f
-        val phase = frame.phaseSeconds
         val fraction = when (frame.kind) {
-            WindowsMotionAccentKind.ROBOTS -> sin(phase * 1.55f) * 0.0035f
-            WindowsMotionAccentKind.BIRD -> -frame.scrollVelocity * 0.012f
+            WindowsMotionAccentKind.ROBOTS -> sin(frame.phaseSeconds * 1.55f) * 0.0018f
+            WindowsMotionAccentKind.BIRD -> -frame.scrollVelocity * 0.006f
             WindowsMotionAccentKind.DRAGON ->
-                (-frame.scrollVelocity * 0.016f) + sin(phase * 1.18f) * 0.0035f
+                (-frame.scrollVelocity * 0.010f) + sin(frame.phaseSeconds * 1.18f) * 0.0018f
             else -> 0f
         }
         return (fraction * width * frame.activity).takeIf(Float::isFinite) ?: 0f
@@ -99,14 +98,71 @@ internal object WindowsMotionAccent {
         val height = viewportHeightPx.takeIf { it.isFinite() && it > 0f } ?: return 0f
         if (frame.activity <= 0f) return 0f
         val fraction = when (frame.kind) {
-            WindowsMotionAccentKind.ROBOTS -> cos(frame.phaseSeconds * 1.25f) * 0.0025f
-            WindowsMotionAccentKind.BIRD -> sin(frame.phaseSeconds * 4.0f) * 0.002f
-            WindowsMotionAccentKind.DRAGON -> sin(frame.phaseSeconds * 1.62f) * 0.0022f
+            WindowsMotionAccentKind.ROBOTS -> cos(frame.phaseSeconds * 1.25f) * 0.0012f
+            WindowsMotionAccentKind.BIRD -> sin(frame.phaseSeconds * 4.0f) * 0.0012f
+            WindowsMotionAccentKind.DRAGON -> sin(frame.phaseSeconds * 1.62f) * 0.0014f
+            WindowsMotionAccentKind.BUBBLES -> sin(frame.phaseSeconds * 0.42f) * 0.0010f
             else -> 0f
         }
         return (fraction * height * frame.activity).takeIf(Float::isFinite) ?: 0f
     }
 
+    /**
+     * Separating tone-mask phase very slightly creates the original subtle "alive" response without
+     * drawing fake gears/curves over the recovered stock pixels. Offsets are deliberately sub-1%.
+     */
+    fun maskLayerOffsetX(
+        frame: WindowsMotionAccentFrame,
+        viewportWidthPx: Float,
+        layerIndex: Int,
+    ): Float {
+        val width = viewportWidthPx.takeIf { it.isFinite() && it > 0f } ?: return 0f
+        val activity = frame.activity
+        if (activity <= 0f) return 0f
+        val layer = layerIndex.coerceIn(0, 2) - 1
+        val phase = frame.phaseSeconds
+        val fraction = when (frame.kind) {
+            WindowsMotionAccentKind.ROBOTS ->
+                sin(phase * (1.9f + layerIndex * 0.14f)) * layer * 0.0012f
+            WindowsMotionAccentKind.GEARS ->
+                sin(phase * (1.5f + layerIndex * 0.22f)) * layer * 0.0019f
+            WindowsMotionAccentKind.DRAGON ->
+                (-frame.scrollVelocity * layer * 0.0028f) + sin(phase * 1.7f) * layer * 0.0008f
+            WindowsMotionAccentKind.BIRD ->
+                sin(phase * 5.5f) * layer * 0.0010f
+            WindowsMotionAccentKind.BUBBLES ->
+                sin(phase * 0.55f + layerIndex) * layer * 0.0007f
+            else -> 0f
+        }
+        return width * fraction * activity
+    }
+
+    fun maskLayerOffsetY(frame: WindowsMotionAccentFrame, viewportHeightPx: Float): Float {
+        val height = viewportHeightPx.takeIf { it.isFinite() && it > 0f } ?: return 0f
+        if (frame.activity <= 0f) return 0f
+        val fraction = when (frame.kind) {
+            WindowsMotionAccentKind.BUBBLES -> -sin(frame.phaseSeconds * 0.40f) * 0.0018f
+            WindowsMotionAccentKind.BIRD -> sin(frame.phaseSeconds * 4.8f) * 0.0008f
+            WindowsMotionAccentKind.DRAGON -> sin(frame.phaseSeconds * 1.55f) * 0.0007f
+            else -> 0f
+        }
+        return height * fraction * frame.activity
+    }
+
+    /** City windows appear to breathe by changing only the bright recovered source layer. */
+    fun highlightLayerAlpha(frame: WindowsMotionAccentFrame): Int {
+        if (!frame.enabledState.value) return 255
+        val factor = when (frame.kind) {
+            WindowsMotionAccentKind.CITY -> 0.80f +
+                ((sin(frame.phaseSeconds * 1.35f) + 1f) * 0.5f) * 0.20f
+            WindowsMotionAccentKind.BUBBLES -> 0.88f +
+                ((sin(frame.phaseSeconds * 0.55f) + 1f) * 0.5f) * 0.12f
+            else -> 1f
+        }
+        return (factor * 255f).toInt().coerceIn(0, 255)
+    }
+
+    // Kept as pure helpers for regression compatibility and future extracted moving-part masks.
     fun robotGearDegrees(phaseSeconds: Float, gearIndex: Int): Float {
         val direction = if (gearIndex % 2 == 0) 1f else -1f
         val speed = 42f + gearIndex.coerceAtLeast(0) * 13f
@@ -147,19 +203,11 @@ internal object WindowsMotionAccent {
 }
 
 /**
- * Efficient Motion Accent clock:
+ * Motion clock with no geometry work:
  * - static themes sleep completely;
- * - city updates slowly when idle because only lights change;
- * - bubbles use a modest idle cadence because their movement is deliberately slow;
- * - interaction-driven themes temporarily update at a smooth cadence, then sleep after the
- *   documented ~7 second activity window.
- *
- * On Android low-RAM devices only the sampling cadence is reduced; motion is still advanced by
- * real elapsed time, so speed, direction and settling behavior remain unchanged.
- *
- * Mechanical/creature themes advance their phase with the last horizontal scroll direction. A
- * direction reversal therefore reverses cogs/body motion continuously instead of flipping an
- * already accumulated absolute angle.
+ * - city/bubbles update at intentionally modest ambient rates;
+ * - interaction themes run temporarily then sleep after ~7 seconds;
+ * - low-RAM devices use a lower redraw cadence while elapsed-time motion stays the same speed.
  */
 @Composable
 internal fun rememberWindowsMotionAccentFrame(
@@ -187,7 +235,7 @@ internal fun rememberWindowsMotionAccentFrame(
             if (serial == lastSerial) return@collect
             lastSerial = serial
             val delta = sceneState.lastScrollDeltaPx
-            val sample = WindowsMotionAccent.normalizedVelocity(delta, viewportWidthPx)
+            val sample = normalizedVelocity(delta, viewportWidthPx)
             frame.velocityState.floatValue =
                 frame.velocityState.floatValue * 0.48f + sample * 0.52f
             frame.lastInteractionNanos = System.nanoTime()
@@ -206,8 +254,8 @@ internal fun rememberWindowsMotionAccentFrame(
             } else {
                 ((now - frame.lastInteractionNanos) / 1_000_000L).coerceAtLeast(0L)
             }
-            val interactionActive = sinceInteractionMillis < WindowsMotionAccent.ACTIVE_DURATION_MILLIS
-            val ambient = WindowsMotionAccent.isAmbient(kind)
+            val interactionActive = sinceInteractionMillis < ACTIVE_DURATION_MILLIS
+            val ambient = isAmbient(kind)
 
             if (!interactionActive && !ambient) {
                 frame.activityState.floatValue = 0f
@@ -216,24 +264,22 @@ internal fun rememberWindowsMotionAccentFrame(
                     frame.velocityState.floatValue = 0f
                 }
                 previousNanos = now
-                delay(if (lowRamMode) 180L else 120L)
+                delay(if (lowRamMode) 220L else 150L)
                 continue
             }
 
             val intervalMillis = when {
-                interactionActive -> if (lowRamMode) 24L else 16L
-                kind == WindowsMotionAccentKind.BUBBLES -> if (lowRamMode) 64L else 40L
-                kind == WindowsMotionAccentKind.CITY -> if (lowRamMode) 180L else 120L
-                else -> if (lowRamMode) 120L else 80L
+                interactionActive -> if (lowRamMode) 33L else 16L
+                kind == WindowsMotionAccentKind.BUBBLES -> if (lowRamMode) 90L else 56L
+                kind == WindowsMotionAccentKind.CITY -> if (lowRamMode) 250L else 160L
+                else -> if (lowRamMode) 140L else 90L
             }
             delay(intervalMillis)
 
             val tick = System.nanoTime()
-            val deltaSeconds = ((tick - previousNanos) / 1_000_000_000f).coerceIn(0f, 0.20f)
+            val deltaSeconds = ((tick - previousNanos) / 1_000_000_000f).coerceIn(0f, 0.25f)
             previousNanos = tick
 
-            // City/bubbles are independent ambient clocks. Interactive artwork instead advances in
-            // the user's current horizontal direction, preserving continuity when direction flips.
             val phaseDirection = if (ambient || frame.velocityState.floatValue >= 0f) 1f else -1f
             frame.phaseState.floatValue += deltaSeconds * phaseDirection
             if (abs(frame.phaseState.floatValue) > 3_600f) {
@@ -244,11 +290,11 @@ internal fun rememberWindowsMotionAccentFrame(
                 val elapsed = if (frame.lastInteractionNanos == 0L) 0L else
                     ((tick - frame.lastInteractionNanos) / 1_000_000L).coerceAtLeast(0L)
                 frame.activityState.floatValue = when {
-                    elapsed <= WindowsMotionAccent.HOLD_DURATION_MILLIS -> 1f
-                    elapsed >= WindowsMotionAccent.ACTIVE_DURATION_MILLIS -> 0f
+                    elapsed <= HOLD_DURATION_MILLIS -> 1f
+                    elapsed >= ACTIVE_DURATION_MILLIS -> 0f
                     else -> 1f - (
-                        (elapsed - WindowsMotionAccent.HOLD_DURATION_MILLIS).toFloat() /
-                            WindowsMotionAccent.FADE_DURATION_MILLIS.toFloat()
+                        (elapsed - HOLD_DURATION_MILLIS).toFloat() /
+                            FADE_DURATION_MILLIS.toFloat()
                         ).coerceIn(0f, 1f)
                 }
                 frame.velocityState.floatValue *= 0.965f
