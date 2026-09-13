@@ -47,7 +47,7 @@ internal object StartPersonalization {
         0xFFD13438L, 0xFFE51400L, 0xFFE66C00L, 0xFFF0A30AL, 0xFF60A917L,
         0xFF008A00L, 0xFF00A300L, 0xFF00ABA9L, 0xFF008299L, 0xFF1BA1E2L,
         0xFF0078D7L, 0xFF0050EFL, 0xFF2D89EFL, 0xFFC239B3L, 0xFF767676L,
-    ).map(::Color)
+    ).map { argb -> Color(argb) }
 }
 
 private fun Color.toArgbLong(): Long {
