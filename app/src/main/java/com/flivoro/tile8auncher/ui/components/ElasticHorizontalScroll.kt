@@ -31,8 +31,9 @@ import kotlin.math.sign
 /**
  * Adds a small, shared rubber band at either horizontal scroll edge.
  *
- * Apply this to the LazyRow itself. The row still owns normal scrolling and flings. This
- * modifier only uses the unconsumed edge delta and springs its translation back on release.
+ * Apply this to the LazyRow itself. The row still owns normal scrolling and flings. Pixels actually
+ * consumed by either Start or All Apps also advance one lightweight shared wallpaper coordinate;
+ * unconsumed edge rubber-banding and vertical gestures do not affect it.
  */
 @Composable
 fun Modifier.elasticHorizontalScroll(
@@ -103,6 +104,13 @@ fun Modifier.elasticHorizontalScroll(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
+                if (
+                    (source == NestedScrollSource.UserInput || source == NestedScrollSource.SideEffect) &&
+                    consumed.x != 0f
+                ) {
+                    SharedWallpaperScroll.onContentConsumed(consumed.x)
+                }
+
                 if (source != NestedScrollSource.UserInput &&
                     source != NestedScrollSource.SideEffect ||
                     available.x == 0f
