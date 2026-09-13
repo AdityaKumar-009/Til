@@ -26,7 +26,7 @@ internal object WallpaperParallax {
         val renderedHeight: Float,
     )
 
-    /** Returns the unbounded, constant-rate translation for a scroll position. */
+    /** Returns the unbounded, constant-rate translation for the one shared wallpaper world. */
     @Suppress("UNUSED_PARAMETER")
     fun translationX(
         scrollOffsetPx: Float,
@@ -34,7 +34,8 @@ internal object WallpaperParallax {
         viewportWidthPx: Float = FALLBACK_VIEWPORT_WIDTH_PX,
         maxTravelFraction: Float = FALLBACK_MAX_TRAVEL,
     ): Float {
-        val safeOffset = scrollOffsetPx.takeIf { it.isFinite() } ?: 0f
+        val legacyOffset = scrollOffsetPx.takeIf { it.isFinite() } ?: 0f
+        val safeOffset = SharedWallpaperScroll.effectiveOffset(legacyOffset)
         val safeRate = rate.takeIf { it.isFinite() } ?: 0f
         val rawTranslation = -safeOffset * safeRate
         return rawTranslation.takeIf { it.isFinite() } ?: 0f
