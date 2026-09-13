@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
+import com.flivoro.tile8auncher.ui.theme.WindowsColors
 
 /** Persistent accent color used by the All Apps icon containers. */
 @Stable
@@ -23,8 +24,9 @@ internal object StartPersonalization {
         synchronized(this) {
             if (initialized) return
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val accent = prefs.getLong(KEY_ACCENT, DEFAULT_ACCENT_ARGB)
+            val accent = prefs.getLong(KEY_ACCENT, DEFAULT_ACCENT_ARGB) and 0xFFFFFFFFL
             accentState.value = Color(accent)
+            WindowsColors.Purple = accent
             initialized = true
         }
     }
@@ -33,6 +35,7 @@ internal object StartPersonalization {
         ensureLoaded(context)
         val argb = color.toArgbLong()
         accentState.value = Color(argb)
+        WindowsColors.Purple = argb
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_ACCENT, argb)
