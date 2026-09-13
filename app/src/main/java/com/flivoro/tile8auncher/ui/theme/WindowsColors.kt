@@ -1,5 +1,8 @@
 package com.flivoro.tile8auncher.ui.theme
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 object WindowsColors {
@@ -29,7 +32,11 @@ object WindowsColors {
     const val Amber = 0xFFF0A30AL
     const val Red = 0xFFE51400L
     const val Magenta = 0xFFD80073L
-    const val Purple = 0xFF603CBAL
+
+    // Windows 8.1 All Apps icon-container accent. It stays purple by default but is intentionally
+    // snapshot-backed so Personalize can change the All Apps accent without touching wallpaper art.
+    var Purple by mutableLongStateOf(0xFF603CBAL)
+
     const val DarkCyan = 0xFF008299L
     const val DarkViolet = 0xFF2E0854L
     const val Gray = 0xFF555555L
@@ -56,7 +63,7 @@ object WindowsColors {
         Red,
         ReadingListCrimson,
         Magenta,
-        Purple,
+        0xFF603CBAL,
         DarkCyan,
         OneDriveBlue,
         OneNotePurple,
