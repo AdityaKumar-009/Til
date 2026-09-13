@@ -31,10 +31,8 @@ import kotlin.math.sign
 /**
  * Adds a small, shared rubber band at either horizontal scroll edge.
  *
- * Apply this to the LazyRow itself. The row still owns normal scrolling and flings. In addition to
- * edge resistance, the modifier reports the row's *consumed horizontal delta* to the one persistent
- * Start background scene. This is both cheaper and more accurate than polling LazyListState and,
- * crucially, a vertical Start <-> Apps swipe produces no wallpaper delta at all.
+ * Apply this to the LazyRow itself. The row still owns normal scrolling and flings. This
+ * modifier only uses the unconsumed edge delta and springs its translation back on release.
  */
 @Composable
 fun Modifier.elasticHorizontalScroll(
@@ -105,15 +103,6 @@ fun Modifier.elasticHorizontalScroll(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                // Child-consumed X is the actual Start/Apps horizontal movement. Report it before
-                // the edge-return branch because most normal scrolling has available.x == 0.
-                if (
-                    (source == NestedScrollSource.UserInput || source == NestedScrollSource.SideEffect) &&
-                    consumed.x != 0f
-                ) {
-                    StartBackgroundScrollRuntime.onListConsumedScroll(consumed.x)
-                }
-
                 if (source != NestedScrollSource.UserInput &&
                     source != NestedScrollSource.SideEffect ||
                     available.x == 0f

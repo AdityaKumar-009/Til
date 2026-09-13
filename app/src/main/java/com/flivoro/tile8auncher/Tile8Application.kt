@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.flivoro.tile8auncher.ui.animation.UnlockEntranceMotionOverride
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenRuntime
 
 /**
@@ -96,6 +97,10 @@ class Tile8Application : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Load the tiny saved Accent preference once for the process. This only updates the
+        // All Apps icon-container purple; wallpapers remain the original stock artwork.
+        StartPersonalization.ensureLoaded(this)
 
         // If the process itself is created while the phone is asleep/locked, treat the eventual
         // reveal as an unlock even though this process missed the earlier SCREEN_OFF broadcast.
