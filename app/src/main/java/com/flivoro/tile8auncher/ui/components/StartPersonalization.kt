@@ -6,11 +6,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * Small persistent Windows 8.1 Start personalization store.
+ * Persistent Windows 8.1 Start personalization store.
  *
- * Kept independent from tile/app preferences so changing a color can immediately invalidate only
- * the wallpaper/Personalize surfaces. The defaults exactly match the launcher's existing purple
- * palette, so upgrading does not visually change anyone who has not personalized Start.
+ * Background and Accent remain independent user choices, but selecting a stock wallpaper can apply
+ * that wallpaper's own default pair atomically via [setColors].
  */
 @Stable
 internal object StartPersonalization {
@@ -59,6 +58,19 @@ internal object StartPersonalization {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_ACCENT, argb)
+            .apply()
+    }
+
+    fun setColors(context: Context, backgroundArgb: Long, accentArgb: Long) {
+        ensureLoaded(context)
+        val background = backgroundArgb and 0xFFFFFFFFL
+        val accent = accentArgb and 0xFFFFFFFFL
+        backgroundState.value = Color(background)
+        accentState.value = Color(accent)
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_BACKGROUND, background)
+            .putLong(KEY_ACCENT, accent)
             .apply()
     }
 
