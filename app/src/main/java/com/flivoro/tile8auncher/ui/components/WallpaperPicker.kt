@@ -1,5 +1,7 @@
 package com.flivoro.tile8auncher.ui.components
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,29 +13,35 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val wallpaperNames = listOf(
-    "Purple ribbons",
-    "Robots",
-    "Pixel city",
-    "Swirls",
-    "Blossom",
-    "Garden",
-    "Facets",
-    "Night mountains",
-    "Dragon",
-    "Gears",
+    "Purple ribbons", "Robots", "Pixel city", "Swirls", "Blossom",
+    "Garden", "Facets", "Night mountains", "Dragon", "Gears",
+)
+private val wallpaperResources = listOf(
+    0,
+    R.drawable.start_wallpaper_1,
+    R.drawable.start_wallpaper_2,
+    R.drawable.start_wallpaper_3,
+    R.drawable.start_wallpaper_4,
+    R.drawable.start_wallpaper_5,
+    R.drawable.start_wallpaper_6,
+    R.drawable.start_wallpaper_7,
+    R.drawable.start_wallpaper_8,
+    R.drawable.start_wallpaper_9,
 )
 
 @Composable
@@ -43,33 +51,16 @@ internal fun WallpaperPicker(
     appsRepository: AppsRepository? = null,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val resources = context.resources
     LaunchedEffect(context) { StartPersonalization.ensureLoaded(context) }
 
-    var paletteJob by remember { mutableStateOf<Job?>(null) }
     var lockScreenEnabled by remember {
         mutableStateOf(WindowsLockScreenPreferences.isEnabled(context))
     }
     var cameraGestureEnabled by remember {
         mutableStateOf(WindowsLockScreenPreferences.isCameraGestureEnabled(context))
     }
-    val backgroundColor = StartPersonalization.backgroundColor
     val accentColor = StartPersonalization.accentColor
-
-    fun selectStockWallpaper(index: Int) {
-        onSelect(index)
-        paletteJob?.cancel()
-        paletteJob = scope.launch {
-            val defaults = withContext(Dispatchers.Default) {
-                WindowsWallpaperArtCache.defaultColors(context.applicationContext, index)
-            }
-            StartPersonalization.setColors(
-                context = context,
-                backgroundArgb = defaults.backgroundArgb,
-                accentArgb = defaults.accentArgb,
-            )
-        }
-    }
 
     fun updateLockScreen(enabled: Boolean) {
         lockScreenEnabled = enabled
@@ -82,27 +73,30 @@ internal fun WallpaperPicker(
     }
 
     Text("Start background", color = Color(0xFF5133AB), fontSize = 20.sp)
-    Spacer(Modifier.height(6.dp))
-    Text(
-        "Stock artwork is recovered from the supplied Windows pixels into cached native masks. " +
-            "Selecting a wallpaper restores its own default Background and Accent colors.",
-        color = Color(0xFF666666),
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-    )
     Spacer(Modifier.height(12.dp))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         wallpaperNames.indices.chunked(2).forEach { indices ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 indices.forEach { index ->
-                    val motionKind = WindowsMotionAccent.kindForStyle(index)
+                    val preview by produceState<ImageBitmap?>(null, index) {
+                        if (index > 0) value = withContext(Dispatchers.IO) {
+                            BitmapFactory.decodeResource(
+                                resources,
+                                wallpaperResources[index],
+                                BitmapFactory.Options().apply {
+                                    inSampleSize = 8
+                                    inScaled = false
+                                },
+                            )?.asImageBitmap()
+                        }
+                    }
                     Column(
                         Modifier
                             .weight(1f)
                             .selectable(
                                 selected = selected == index,
                                 role = Role.RadioButton,
-                                onClick = { selectStockWallpaper(index) },
+                                onClick = { onSelect(index) },
                             )
                             .border(
                                 if (selected == index) 3.dp else 1.dp,
@@ -114,30 +108,26 @@ internal fun WallpaperPicker(
                             Modifier
                                 .fillMaxWidth()
                                 .height(86.dp)
-                                .background(backgroundColor),
+                                .background(Color(0xFF23053D)),
                         ) {
-                            WindowsWallpaper(
-                                wallpaperStyle = index,
-                                enabled = false,
-                                trackLauncherScroll = false,
-                                previewMode = true,
-                            )
+                            if (index == 0) {
+                                WindowsWallpaper(enabled = false)
+                            } else {
+                                preview?.let {
+                                    Image(
+                                        bitmap = it,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                }
+                            }
                         }
                         Text(
                             wallpaperNames[index],
                             color = Color(0xFF222222),
                             fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 5.dp, end = 5.dp, top = 8.dp),
-                        )
-                        Text(
-                            if (motionKind == WindowsMotionAccentKind.NONE) "Parallax" else "Motion Accent",
-                            color = if (motionKind == WindowsMotionAccentKind.NONE) {
-                                Color(0xFF777777)
-                            } else {
-                                accentColor
-                            },
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(start = 5.dp, end = 5.dp, top = 1.dp, bottom = 7.dp),
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 8.dp),
                         )
                     }
                 }
@@ -146,32 +136,16 @@ internal fun WallpaperPicker(
     }
 
     Spacer(Modifier.height(24.dp))
-    Text("Background color", color = Color(0xFF5133AB), fontSize = 18.sp)
-    Spacer(Modifier.height(6.dp))
-    Text(
-        "Changes only the solid Start color underneath the transparent stock artwork.",
-        color = Color(0xFF666666),
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-    )
-    Spacer(Modifier.height(10.dp))
-    PersonalizeColorGrid(
-        choices = StartPersonalization.backgroundChoices,
-        selected = backgroundColor,
-        onSelect = { StartPersonalization.setBackgroundColor(context, it) },
-    )
-
-    Spacer(Modifier.height(20.dp))
     Text("Accent color", color = Color(0xFF5133AB), fontSize = 18.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Recolors the recovered artwork masks without tinting or replacing the Background color.",
+        "Changes the colored icon containers in All Apps. It does not recolor the selected wallpaper.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
     )
     Spacer(Modifier.height(10.dp))
-    PersonalizeColorGrid(
+    PersonalizeAccentGrid(
         choices = StartPersonalization.accentChoices,
         selected = accentColor,
         onSelect = { StartPersonalization.setAccentColor(context, it) },
@@ -207,7 +181,7 @@ internal fun WallpaperPicker(
                 lineHeight = 16.sp,
             )
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Switch(checked = lockScreenEnabled, onCheckedChange = ::updateLockScreen)
     }
 
@@ -238,8 +212,7 @@ internal fun WallpaperPicker(
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "Android's device lock remains unchanged; Mosaic's Windows surface appears within the " +
-                "launcher after Android has finished its own unlock flow.",
+            "Android's device lock remains unchanged; Mosaic's Windows surface appears within the launcher after Android has finished its own unlock flow.",
             color = Color(0xFF777777),
             fontSize = 11.sp,
             lineHeight = 15.sp,
@@ -250,7 +223,7 @@ internal fun WallpaperPicker(
 }
 
 @Composable
-private fun PersonalizeColorGrid(
+private fun PersonalizeAccentGrid(
     choices: List<Color>,
     selected: Color,
     onSelect: (Color) -> Unit,
