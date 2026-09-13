@@ -64,6 +64,10 @@ internal object WallpaperMaskMath {
 /**
  * Lazy artwork cache. No bitmap decoding or per-pixel work happens while the user is scrolling.
  * Only the currently selected full-size theme plus tiny Personalize previews are retained.
+ *
+ * Eviction deliberately drops only the cache reference. Compose draw caches can still hold a mask
+ * for the current frame, so eagerly calling Bitmap.recycle() here could crash a GPU draw. Android
+ * releases the native pixel memory naturally once the last reference disappears.
  */
 internal object WindowsWallpaperArtCache {
     private const val FULL_CACHE_KB = 14 * 1024
@@ -73,18 +77,6 @@ internal object WindowsWallpaperArtCache {
     private val masks = object : LruCache<Int, WallpaperArtMasks>(FULL_CACHE_KB) {
         override fun sizeOf(key: Int, value: WallpaperArtMasks): Int =
             max(1, value.allocationBytes / 1024)
-
-        override fun entryRemoved(
-            evicted: Boolean,
-            key: Int,
-            oldValue: WallpaperArtMasks,
-            newValue: WallpaperArtMasks?,
-        ) {
-            if (newValue === oldValue) return
-            oldValue.shadowMask.recycle()
-            oldValue.primaryMask.recycle()
-            oldValue.highlightMask.recycle()
-        }
     }
 
     fun peek(style: Int, preview: Boolean, lowRam: Boolean): WallpaperArtMasks? =
@@ -323,9 +315,9 @@ internal object WindowsWallpaperArtCache {
         while (index < pixels.size) {
             val pixel = pixels[index]
             if (quantizedBin(pixel) == wantedBin) {
-                red += pixel shr 16 and 0xFF
-                green += pixel shr 8 and 0xFF
-                blue += pixel and 0xFF
+                red += (pixel shr 16 and 0xFF)
+                green += (pixel shr 8 and 0xFF)
+                blue += (pixel and 0xFF)
                 count++
             }
             index += stride
