@@ -13,26 +13,25 @@ internal object SharedWallpaperScroll {
     @Volatile
     private var worldOffsetPx: Double = 0.0
 
-    @Volatile
-    private var hasHorizontalInteraction: Boolean = false
-
     fun onContentConsumed(consumedX: Float) {
         if (!consumedX.isFinite() || consumedX == 0f) return
 
         // Nested scroll uses gesture coordinates. Negating consumed X makes the wallpaper world
         // advance positively when the list advances toward content on the right.
-        worldOffsetPx = (worldOffsetPx - consumedX.toDouble()).takeIf(Double::isFinite) ?: 0.0
-        hasHorizontalInteraction = true
+        val next = worldOffsetPx - consumedX.toDouble()
+        worldOffsetPx = if (next.isFinite()) next else 0.0
     }
 
     /**
-     * Before the first horizontal interaction, keep the legacy offset so startup/return wallpaper
-     * entrance motion remains unchanged. Afterwards use the one shared world position for both
-     * Start and All Apps. Negative legacy values are entrance-only offsets and remain honored.
+     * The normal non-negative list offsets are deliberately ignored: Start and All Apps must look
+     * into the same persistent wallpaper world even while the vertical navigator is mid-gesture.
+     * A negative legacy value can only be the launcher's existing entrance displacement, so keep
+     * that transient effect without allowing either screen to reset the persistent world position.
      */
     fun effectiveOffset(legacyOffsetPx: Float): Float {
-        val legacy = legacyOffsetPx.takeIf(Float::isFinite) ?: 0f
-        if (!hasHorizontalInteraction || legacy < 0f) return legacy
-        return worldOffsetPx.toFloat().takeIf(Float::isFinite) ?: 0f
+        val legacy = legacyOffsetPx.takeIf { it.isFinite() } ?: 0f
+        if (legacy < 0f) return legacy
+        val shared = worldOffsetPx.toFloat()
+        return if (shared.isFinite()) shared else 0f
     }
 }
