@@ -134,7 +134,7 @@ internal object LauncherImageCache {
     private fun previewFile(context: Context, uriString: String): File {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(uriString.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
         return File(File(context.cacheDir, CACHE_DIR_NAME), "$digest.jpg")
     }
 }
