@@ -70,6 +70,7 @@ fun WindowsTileView(
     dragEnabled: Boolean = false,
     onDragStart: (bounds: Rect) -> Unit = {},
     onDrag: (delta: Offset) -> Unit = {},
+    onDragLayoutShift: (delta: Offset) -> Unit = {},
     onDragEnd: () -> Unit = {},
     onDragCancel: () -> Unit = onDragEnd,
 ) {
@@ -81,6 +82,7 @@ fun WindowsTileView(
                 enabled = dragEnabled,
                 onDragStart = onDragStart,
                 onDrag = onDrag,
+                onLayoutShift = onDragLayoutShift,
                 onDragEnd = onDragEnd,
                 onDragCancel = onDragCancel,
             )
