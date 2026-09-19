@@ -727,19 +727,30 @@ fun StartScreen(
         val maxStepPx = with(dragDensity) { 12.dp.toPx() }
         while (draggingTileId != null) {
             val viewport = tileViewportBounds
-            if (viewport.width > 0f) {
-                val centerX = (dragOriginBounds.center + dragPointerOffset).x
-                val leftStrength = ((viewport.left + edgePx - centerX) / edgePx).coerceIn(0f, 1f)
-                val rightStrength = ((centerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
+            if (viewport.width > 0f && dragPointerWindow != Offset.Zero) {
+                val pointerX = dragPointerWindow.x
+                val leftStrength = ((viewport.left + edgePx - pointerX) / edgePx).coerceIn(0f, 1f)
+                val rightStrength = ((pointerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
+
                 val step = when {
-                    rightStrength > 0f -> maxStepPx * rightStrength * rightStrength
-                    leftStrength > 0f -> -maxStepPx * leftStrength * leftStrength
+                    rightStrength > 0f && listState.canScrollForward ->
+                        maxStepPx * rightStrength * rightStrength
+                    leftStrength > 0f && listState.canScrollBackward ->
+                        -maxStepPx * leftStrength * leftStrength
                     else -> 0f
                 }
+
                 if (step != 0f) {
-                    listState.scrollBy(step)
-                    // The pointer did not move, but the grid underneath it did.
-                    updateDraggedTilePlacement(dragOriginBounds.center + dragPointerOffset)
+                    val consumed = listState.scrollBy(step)
+                    if (kotlin.math.abs(consumed) > 0.5f) {
+                        // Let LazyRow publish its new band rectangles before resolving the
+                        // stationary pointer against the grid underneath it.
+                        delay(16L)
+                        if (draggingTileId != null) {
+                            scheduleDropProposal(proposalAt(dragVisualCenter()))
+                        }
+                        continue
+                    }
                 }
             }
             delay(16L)
