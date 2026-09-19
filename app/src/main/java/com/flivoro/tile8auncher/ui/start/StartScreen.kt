@@ -1093,7 +1093,7 @@ fun StartScreen(
                                             .offset(x = ((leadingSpacingDp / 2f) - 2f).dp)
                                             .width(4.dp)
                                             .fillMaxHeight()
-                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .padding(top = groupLabelHeightDp.dp + 6.dp, bottom = 6.dp)
                                             .background(Color.White.copy(alpha = 0.92f)),
                                     )
                                 }
@@ -1110,7 +1110,7 @@ fun StartScreen(
                                             )
                                             .width(4.dp)
                                             .fillMaxHeight()
-                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .padding(top = groupLabelHeightDp.dp + 6.dp, bottom = 6.dp)
                                             .background(Color.White.copy(alpha = 0.92f)),
                                     )
                                 }
