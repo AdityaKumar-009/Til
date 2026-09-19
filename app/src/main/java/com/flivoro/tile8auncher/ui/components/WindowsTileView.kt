@@ -202,9 +202,15 @@ private fun LiveNotificationCarousel(
         index = 0
         if (live.size <= 1) return@LaunchedEffect
 
+        // Windows owns the live-tile schedule; apps do not all flip on one shared metronome.
+        // Stagger each Android projection deterministically so a populated Start screen does not
+        // animate every live tile at the same instant.
+        val phase = kotlin.math.abs(tile.id.hashCode().toLong())
+        delay(1_200L + phase % 3_600L)
+        val cycleMillis = 7_000L + phase % 2_500L
         while (true) {
-            delay(7_000L)
             index = (index + 1) % live.size
+            delay(cycleMillis)
         }
     }
 
