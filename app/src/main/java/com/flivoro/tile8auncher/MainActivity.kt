@@ -18,7 +18,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -63,7 +62,6 @@ import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
-import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
