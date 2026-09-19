@@ -776,12 +776,7 @@ fun StartScreen(
 
                 if (step != 0f) {
                     dragAutoScrollActive = true
-                    val consumed = try {
-                        listState.scrollBy(step)
-                    } finally {
-                        // Keep the flag through one layout frame so wallpaper tracking can
-                        // distinguish genuine edge-scroll motion from neighbor-tile reflow.
-                    }
+                    val consumed = listState.scrollBy(step)
                     if (kotlin.math.abs(consumed) > 0.5f) {
                         delay(16L)
                         if (draggingTileId != null) {
