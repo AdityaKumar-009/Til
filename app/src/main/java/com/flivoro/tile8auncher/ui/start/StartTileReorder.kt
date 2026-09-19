@@ -26,10 +26,11 @@ internal fun reorderStartTiles(
     val targetIndexAfterRemoval = working.indexOfFirst { it.id == targetId }
     if (targetIndexAfterRemoval < 0) return normalizeStartTileOrder(tiles)
 
-    val moved = if (dragged.groupName == target.groupName) {
+    val moved = if (dragged.effectiveStartGroupId() == target.effectiveStartGroupId()) {
         dragged
     } else {
         dragged.copy(
+            groupId = target.effectiveStartGroupId(),
             groupName = target.groupName,
             startBand = null,
             startColumn = null,
