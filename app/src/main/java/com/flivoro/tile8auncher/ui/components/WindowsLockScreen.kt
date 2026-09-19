@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -97,6 +98,7 @@ fun Windows81LockScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lockSurfaceInteractionSource = remember { MutableInteractionSource() }
     var heightPx by remember { mutableIntStateOf(1) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -212,7 +214,14 @@ fun Windows81LockScreen(
                     }
                 },
             )
-            .clickable(onClick = ::dismissUp)
+            // The real Windows 8.1 lock surface does not show a pressed/ripple/dim state when
+            // touched or held. Compose's default clickable indication was darkening the entire
+            // lock artwork until release, so keep tap-to-dismiss but make the surface visually inert.
+            .clickable(
+                interactionSource = lockSurfaceInteractionSource,
+                indication = null,
+                onClick = ::dismissUp,
+            )
             .semantics {
                 contentDescription = if (cameraGestureEnabled) {
                     "Windows 8.1 lock screen. Swipe up to open Start or swipe down for camera."
