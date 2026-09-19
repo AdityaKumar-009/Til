@@ -429,27 +429,6 @@ private fun LiveTileText(
 }
 
 @Composable
-private fun LiveTileBranding(
-    tile: TileModel,
-    count: Int,
-) {
-    Text(
-        text = tile.title,
-        style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-        color = Color.White,
-        maxLines = 1,
-        modifier = Modifier
-            .padding(start = 9.dp, bottom = 6.dp),
-    )
-    if (count > 0) {
-        LiveTileBadge(
-            count = count,
-            modifier = Modifier.padding(end = 9.dp, bottom = 6.dp),
-        )
-    }
-}
-
-@Composable
 private fun BoxScope.LiveTileBranding(
     tile: TileModel,
     count: Int,
