@@ -245,6 +245,7 @@ fun StartScreen(
     var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
+    var dragAutoScrollActive by remember { mutableStateOf(false) }
     var dragStartGridPositions by remember {
         mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
     }
@@ -697,6 +698,7 @@ fun StartScreen(
 
         previewJob?.cancel()
         previewJob = null
+        dragAutoScrollActive = false
 
         if (commit) {
             pendingDropProposal?.let { proposal ->
@@ -773,16 +775,22 @@ fun StartScreen(
                 }
 
                 if (step != 0f) {
-                    val consumed = listState.scrollBy(step)
+                    dragAutoScrollActive = true
+                    val consumed = try {
+                        listState.scrollBy(step)
+                    } finally {
+                        // Keep the flag through one layout frame so wallpaper tracking can
+                        // distinguish genuine edge-scroll motion from neighbor-tile reflow.
+                    }
                     if (kotlin.math.abs(consumed) > 0.5f) {
-                        // Let LazyRow publish its new band rectangles before resolving the
-                        // stationary pointer against the grid underneath it.
                         delay(16L)
                         if (draggingTileId != null) {
                             scheduleDropProposal(proposalAt(dragVisualCenter()))
                         }
+                        dragAutoScrollActive = false
                         continue
                     }
+                    dragAutoScrollActive = false
                 }
             }
             delay(16L)
@@ -1011,7 +1019,7 @@ fun StartScreen(
                             when {
                                 // Real list motion advances the wallpaper by the same consumed
                                 // pixels. Reflow while stationary only refreshes the baseline.
-                                (frame.isScrolling || wasScrolling || draggingTileId != null) &&
+                                (frame.isScrolling || wasScrolling || dragAutoScrollActive) &&
                                     commonDelta != null -> {
                                     trackedWallpaperScrollPx =
                                         (trackedWallpaperScrollPx + commonDelta).coerceAtLeast(0f)
