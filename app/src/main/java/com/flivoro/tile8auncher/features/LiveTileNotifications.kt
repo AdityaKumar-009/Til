@@ -186,6 +186,11 @@ class MosaicNotificationListenerService : NotificationListenerService() {
         super.onListenerDisconnected()
     }
 
+    override fun onDestroy() {
+        LiveTileRuntime.setConnected(false)
+        super.onDestroy()
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
         publishPackage(sbn.packageName)
