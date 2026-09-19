@@ -73,8 +73,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -103,6 +104,7 @@ import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -114,7 +116,8 @@ private const val START_WITHIN_GROUP_SPACING_DP = 8f
 private const val START_GROUP_GUTTER_DP = 24f
 private const val START_END_GROUP_DROP_ZONE_DP = 32f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
-private const val TILE_REORDER_DURATION_MS = 120
+private const val TILE_REORDER_DURATION_MS = 170
+private const val TILE_REORDER_DWELL_MS = 140L
 
 private data class EntranceViewportSnapshot(
     val startBand: Int,
@@ -164,6 +167,17 @@ private data class StartGroupGutterDropTarget(
     val beforeGroupId: String?,
     val bounds: Rect,
 )
+
+private sealed interface StartDropProposal {
+    data class Grid(
+        val key: StartGridDropKey,
+    ) : StartDropProposal
+
+    data class NewGroup(
+        val gutterKey: String,
+        val beforeGroupId: String?,
+    ) : StartDropProposal
+}
 
 private data class StartWallpaperScrollFrame(
     val isScrolling: Boolean,
@@ -223,11 +237,15 @@ fun StartScreen(
     var selectedTileIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dragTiles by remember { mutableStateOf<List<TileModel>?>(null) }
     var draggingTileId by remember { mutableStateOf<String?>(null) }
-    // The drag proxy is positioned only from real pointer deltas. Grid reflow and LazyRow
-    // scrolling never mutate this vector, so the held tile cannot jump away from the finger.
-    var dragPointerOffset by remember { mutableStateOf(Offset.Zero) }
+    // The held tile is driven from the absolute pointer position in window coordinates.
+    // This avoids accumulated-delta loss when child layouts recompose, scroll or consume events.
+    var dragPointerWindow by remember { mutableStateOf(Offset.Zero) }
+    var dragContactOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
     var lastGridDrop by remember { mutableStateOf<StartGridDropKey?>(null) }
+    var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
+    var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
+    var previewJob by remember { mutableStateOf<Job?>(null) }
     var dragNewGroupId by remember { mutableStateOf<String?>(null) }
     var activeGutterKey by remember { mutableStateOf<String?>(null) }
     var tileViewportBounds by remember { mutableStateOf(Rect.Zero) }
@@ -271,7 +289,8 @@ fun StartScreen(
             selectedTileIds = emptySet()
             dragTiles = null
             draggingTileId = null
-            dragPointerOffset = Offset.Zero
+            dragPointerWindow = Offset.Zero
+            dragContactOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
             openFolderTile = null
@@ -325,7 +344,8 @@ fun StartScreen(
             selectedTileIds = emptySet()
             dragTiles = null
             draggingTileId = null
-            dragPointerOffset = Offset.Zero
+            dragPointerWindow = Offset.Zero
+            dragContactOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
             openFolderTile = null
@@ -339,7 +359,8 @@ fun StartScreen(
         if (draggingTileId !in validIds) {
             dragTiles = null
             draggingTileId = null
-            dragPointerOffset = Offset.Zero
+            dragPointerWindow = Offset.Zero
+            dragContactOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
         }
@@ -358,7 +379,8 @@ fun StartScreen(
                 showResizeChoices = false
                 dragTiles = null
                 draggingTileId = null
-                dragPointerOffset = Offset.Zero
+                dragPointerWindow = Offset.Zero
+            dragContactOffset = Offset.Zero
                 activeGutterKey = null
                 dragNewGroupId = null
             }
@@ -405,7 +427,8 @@ fun StartScreen(
             dragTiles = tiles.toList()
             draggingTileId = tile.id
             dragOriginBounds = bounds
-            dragPointerOffset = Offset.Zero
+            dragPointerWindow = Offset.Zero
+            dragContactOffset = Offset.Zero
             lastGridDrop = null
             activeGutterKey = null
             dragNewGroupId = "group:${System.currentTimeMillis()}:${tile.id}"
@@ -552,7 +575,8 @@ fun StartScreen(
         if (draggingTileId == null) return
         val result = dragTiles
         draggingTileId = null
-        dragPointerOffset = Offset.Zero
+        dragPointerWindow = Offset.Zero
+            dragContactOffset = Offset.Zero
         lastGridDrop = null
         activeGutterKey = null
         dragNewGroupId = null
