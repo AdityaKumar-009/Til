@@ -114,6 +114,7 @@ private data class GroupDialogRequest(
     val initialValue: String,
     val selectedIds: Set<String>,
     val renameWholeGroup: Boolean,
+    val groupId: String? = null,
 )
 
 private data class StartBandDropTarget(
@@ -1057,8 +1058,13 @@ fun StartScreen(
             val selectedLiveTileEnabled = remember(singlePackage, liveTilesRevision) {
                 singlePackage?.let { LauncherFeatureStore.isLiveTileEnabled(context, it) }
             }
-            val oneGroup = selectedTiles.map { it.groupName }.distinct().singleOrNull()
-            val existingGroups = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct()
+            val oneGroupId = selectedTiles.map { it.effectiveStartGroupId() }.distinct().singleOrNull()
+            val oneGroupName = oneGroupId?.let { id ->
+                tiles.firstOrNull { it.effectiveStartGroupId() == id }?.groupName.orEmpty()
+            }
+            val existingGroups = tiles
+                .distinctBy { it.effectiveStartGroupId() }
+                .map { it.groupName.trim().ifEmpty { "Start" } }
 
             StartCustomizationBar(
                 selectedTiles = selectedTiles,
@@ -1067,7 +1073,16 @@ fun StartScreen(
                 onResize = { size ->
                     val selected = selectedTiles.singleOrNull() ?: return@StartCustomizationBar
                     val updated = normalizeStartTileOrder(
-                        tiles.map { tile -> if (tile.id == selected.id) tile.copy(size = size) else tile },
+                        tiles.map { tile ->
+                            if (tile.id == selected.id) {
+                                tile.copy(
+                                    size = size,
+                                    startBand = null,
+                                    startColumn = null,
+                                    startRow = null,
+                                )
+                            } else tile
+                        },
                     )
                     latestOnTilesChanged.value(updated)
                     showResizeChoices = false
@@ -1104,6 +1119,7 @@ fun StartScreen(
                             size = TileSize.MEDIUM,
                             colorValue = first.colorValue,
                             iconGlyph = "app",
+                            groupId = first.effectiveStartGroupId(),
                             groupName = first.groupName,
                             order = firstIndex,
                         )
@@ -1134,23 +1150,43 @@ fun StartScreen(
                         selectedTileIds = emptySet()
                     }
                 } else null,
-                onRenameGroup = oneGroup?.let { groupName ->
+                onRenameGroup = oneGroupId?.let { groupId ->
                     {
                         groupDialog = GroupDialogRequest(
                             title = "Name group",
-                            initialValue = groupName,
+                            initialValue = oneGroupName.orEmpty(),
                             selectedIds = selectedTileIds,
                             renameWholeGroup = true,
+                            groupId = groupId,
                         )
                     }
                 },
                 onMoveGroup = {
                     groupDialog = GroupDialogRequest(
                         title = "Move to group",
-                        initialValue = oneGroup ?: existingGroups.firstOrNull().orEmpty(),
+                        initialValue = oneGroupName?.takeIf(String::isNotBlank)
+                            ?: existingGroups.firstOrNull().orEmpty(),
                         selectedIds = selectedTileIds,
                         renameWholeGroup = false,
                     )
+                },
+                onCreateGroup = {
+                    val selectedIdsSnapshot = selectedTileIds
+                    val newGroupId = "group:${System.currentTimeMillis()}"
+                    val selected = tiles.filter { it.id in selectedIdsSnapshot }
+                    val remaining = tiles.filterNot { it.id in selectedIdsSnapshot }
+                    val moved = selected.mapIndexed { index, tile ->
+                        tile.copy(
+                            groupId = newGroupId,
+                            groupName = "",
+                            startBand = 0,
+                            startColumn = if (index == 0) 0 else null,
+                            startRow = if (index == 0) 0 else null,
+                        )
+                    }
+                    latestOnTilesChanged.value(normalizeStartTileOrder(remaining + moved))
+                    selectedTileIds = emptySet()
+                    showResizeChoices = false
                 },
                 onDone = {
                     selectedTileIds = emptySet()
@@ -1175,12 +1211,24 @@ fun StartScreen(
             suggestions = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct(),
             onDismiss = { groupDialog = null },
             onConfirm = { newName ->
-                val oldGroup = request.initialValue
+                val normalizedName = newName.trim()
+                val targetGroupId = if (request.renameWholeGroup) {
+                    request.groupId
+                } else {
+                    tiles.firstOrNull {
+                        it.groupName.trim().equals(normalizedName, ignoreCase = true)
+                    }?.effectiveStartGroupId()
+                        ?: "group:${System.currentTimeMillis()}"
+                }
                 val updated = tiles.map { tile ->
                     when {
-                        request.renameWholeGroup && tile.groupName == oldGroup -> tile.copy(groupName = newName)
+                        request.renameWholeGroup &&
+                            request.groupId != null &&
+                            tile.effectiveStartGroupId() == request.groupId ->
+                            tile.copy(groupName = normalizedName)
                         !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(
-                            groupName = newName,
+                            groupId = targetGroupId.orEmpty(),
+                            groupName = normalizedName,
                             startBand = null,
                             startColumn = null,
                             startRow = null,
@@ -1290,6 +1338,7 @@ private fun StartCustomizationBar(
     onStackWidgets: (() -> Unit)?,
     onRenameGroup: (() -> Unit)?,
     onMoveGroup: (() -> Unit)?,
+    onCreateGroup: (() -> Unit)?,
     onDone: () -> Unit,
 ) {
     val singleTile = selectedTiles.singleOrNull()
@@ -1349,7 +1398,8 @@ private fun StartCustomizationBar(
             onCreateFolder?.let { StartCommandButton("Create folder", "app", it) }
             onStackWidgets?.let { StartCommandButton("Stack widgets", "app", it) }
             onRenameGroup?.let { StartCommandButton("Name group", "settings", it) }
-            onMoveGroup?.let { StartCommandButton("Move group", "arrow_down", it) }
+            onMoveGroup?.let { StartCommandButton("Move to group", "arrow_down", it) }
+            onCreateGroup?.let { StartCommandButton("New group", "app", it) }
             StartCommandButton("Done", "arrow_down", onDone)
         }
     }
