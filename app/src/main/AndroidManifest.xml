@@ -43,7 +43,7 @@
             android:name=".features.MosaicNotificationListenerService"
             android:label="Mosaic live tiles"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
