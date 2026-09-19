@@ -180,7 +180,10 @@ internal fun WallpaperPicker(
                             .selectable(
                                 selected = selected == index,
                                 role = Role.RadioButton,
-                                onClick = { onSelect(index) },
+                                onClick = {
+                                    StartPersonalization.setCustomWallpaperUri(context, null)
+                                    onSelect(index)
+                                },
                             )
                             .border(
                                 if (selected == index) 3.dp else 1.dp,
