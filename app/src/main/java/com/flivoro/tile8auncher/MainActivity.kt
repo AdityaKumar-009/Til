@@ -79,6 +79,7 @@ import com.flivoro.tile8auncher.ui.start.StartScreen
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 enum class LauncherScreen {
@@ -462,7 +463,9 @@ fun Tile8LauncherApp(
     // Start's bands have different physical widths because group gutters are real layout items.
     // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
     // it from firstVisibleItemIndex * currentItemWidth (which jumps when the first item changes).
-    var startWallpaperScrollPx by rememberSaveable { mutableStateOf(0f) }
+    var startWallpaperScrollPx by rememberSaveable {
+        mutableStateOf(appsRepository.getStartWallpaperScrollPx())
+    }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
@@ -483,6 +486,16 @@ fun Tile8LauncherApp(
     val context = LocalContext.current
 
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
+
+    // Save only after the parallax position has been quiet for a moment. A cold launcher start
+    // can then paint the previous Start position on frame one instead of showing x=0 and snapping
+    // to the restored LazyRow coordinate after layout arrives.
+    LaunchedEffect(startWallpaperScrollPx) {
+        delay(350L)
+        withContext(Dispatchers.IO) {
+            appsRepository.setStartWallpaperScrollPx(startWallpaperScrollPx)
+        }
+    }
 
     // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
     // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
