@@ -78,6 +78,20 @@ class StartTilePackingTest {
     }
 
     @Test
+    fun groupsWithSameVisibleNameStaySeparatedByStableIdentity() {
+        val tiles = listOf(
+            tile("a", TileSize.SMALL, group = "").copy(groupId = "group-a"),
+            tile("b", TileSize.SMALL, group = "").copy(groupId = "group-b"),
+        )
+
+        val packed = packStartTiles(tiles, maxRows = 4)
+
+        assertEquals(2, packed.bands.size)
+        assertEquals(listOf("group-a", "group-b"), packed.bands.map { it.groupId })
+        assertEquals(listOf("", ""), packed.bands.map { it.groupName })
+    }
+
+    @Test
     fun placementRemainsValidAcrossPhoneLandscapeAndTabletViewports() {
         val tiles = listOf(
             tile("small-1", TileSize.SMALL),
