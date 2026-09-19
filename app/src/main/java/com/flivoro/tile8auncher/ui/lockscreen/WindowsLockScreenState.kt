@@ -10,6 +10,7 @@ object WindowsLockScreenPreferences {
     private const val PREFS_NAME = "tile8_launcher_prefs_v2"
     private const val LOCK_SCREEN_ENABLED = "windows_81_lock_screen_enabled"
     private const val CAMERA_GESTURE_ENABLED = "windows_81_lock_screen_camera_gesture_enabled"
+    private const val WALLPAPER_URI = "windows_81_lock_screen_wallpaper_uri"
 
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -28,6 +29,21 @@ object WindowsLockScreenPreferences {
     fun setCameraGestureEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit { putBoolean(CAMERA_GESTURE_ENABLED, enabled) }
+    }
+
+
+    fun wallpaperUri(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(WALLPAPER_URI, null)
+            ?.takeIf(String::isNotBlank)
+
+    fun setWallpaperUri(context: Context, uri: String?) {
+        val normalized = uri?.takeIf(String::isNotBlank)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit {
+                if (normalized == null) remove(WALLPAPER_URI)
+                else putString(WALLPAPER_URI, normalized)
+            }
     }
 }
 

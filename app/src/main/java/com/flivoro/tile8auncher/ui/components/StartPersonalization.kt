@@ -13,11 +13,17 @@ internal object StartPersonalization {
 
     private const val PREFS_NAME = "tile8_start_personalization"
     private const val KEY_ACCENT = "accent_argb"
+    private const val KEY_CUSTOM_WALLPAPER_URI = "custom_wallpaper_uri"
+    private const val KEY_CUSTOM_WALLPAPER_OVERLAY = "custom_wallpaper_overlay"
 
     private var initialized = false
     private val accentState = mutableStateOf(Color(DEFAULT_ACCENT_ARGB))
+    private val customWallpaperUriState = mutableStateOf<String?>(null)
+    private val customWallpaperOverlayState = mutableStateOf(0.24f)
 
     val accentColor: Color get() = accentState.value
+    val customWallpaperUri: String? get() = customWallpaperUriState.value
+    val customWallpaperOverlay: Float get() = customWallpaperOverlayState.value
 
     fun ensureLoaded(context: Context) {
         if (initialized) return
@@ -26,6 +32,10 @@ internal object StartPersonalization {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val accent = prefs.getLong(KEY_ACCENT, DEFAULT_ACCENT_ARGB) and 0xFFFFFFFFL
             accentState.value = Color(accent)
+            customWallpaperUriState.value = prefs.getString(KEY_CUSTOM_WALLPAPER_URI, null)
+                ?.takeIf(String::isNotBlank)
+            customWallpaperOverlayState.value =
+                prefs.getFloat(KEY_CUSTOM_WALLPAPER_OVERLAY, 0.24f).coerceIn(0f, 0.72f)
             WindowsColors.Purple = accent
             initialized = true
         }
@@ -39,6 +49,30 @@ internal object StartPersonalization {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_ACCENT, argb)
+            .apply()
+    }
+
+
+    fun setCustomWallpaperUri(context: Context, uri: String?) {
+        ensureLoaded(context)
+        val normalized = uri?.takeIf(String::isNotBlank)
+        customWallpaperUriState.value = normalized
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .apply {
+                if (normalized == null) remove(KEY_CUSTOM_WALLPAPER_URI)
+                else putString(KEY_CUSTOM_WALLPAPER_URI, normalized)
+            }
+            .apply()
+    }
+
+    fun setCustomWallpaperOverlay(context: Context, alpha: Float) {
+        ensureLoaded(context)
+        val safe = alpha.coerceIn(0f, 0.72f)
+        customWallpaperOverlayState.value = safe
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(KEY_CUSTOM_WALLPAPER_OVERLAY, safe)
             .apply()
     }
 

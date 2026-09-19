@@ -122,6 +122,44 @@ class StartTilePackingTest {
     }
 
     @Test
+    fun explicitSnapPositionLeavesAStableHole() {
+        val anchored = tile("anchored", TileSize.SMALL).copy(
+            startBand = 0,
+            startColumn = 2,
+            startRow = 1,
+        )
+        val filler = tile("filler", TileSize.SMALL)
+
+        val packed = packStartTiles(listOf(anchored, filler), maxRows = 4)
+        val placedAnchor = packed.tiles.first { it.tile.id == "anchored" }
+        val placedFiller = packed.tiles.first { it.tile.id == "filler" }
+
+        assertEquals(2, placedAnchor.column)
+        assertEquals(1, placedAnchor.row)
+        assertEquals(0, placedFiller.column)
+        assertEquals(0, placedFiller.row)
+        assertBandGeometryIsValid(packed)
+    }
+
+    @Test
+    fun explicitContinuationBandKeepsChosenHorizontalLocation() {
+        val anchored = tile("anchored", TileSize.SMALL).copy(
+            startBand = 1,
+            startColumn = 1,
+            startRow = 0,
+        )
+        val filler = tile("filler", TileSize.SMALL)
+
+        val packed = packStartTiles(listOf(anchored, filler), maxRows = 4)
+
+        assertEquals(2, packed.bands.size)
+        assertEquals(listOf("filler"), packed.bands[0].tiles.map { it.tile.id })
+        assertEquals(listOf("anchored"), packed.bands[1].tiles.map { it.tile.id })
+        assertEquals(1, packed.bands[1].tiles.single().column)
+        assertBandGeometryIsValid(packed)
+    }
+
+    @Test
     fun emptyInputProducesNoLazyItems() {
         val packed = packStartTiles(emptyList(), maxRows = 4)
 

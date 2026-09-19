@@ -7,6 +7,7 @@ import android.graphics.BitmapShader
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
+import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +59,7 @@ fun WindowsWallpaper(
     enabled: Boolean = true,
     scrollOffsetPx: () -> Float = { 0f },
     wallpaperStyle: Int = 0,
+    allowCustomWallpaper: Boolean = true,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val viewportWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
@@ -65,7 +67,30 @@ fun WindowsWallpaper(
 
         WallpaperBase(baseColor = baseColor)
 
-        if (selectedStyle == 0) {
+        val customWallpaperUri = StartPersonalization.customWallpaperUri.takeIf { allowCustomWallpaper }
+        val customBitmap = if (customWallpaperUri != null) {
+            rememberCustomWallpaperBitmap(customWallpaperUri)
+        } else {
+            null
+        }
+
+        if (customBitmap != null) {
+            BitmapWallpaper(
+                bitmap = customBitmap,
+                enabled = enabled,
+                scrollOffsetPx = scrollOffsetPx,
+            )
+            val overlay = StartPersonalization.customWallpaperOverlay.coerceIn(0f, 0.72f)
+            if (overlay > 0.001f) {
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawWithCache {
+                            onDrawBehind { drawRect(Color.Black.copy(alpha = overlay)) }
+                        },
+                )
+            }
+        } else if (selectedStyle == 0) {
             PurpleGlowLayer(
                 viewportWidthDp = maxWidth,
                 viewportWidthPx = viewportWidthPx,
@@ -488,6 +513,32 @@ private fun wallpaperResourceId(style: Int): Int = when (style) {
     8 -> R.drawable.start_wallpaper_8
     9 -> R.drawable.start_wallpaper_9
     else -> 0
+}
+
+@Composable
+private fun rememberCustomWallpaperBitmap(uriString: String): Bitmap? {
+    val context = LocalContext.current
+    return produceState<Bitmap?>(null, context, uriString) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val uri = Uri.parse(uriString)
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, bounds)
+                }
+                val longestSide = maxOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
+                var sample = 1
+                while (longestSide / sample > 2560) sample *= 2
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sample.coerceAtLeast(1)
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, options)
+                }
+            }.getOrNull()
+        }
+    }.value
 }
 
 @Composable

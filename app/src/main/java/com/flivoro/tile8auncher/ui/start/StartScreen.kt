@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -45,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -91,9 +93,11 @@ import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private const val START_BAND_SPACING_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
@@ -108,6 +112,33 @@ private data class GroupDialogRequest(
     val initialValue: String,
     val selectedIds: Set<String>,
     val renameWholeGroup: Boolean,
+)
+
+private data class StartBandDropTarget(
+    val key: String,
+    val groupName: String,
+    val continuationIndex: Int,
+    val columns: Int,
+    val rows: Int,
+    val cellPx: Float,
+    val gapPx: Float,
+    val bounds: Rect,
+)
+
+private data class StartTileGridPosition(
+    val groupName: String,
+    val continuationIndex: Int,
+    val column: Int,
+    val row: Int,
+    val columns: Int,
+    val rows: Int,
+)
+
+private data class StartGridDropKey(
+    val groupName: String,
+    val continuationIndex: Int,
+    val column: Int,
+    val row: Int,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -133,6 +164,7 @@ fun StartScreen(
     listState: LazyListState = rememberLazyListState(),
 ) {
     val context = LocalContext.current
+    val dragDensity = LocalDensity.current
     val entrance = remember { Animatable(0f) }
     var playingKind by remember { mutableStateOf(entranceKind) }
     val scope = rememberCoroutineScope()
@@ -143,18 +175,21 @@ fun StartScreen(
         mutableStateOf(EntranceViewportSnapshot(startBand = 0, startOffsetPx = 0))
     }
 
-    // Start customization state. The underlying grid remains packStartTiles; drag changes only
-    // the stable input order, so none of these additions alter StartEntranceMotion geometry.
+    // Start customization state. packStartTiles remains the single geometry source; drag can now
+    // persist a snapped band/column/row so intentional Windows-style gaps survive recomposition.
     var selectedTileIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dragTiles by remember { mutableStateOf<List<TileModel>?>(null) }
     var draggingTileId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
-    var lastSwapTargetId by remember { mutableStateOf<String?>(null) }
+    var lastGridDrop by remember { mutableStateOf<StartGridDropKey?>(null) }
+    var tileViewportBounds by remember { mutableStateOf(Rect.Zero) }
     var showResizeChoices by remember { mutableStateOf(false) }
     var openFolderTile by remember { mutableStateOf<TileModel?>(null) }
     var groupDialog by remember { mutableStateOf<GroupDialogRequest?>(null) }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
+    val bandDropTargets = remember { mutableMapOf<String, StartBandDropTarget>() }
+    val tileGridPositions = remember { mutableMapOf<String, StartTileGridPosition>() }
 
     val latestInteractionEnabled = rememberUpdatedState(interactionEnabled)
     val latestOnTileClick = rememberUpdatedState(onTileClick)
@@ -312,7 +347,7 @@ fun StartScreen(
             draggingTileId = tile.id
             dragOriginBounds = bounds
             dragOffset = Offset.Zero
-            lastSwapTargetId = null
+            lastGridDrop = null
         }
         if (entranceRunning) {
             scope.launch {
@@ -330,20 +365,106 @@ fun StartScreen(
         val draggedId = draggingTileId ?: return
         dragOffset += delta
         val center = dragOriginBounds.center + dragOffset
-        val targetEntry = tileBounds.entries.firstOrNull { (id, bounds) -> id != draggedId && bounds.contains(center) }
-        val targetId = targetEntry?.key
-        if (targetId == null) {
-            lastSwapTargetId = null
-            return
-        }
-        if (targetId == lastSwapTargetId) return
-
-        val targetBounds = targetEntry.value
-        val sameVisualRow = abs(center.y - targetBounds.center.y) <= targetBounds.height * 0.45f
-        val placeAfter = if (sameVisualRow) center.x >= targetBounds.center.x else center.y >= targetBounds.center.y
         val current = dragTiles ?: tiles.toList()
-        dragTiles = reorderStartTiles(current, draggedId, targetId, placeAfter)
-        lastSwapTargetId = targetId
+        val dragged = current.firstOrNull { it.id == draggedId } ?: return
+
+        val viewport = tileViewportBounds
+        val candidates = bandDropTargets.values
+            .filter { target -> viewport == Rect.Zero || target.bounds.overlaps(viewport) }
+        val targetBand = candidates.firstOrNull { it.bounds.contains(center) }
+            ?: candidates.minByOrNull { distanceSquaredToRect(center, it.bounds) }
+            ?: return
+
+        val span = dragged.size.startTileSpan()
+        if (span.columns > targetBand.columns || span.rows > targetBand.rows) return
+
+        val stepPx = (targetBand.cellPx + targetBand.gapPx).coerceAtLeast(1f)
+        val tileWidthPx =
+            span.columns * targetBand.cellPx + (span.columns - 1) * targetBand.gapPx
+        val tileHeightPx =
+            span.rows * targetBand.cellPx + (span.rows - 1) * targetBand.gapPx
+        val localLeft = center.x - targetBand.bounds.left - tileWidthPx / 2f
+        val localTop = center.y - targetBand.bounds.top - tileHeightPx / 2f
+        val column = (localLeft / stepPx).roundToInt()
+            .coerceIn(0, targetBand.columns - span.columns)
+        val row = (localTop / stepPx).roundToInt()
+            .coerceIn(0, targetBand.rows - span.rows)
+
+        val dropKey = StartGridDropKey(
+            groupName = targetBand.groupName,
+            continuationIndex = targetBand.continuationIndex,
+            column = column,
+            row = row,
+        )
+        if (dropKey == lastGridDrop) return
+
+        // Any tile occupying the requested grid rectangle is released from its explicit anchor.
+        // The packer then reflows it around the dragged tile, matching Windows' live tile shuffle.
+        val conflictIds = tileGridPositions
+            .filter { (id, position) ->
+                id != draggedId &&
+                    position.groupName == targetBand.groupName &&
+                    position.continuationIndex == targetBand.continuationIndex &&
+                    gridRectanglesOverlap(
+                        columnA = column,
+                        rowA = row,
+                        columnsA = span.columns,
+                        rowsA = span.rows,
+                        columnB = position.column,
+                        rowB = position.row,
+                        columnsB = position.columns,
+                        rowsB = position.rows,
+                    )
+            }
+            .keys
+
+        // Keep the stable ordering close to the visual drop target as a fallback for rotations,
+        // row-count changes, or an invalid future snap coordinate.
+        val orderTargetId = tileGridPositions.entries
+            .asSequence()
+            .filter { (id, position) ->
+                id != draggedId &&
+                    position.groupName == targetBand.groupName &&
+                    position.continuationIndex == targetBand.continuationIndex
+            }
+            .mapNotNull { (id, _) -> tileBounds[id]?.let { bounds -> id to bounds } }
+            .minByOrNull { (_, bounds) -> distanceSquaredToRect(center, bounds) }
+            ?.first
+
+        var working = current
+        if (orderTargetId != null) {
+            val targetBounds = tileBounds[orderTargetId]
+            val placeAfter = targetBounds?.let { bounds ->
+                val sameVisualRow = abs(center.y - bounds.center.y) <=
+                    maxOf(bounds.height, dragOriginBounds.height) * 0.48f
+                if (sameVisualRow) center.x >= bounds.center.x else center.y >= bounds.center.y
+            } ?: true
+            working = reorderStartTiles(
+                tiles = working,
+                draggedId = draggedId,
+                targetId = orderTargetId,
+                placeAfterTarget = placeAfter,
+            )
+        }
+
+        working = working.map { tile ->
+            when {
+                tile.id == draggedId -> tile.copy(
+                    groupName = targetBand.groupName,
+                    startBand = targetBand.continuationIndex,
+                    startColumn = column,
+                    startRow = row,
+                )
+                tile.id in conflictIds -> tile.copy(
+                    startBand = null,
+                    startColumn = null,
+                    startRow = null,
+                )
+                else -> tile
+            }
+        }
+        dragTiles = normalizeStartTileOrder(working)
+        lastGridDrop = dropKey
     }
 
     fun finishTileDrag(commit: Boolean) {
@@ -351,9 +472,9 @@ fun StartScreen(
         val result = dragTiles
         draggingTileId = null
         dragOffset = Offset.Zero
-        lastSwapTargetId = null
+        lastGridDrop = null
         dragTiles = null
-        if (commit && result != null && result.map { it.id } != tiles.map { it.id }) {
+        if (commit && result != null && result != tiles) {
             latestOnTilesChanged.value(result)
         }
     }
@@ -384,6 +505,30 @@ fun StartScreen(
             }
             entrance.snapTo(1f)
             listState.scrollToItem(index)
+        }
+    }
+
+    // Keep direct manipulation alive at the horizontal edges. Windows 8.1 lets a held
+    // Start tile travel beyond the current viewport; programmatic scrolling keeps the pointer
+    // anchored while LazyRow reveals the next/previous band.
+    LaunchedEffect(draggingTileId) {
+        if (draggingTileId == null) return@LaunchedEffect
+        val edgePx = with(dragDensity) { 72.dp.toPx() }
+        val maxStepPx = with(dragDensity) { 20.dp.toPx() }
+        while (draggingTileId != null) {
+            val viewport = tileViewportBounds
+            if (viewport.width > 0f) {
+                val centerX = (dragOriginBounds.center + dragOffset).x
+                val leftStrength = ((viewport.left + edgePx - centerX) / edgePx).coerceIn(0f, 1f)
+                val rightStrength = ((centerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
+                val step = when {
+                    rightStrength > 0f -> maxStepPx * rightStrength
+                    leftStrength > 0f -> -maxStepPx * leftStrength
+                    else -> 0f
+                }
+                if (step != 0f) listState.scrollBy(step)
+            }
+            delay(16L)
         }
     }
 
@@ -546,7 +691,13 @@ fun StartScreen(
                     .fillMaxSize()
                     .then(if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier)
 
-                Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { coordinates ->
+                            if (coordinates.isAttached) tileViewportBounds = coordinates.boundsInWindow()
+                        },
+                ) {
                     LazyRow(
                         state = listState,
                         userScrollEnabled = canScrollTiles,
@@ -559,10 +710,31 @@ fun StartScreen(
                             items = packed.bands,
                             key = { _, band -> band.key },
                         ) { bandIndex, band ->
+                            val cellPx = with(density) { metrics.cellDp.dp.toPx() }
+                            val gapPx = with(density) { metrics.gapDp.dp.toPx() }
+
+                            DisposableEffect(band.key) {
+                                onDispose { bandDropTargets.remove(band.key) }
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .width(metrics.bandWidthDp.dp)
                                     .height(metrics.bandHeightDp.dp)
+                                    .onGloballyPositioned { coordinates ->
+                                        if (coordinates.isAttached) {
+                                            bandDropTargets[band.key] = StartBandDropTarget(
+                                                key = band.key,
+                                                groupName = band.groupName,
+                                                continuationIndex = band.continuationIndex,
+                                                columns = band.columns,
+                                                rows = band.rows,
+                                                cellPx = cellPx,
+                                                gapPx = gapPx,
+                                                bounds = coordinates.boundsInWindow(),
+                                            )
+                                        }
+                                    }
                                     .graphicsLayer {
                                         val position = StartEntranceMotion.viewportBandPosition(
                                             bandIndex,
@@ -619,13 +791,30 @@ fun StartScreen(
                                         )
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
+                                        DisposableEffect(tile.id) {
+                                            onDispose {
+                                                tileBounds.remove(tile.id)
+                                                tileGridPositions.remove(tile.id)
+                                            }
+                                        }
+
                                         Box(
                                             modifier = Modifier
                                                 .offset(x = animatedX, y = animatedY)
                                                 .size(tileWidth, tileHeight)
                                                 .zIndex(if (isDragging) 3f else if (isSelected) 1f else 0f)
                                                 .onGloballyPositioned { coordinates ->
-                                                    if (coordinates.isAttached) tileBounds[tile.id] = coordinates.boundsInWindow()
+                                                    if (coordinates.isAttached) {
+                                                        tileBounds[tile.id] = coordinates.boundsInWindow()
+                                                        tileGridPositions[tile.id] = StartTileGridPosition(
+                                                            groupName = band.groupName,
+                                                            continuationIndex = band.continuationIndex,
+                                                            column = placed.column,
+                                                            row = placed.row,
+                                                            columns = placed.columns,
+                                                            rows = placed.rows,
+                                                        )
+                                                    }
                                                 }
                                                 .graphicsLayer {
                                                     scaleX = selectionScale
@@ -883,7 +1072,12 @@ fun StartScreen(
                 val updated = tiles.map { tile ->
                     when {
                         request.renameWholeGroup && tile.groupName == oldGroup -> tile.copy(groupName = newName)
-                        !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(groupName = newName)
+                        !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(
+                            groupName = newName,
+                            startBand = null,
+                            startColumn = null,
+                            startRow = null,
+                        )
                         else -> tile
                     }
                 }
@@ -893,6 +1087,35 @@ fun StartScreen(
             },
         )
     }
+}
+
+private fun gridRectanglesOverlap(
+    columnA: Int,
+    rowA: Int,
+    columnsA: Int,
+    rowsA: Int,
+    columnB: Int,
+    rowB: Int,
+    columnsB: Int,
+    rowsB: Int,
+): Boolean =
+    columnA < columnB + columnsB &&
+        columnA + columnsA > columnB &&
+        rowA < rowB + rowsB &&
+        rowA + rowsA > rowB
+
+private fun distanceSquaredToRect(point: Offset, rect: Rect): Float {
+    val dx = when {
+        point.x < rect.left -> rect.left - point.x
+        point.x > rect.right -> point.x - rect.right
+        else -> 0f
+    }
+    val dy = when {
+        point.y < rect.top -> rect.top - point.y
+        point.y > rect.bottom -> point.y - rect.bottom
+        else -> 0f
+    }
+    return dx * dx + dy * dy
 }
 
 @Composable

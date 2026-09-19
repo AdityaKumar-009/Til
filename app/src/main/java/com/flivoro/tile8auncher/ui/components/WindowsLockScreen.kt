@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -69,6 +71,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LiveTileNotificationStore
+import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -97,6 +100,7 @@ fun Windows81LockScreen(
     var heightPx by remember { mutableIntStateOf(1) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val lockWallpaperUri = remember { WindowsLockScreenPreferences.wallpaperUri(context) }
     val slideshowUris = remember { LauncherFeatureStore.lockSlideshowUris(context) }
     var slideshowIndex by remember(slideshowUris) { mutableIntStateOf(0) }
     val quickStatusPackages = remember { LauncherFeatureStore.lockStatusPackages(context) }
@@ -175,12 +179,27 @@ fun Windows81LockScreen(
         offsetY = (offsetY + delta).coerceIn(min, max)
     }
 
+    // Keep the translated lock panel inside one immutable viewport. Without an outer clip,
+    // the diagonal artwork can be rasterized beyond the launcher bounds while the panel is dragged.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onSizeChanged { heightPx = it.height.coerceAtLeast(1) }
-            .offset { IntOffset(0, offsetY.roundToInt()) }
-            .draggable(
+            .clipToBounds()
+            .onSizeChanged { heightPx = it.height.coerceAtLeast(1) },
+    ) {
+        if (cameraGestureEnabled) {
+            CameraSwipeCue(
+                revealPx = offsetY.coerceAtLeast(0f),
+                viewportHeightPx = heightPx.toFloat(),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .offset { IntOffset(0, offsetY.roundToInt()) }
+                .draggable(
                 state = dragState,
                 orientation = Orientation.Vertical,
                 onDragStopped = { velocity ->
@@ -202,7 +221,11 @@ fun Windows81LockScreen(
                 }
             },
     ) {
-        LockArtwork(slideshowUris = slideshowUris, slideshowIndex = slideshowIndex)
+            LockArtwork(
+                wallpaperUri = lockWallpaperUri,
+                slideshowUris = slideshowUris,
+                slideshowIndex = slideshowIndex,
+            )
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val portrait = maxHeight > maxWidth
@@ -247,7 +270,7 @@ fun Windows81LockScreen(
 
                 Spacer(Modifier.height(13.dp))
                 Row(
-                    verticalAlignment = Alignment.Bottom,
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     NetworkStatusGlyph(connected = networkConnected)
@@ -262,12 +285,72 @@ fun Windows81LockScreen(
                 }
             }
         }
+        }
     }
 }
 
 @Composable
-private fun LockArtwork(slideshowUris: List<String>, slideshowIndex: Int) {
+private fun CameraSwipeCue(
+    revealPx: Float,
+    viewportHeightPx: Float,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val baseYPx = with(density) { 18.dp.toPx() }
+    val progress = (revealPx / (viewportHeightPx * 0.18f).coerceAtLeast(1f)).coerceIn(0f, 1f)
+    val parallaxY = baseYPx + revealPx * 0.16f
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = progress },
+    ) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset { IntOffset(0, parallaxY.roundToInt()) }
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            MetroIcon(glyph = "camera", color = Color.White, size = 19.dp)
+            androidx.compose.material3.Text(
+                text = "Swipe down to use the camera",
+                color = Color.White,
+                style = WindowsTypography.bodyMedium.copy(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Light,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LockArtwork(
+    wallpaperUri: String?,
+    slideshowUris: List<String>,
+    slideshowIndex: Int,
+) {
     val context = LocalContext.current
+
+    if (!wallpaperUri.isNullOrBlank()) {
+        val bitmap by produceState<ImageBitmap?>(null, wallpaperUri, context) {
+            value = withContext(Dispatchers.IO) {
+                decodeLockBitmap(context, Uri.parse(wallpaperUri))
+            }
+        }
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Canvas(Modifier.fillMaxSize()) { drawRect(Color(0x12000000)) }
+            return
+        }
+    }
+
     if (slideshowUris.isEmpty()) {
         Windows81DefaultLockArtwork(Modifier.fillMaxSize())
         return

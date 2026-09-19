@@ -136,31 +136,61 @@ internal fun packStartTiles(
 
     val bands = mutableListOf<StartTileBand>()
     grouped.entries.forEach { (groupName, groupTiles) ->
-        var continuationIndex = 0
-        var builder = BandBuilder(columnCount, rowCount)
+        val builders = mutableListOf<BandBuilder>()
 
+        fun builderAt(index: Int): BandBuilder {
+            while (builders.size <= index) {
+                builders += BandBuilder(columnCount, rowCount)
+            }
+            return builders[index]
+        }
+
+        // Explicit snap positions are placed first so a user-dragged tile owns the exact Windows
+        // grid cell it was dropped on. Tiles without coordinates then first-fit around those
+        // anchors, which preserves deliberate holes instead of compacting the dragged tile away.
+        val pending = mutableListOf<TileModel>()
+        val maxReasonableBand = groupTiles.size.coerceAtLeast(1)
         groupTiles.forEach { tile ->
-            var packed = builder.place(tile)
-            if (packed == null) {
-                bands += builder.build(
-                    groupName = groupName,
-                    continuationIndex = continuationIndex,
-                )
-                continuationIndex++
-                builder = BandBuilder(columnCount, rowCount)
-                packed = builder.place(tile)
+            val band = tile.startBand
+            val column = tile.startColumn
+            val row = tile.startRow
+            val canTryExplicit = band != null && column != null && row != null &&
+                band in 0..maxReasonableBand
+
+            val placed = if (canTryExplicit) {
+                builderAt(band!!).placeAt(tile, column!!, row!!)
+            } else {
+                null
+            }
+            if (placed == null) pending += tile
+        }
+
+        pending.forEach { tile ->
+            var placed: PackedTile? = null
+            for (builder in builders) {
+                placed = builder.place(tile)
+                if (placed != null) break
+            }
+            if (placed == null) {
+                val builder = BandBuilder(columnCount, rowCount)
+                builders += builder
+                placed = builder.place(tile)
             }
 
             // rowCount is always large enough for the largest supported tile,
             // so a fresh band can accept every valid TileSize.
-            check(packed != null) { "Unable to place tile ${tile.id} in a Start band" }
+            check(placed != null) { "Unable to place tile ${tile.id} in a Start band" }
         }
 
-        if (builder.hasTiles) {
-            bands += builder.build(
-                groupName = groupName,
-                continuationIndex = continuationIndex,
-            )
+        // Empty intermediate bands are intentional when the user drops a tile into a later band.
+        // Keeping them is what makes a chosen horizontal location stable across recompositions.
+        builders.forEachIndexed { continuationIndex, builder ->
+            if (builder.hasTiles || continuationIndex < builders.lastIndex) {
+                bands += builder.build(
+                    groupName = groupName,
+                    continuationIndex = continuationIndex,
+                )
+            }
         }
     }
 
@@ -183,24 +213,31 @@ private class BandBuilder(
 
         for (row in 0..(rows - span.rows)) {
             for (column in 0..(columns - span.columns)) {
-                if (!isFree(column, row, span)) continue
-
-                for (dy in 0 until span.rows) {
-                    for (dx in 0 until span.columns) {
-                        occupied[row + dy][column + dx] = true
-                    }
-                }
-
-                return PackedTile(
-                    tile = tile,
-                    column = column,
-                    row = row,
-                    columns = span.columns,
-                    rows = span.rows,
-                ).also(placedTiles::add)
+                placeAt(tile, column, row)?.let { return it }
             }
         }
         return null
+    }
+
+    fun placeAt(tile: TileModel, column: Int, row: Int): PackedTile? {
+        val span = tile.size.startTileSpan()
+        if (column < 0 || row < 0) return null
+        if (column + span.columns > columns || row + span.rows > rows) return null
+        if (!isFree(column, row, span)) return null
+
+        for (dy in 0 until span.rows) {
+            for (dx in 0 until span.columns) {
+                occupied[row + dy][column + dx] = true
+            }
+        }
+
+        return PackedTile(
+            tile = tile,
+            column = column,
+            row = row,
+            columns = span.columns,
+            rows = span.rows,
+        ).also(placedTiles::add)
     }
 
     fun build(groupName: String, continuationIndex: Int): StartTileBand =
