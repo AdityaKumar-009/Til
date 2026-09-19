@@ -710,10 +710,31 @@ fun StartScreen(
                             items = packed.bands,
                             key = { _, band -> band.key },
                         ) { bandIndex, band ->
+                            val cellPx = with(density) { metrics.cellDp.dp.toPx() }
+                            val gapPx = with(density) { metrics.gapDp.dp.toPx() }
+
+                            DisposableEffect(band.key) {
+                                onDispose { bandDropTargets.remove(band.key) }
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .width(metrics.bandWidthDp.dp)
                                     .height(metrics.bandHeightDp.dp)
+                                    .onGloballyPositioned { coordinates ->
+                                        if (coordinates.isAttached) {
+                                            bandDropTargets[band.key] = StartBandDropTarget(
+                                                key = band.key,
+                                                groupName = band.groupName,
+                                                continuationIndex = band.continuationIndex,
+                                                columns = band.columns,
+                                                rows = band.rows,
+                                                cellPx = cellPx,
+                                                gapPx = gapPx,
+                                                bounds = coordinates.boundsInWindow(),
+                                            )
+                                        }
+                                    }
                                     .graphicsLayer {
                                         val position = StartEntranceMotion.viewportBandPosition(
                                             bandIndex,
@@ -771,7 +792,10 @@ fun StartScreen(
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
                                         DisposableEffect(tile.id) {
-                                            onDispose { tileBounds.remove(tile.id) }
+                                            onDispose {
+                                                tileBounds.remove(tile.id)
+                                                tileGridPositions.remove(tile.id)
+                                            }
                                         }
 
                                         Box(
@@ -780,7 +804,17 @@ fun StartScreen(
                                                 .size(tileWidth, tileHeight)
                                                 .zIndex(if (isDragging) 3f else if (isSelected) 1f else 0f)
                                                 .onGloballyPositioned { coordinates ->
-                                                    if (coordinates.isAttached) tileBounds[tile.id] = coordinates.boundsInWindow()
+                                                    if (coordinates.isAttached) {
+                                                        tileBounds[tile.id] = coordinates.boundsInWindow()
+                                                        tileGridPositions[tile.id] = StartTileGridPosition(
+                                                            groupName = band.groupName,
+                                                            continuationIndex = band.continuationIndex,
+                                                            column = placed.column,
+                                                            row = placed.row,
+                                                            columns = placed.columns,
+                                                            rows = placed.rows,
+                                                        )
+                                                    }
                                                 }
                                                 .graphicsLayer {
                                                     scaleX = selectionScale
