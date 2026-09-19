@@ -52,12 +52,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -94,6 +96,7 @@ import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -155,6 +158,24 @@ private data class StartGroupGutterDropTarget(
     val bounds: Rect,
 )
 
+private data class StartWallpaperScrollFrame(
+    val isScrolling: Boolean,
+    val firstIndex: Int,
+    val firstOffsetPx: Int,
+    val visibleOffsets: List<Pair<Any, Int>>,
+)
+
+internal fun absoluteStartScrollPx(
+    itemWidthsPx: List<Float>,
+    firstVisibleItemIndex: Int,
+    firstVisibleItemScrollOffset: Int,
+): Float {
+    val index = firstVisibleItemIndex.coerceIn(0, itemWidthsPx.size)
+    var before = 0f
+    for (i in 0 until index) before += itemWidthsPx[i]
+    return (before + firstVisibleItemScrollOffset).coerceAtLeast(0f)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StartScreen(
@@ -168,6 +189,7 @@ fun StartScreen(
     onNavigateToAllApps: () -> Unit,
     onCharmsClick: () -> Unit = {},
     onTilesChanged: (List<TileModel>) -> Unit = {},
+    onWallpaperScrollOffsetChanged: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
     launchingTileId: String? = null,
     entranceRequest: Int = 0,
@@ -206,6 +228,7 @@ fun StartScreen(
     var showResizeChoices by remember { mutableStateOf(false) }
     var openFolderTile by remember { mutableStateOf<TileModel?>(null) }
     var groupDialog by remember { mutableStateOf<GroupDialogRequest?>(null) }
+    var trackedWallpaperScrollPx by remember { mutableFloatStateOf(Float.NaN) }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
     val bandDropTargets = remember { mutableMapOf<String, StartBandDropTarget>() }
     val gutterDropTargets = remember { mutableMapOf<String, StartGroupGutterDropTarget>() }
@@ -215,6 +238,7 @@ fun StartScreen(
     val latestOnTileClick = rememberUpdatedState(onTileClick)
     val latestOnTileLongClick = rememberUpdatedState(onTileLongClick)
     val latestOnTilesChanged = rememberUpdatedState(onTilesChanged)
+    val latestOnWallpaperScrollOffsetChanged = rememberUpdatedState(onWallpaperScrollOffsetChanged)
     val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val doubleTapAction = LauncherFeatureStore.doubleTapAction(context)
@@ -736,6 +760,77 @@ fun StartScreen(
                         maxRows = metrics.rows,
                         maxColumns = metrics.columns,
                     )
+                }
+
+                // LazyRow items are not equal-width once Windows group gutters are included.
+                // Track the wallpaper from actual visible-item motion so crossing a group/band
+                // boundary cannot teleport the background.
+                val bandItemWidthsPx = remember(packed.bands, metrics.bandWidthDp, density.density) {
+                    packed.bands.mapIndexed { index, band ->
+                        val previous = packed.bands.getOrNull(index - 1)
+                        val startsNewGroup = previous != null && previous.groupId != band.groupId
+                        val leadingDp = when {
+                            index == 0 -> 0f
+                            startsNewGroup -> START_GROUP_GUTTER_DP
+                            else -> START_WITHIN_GROUP_SPACING_DP
+                        }
+                        val trailingDp =
+                            if (index == packed.bands.lastIndex) START_END_GROUP_DROP_ZONE_DP else 0f
+                        with(density) {
+                            (metrics.bandWidthDp + leadingDp + trailingDp).dp.toPx()
+                        }
+                    }
+                }
+
+                LaunchedEffect(listState, bandItemWidthsPx) {
+                    var previousOffsets = emptyMap<Any, Int>()
+                    snapshotFlow {
+                        StartWallpaperScrollFrame(
+                            isScrolling = listState.isScrollInProgress,
+                            firstIndex = listState.firstVisibleItemIndex,
+                            firstOffsetPx = listState.firstVisibleItemScrollOffset,
+                            visibleOffsets = listState.layoutInfo.visibleItemsInfo.map { info ->
+                                info.key to info.offset
+                            },
+                        )
+                    }.collect { frame ->
+                        if (!trackedWallpaperScrollPx.isFinite()) {
+                            trackedWallpaperScrollPx = absoluteStartScrollPx(
+                                itemWidthsPx = bandItemWidthsPx,
+                                firstVisibleItemIndex = frame.firstIndex,
+                                firstVisibleItemScrollOffset = frame.firstOffsetPx,
+                            )
+                        } else {
+                            val currentMap = frame.visibleOffsets.toMap()
+                            val commonDelta = frame.visibleOffsets.firstNotNullOfOrNull { (key, currentOffset) ->
+                                previousOffsets[key]?.let { previousOffset ->
+                                    previousOffset - currentOffset
+                                }
+                            }
+
+                            if (frame.isScrolling && commonDelta != null) {
+                                trackedWallpaperScrollPx =
+                                    (trackedWallpaperScrollPx + commonDelta).coerceAtLeast(0f)
+                            } else if (
+                                previousOffsets.isNotEmpty() &&
+                                currentMap.keys.none { it in previousOffsets }
+                            ) {
+                                // scrollToItem / a large programmatic jump can replace every
+                                // visible key in one frame; recover from exact item widths.
+                                trackedWallpaperScrollPx = absoluteStartScrollPx(
+                                    itemWidthsPx = bandItemWidthsPx,
+                                    firstVisibleItemIndex = frame.firstIndex,
+                                    firstVisibleItemScrollOffset = frame.firstOffsetPx,
+                                )
+                            }
+                            previousOffsets = currentMap
+                        }
+
+                        if (previousOffsets.isEmpty()) {
+                            previousOffsets = frame.visibleOffsets.toMap()
+                        }
+                        latestOnWallpaperScrollOffsetChanged.value(trackedWallpaperScrollPx)
+                    }
                 }
 
                 val canScrollTiles = interactionEnabled && draggingTileId == null
