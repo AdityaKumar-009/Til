@@ -1118,6 +1118,57 @@ fun StartScreen(
     }
 }
 
+internal fun moveDraggedTileToExistingGroup(
+    tiles: List<TileModel>,
+    draggedId: String,
+    targetGroupId: String,
+    targetGroupName: String,
+): List<TileModel> {
+    val dragged = tiles.firstOrNull { it.id == draggedId } ?: return tiles
+    if (dragged.effectiveStartGroupId() == targetGroupId) return tiles
+
+    val working = tiles.filterNot { it.id == draggedId }.toMutableList()
+    val insertionIndex = working.indexOfLast { it.effectiveStartGroupId() == targetGroupId }
+        .let { if (it >= 0) it + 1 else working.size }
+    working.add(
+        insertionIndex.coerceIn(0, working.size),
+        dragged.copy(
+            groupId = targetGroupId,
+            groupName = targetGroupName,
+            startBand = null,
+            startColumn = null,
+            startRow = null,
+        ),
+    )
+    return normalizeStartTileOrder(working)
+}
+
+internal fun moveDraggedTileToNewGroup(
+    tiles: List<TileModel>,
+    draggedId: String,
+    newGroupId: String,
+    insertBeforeGroupId: String?,
+): List<TileModel> {
+    val dragged = tiles.firstOrNull { it.id == draggedId } ?: return tiles
+    val working = tiles.filterNot { it.id == draggedId }.toMutableList()
+    val insertionIndex = insertBeforeGroupId
+        ?.let { groupId -> working.indexOfFirst { it.effectiveStartGroupId() == groupId } }
+        ?.takeIf { it >= 0 }
+        ?: working.size
+
+    working.add(
+        insertionIndex.coerceIn(0, working.size),
+        dragged.copy(
+            groupId = newGroupId,
+            groupName = "",
+            startBand = 0,
+            startColumn = 0,
+            startRow = 0,
+        ),
+    )
+    return normalizeStartTileOrder(working)
+}
+
 private fun gridRectanglesOverlap(
     columnA: Int,
     rowA: Int,
