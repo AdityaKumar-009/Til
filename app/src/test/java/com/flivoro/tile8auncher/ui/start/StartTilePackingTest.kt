@@ -122,6 +122,21 @@ class StartTilePackingTest {
     }
 
     @Test
+    fun groupsWithTheSameVisibleNameRemainSeparatedByStableIds() {
+        val tiles = listOf(
+            tile("left", TileSize.SMALL, group = "").copy(groupId = "group:left"),
+            tile("right", TileSize.SMALL, group = "").copy(groupId = "group:right"),
+        )
+
+        val packed = packStartTiles(tiles, maxRows = 4)
+
+        assertEquals(2, packed.bands.size)
+        assertEquals(listOf("group:left", "group:right"), packed.bands.map { it.groupId })
+        assertEquals(listOf("", ""), packed.bands.map { it.groupName })
+        assertBandGeometryIsValid(packed)
+    }
+
+    @Test
     fun explicitSnapPositionLeavesAStableHole() {
         val anchored = tile("anchored", TileSize.SMALL).copy(
             startBand = 0,
