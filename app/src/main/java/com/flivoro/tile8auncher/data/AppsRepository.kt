@@ -509,11 +509,16 @@ class AppsRepository(private val context: Context) {
         prefs.edit { putBoolean(WALLPAPER_PARALLAX_ENABLED, enabled) }
     }
 
-    fun getStartWallpaperScrollPx(): Float =
-        prefs.getFloat(START_WALLPAPER_SCROLL_PX, 0f)
+    fun getStartWallpaperScrollPx(): Float {
+        // Older builds persisted only the wallpaper coordinate, not the matching LazyRow state.
+        // Treat that orphaned value as stale on first upgrade; otherwise Start would paint the old
+        // parallax position and then snap back to item 0 as soon as its layout becomes available.
+        if (!prefs.contains(START_SCROLL_INDEX)) return 0f
+        return prefs.getFloat(START_WALLPAPER_SCROLL_PX, 0f)
             .takeIf(Float::isFinite)
             ?.coerceAtLeast(0f)
             ?: 0f
+    }
 
     fun getStartScrollIndex(): Int =
         prefs.getInt(START_SCROLL_INDEX, 0).coerceAtLeast(0)
