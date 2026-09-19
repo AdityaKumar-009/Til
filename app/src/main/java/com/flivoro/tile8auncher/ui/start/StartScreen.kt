@@ -108,7 +108,7 @@ private const val START_WITHIN_GROUP_SPACING_DP = 8f
 private const val START_GROUP_GUTTER_DP = 24f
 private const val START_END_GROUP_DROP_ZONE_DP = 32f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
-private const val TILE_REORDER_DURATION_MS = 180
+private const val TILE_REORDER_DURATION_MS = 120
 
 private data class EntranceViewportSnapshot(
     val startBand: Int,
