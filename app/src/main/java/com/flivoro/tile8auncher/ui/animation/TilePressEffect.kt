@@ -30,8 +30,9 @@ import com.flivoro.tile8auncher.data.TileSize
  *
  * Phase 1: 00:04 - 00:05 (Touch Down)
  * Tile tilts dynamically into 3D towards the exact touch point:
- * - Dynamic 3D perspective tilt: rotationX / rotationY between -10° and +10° (~8-12°)
- * - Perspective scale: ~0.96f
+ * - SMALL keeps the original dynamic 3D tilt up to about ±10° and 0.96 scale.
+ * - MEDIUM/WIDE/LARGE normalize that deformation to the same physical edge movement as SMALL,
+ *   preventing larger tiles from looking disproportionately crushed.
  * - Perspective camera distance: 10f
  * - Seamless gesture integration with scroll container (no lag during scrolling).
  */
