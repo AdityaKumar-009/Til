@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.ui.dialogs
 
 import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -42,6 +43,8 @@ import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.IconPackManager
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LiveTileNotificationStore
+import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -64,6 +67,23 @@ fun CustomizeTileDialog(
         mutableStateOf(
             tile.packageName?.let { LauncherFeatureStore.customIconUri(context, it) != null } ?: false,
         )
+    }
+    val liveUpdates = LiveTileNotificationStore.notifications(context, tile.packageName)
+    val liveAccessGranted = LiveTileRuntime.hasNotificationAccess(context)
+    val liveListenerConnected = LiveTileRuntime.listenerConnected
+    val liveStatus = when {
+        !liveAccessGranted ->
+            "Notification access is off. Grant it below before this tile can receive live content."
+        !liveListenerConnected ->
+            "Notification access is granted; Tile8 is reconnecting to Android's notification listener."
+        !liveTileEnabled ->
+            "Off — Windows 8.1 would return this tile to its default static face."
+        liveUpdates.isEmpty() ->
+            "On — waiting for a readable notification from this app."
+        tile.size == TileSize.SMALL ->
+            "On — ${liveUpdates.size} active update(s). Windows 8.1 small tiles show badge data only."
+        else ->
+            "On — ${liveUpdates.size} active update(s) available for the live tile queue."
     }
     val iconPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val packageName = tile.packageName ?: return@rememberLauncherForActivityResult
@@ -182,7 +202,7 @@ fun CustomizeTileDialog(
                                 color = Color.White,
                             )
                             Text(
-                                text = "Use Android notifications as Windows-style upward live updates.",
+                                text = liveStatus,
                                 style = WindowsTypography.labelSmall.copy(fontSize = 10.sp),
                                 color = Color.LightGray,
                             )
@@ -194,6 +214,20 @@ fun CustomizeTileDialog(
                                 LauncherFeatureStore.setLiveTileEnabled(context, tile.packageName, checked)
                             },
                         )
+                    }
+
+                    if (!liveAccessGranted) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                                }
+                            },
+                            shape = RectangleShape,
+                        ) {
+                            Text("Grant notification access", style = WindowsTypography.labelSmall)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
