@@ -515,9 +515,24 @@ class AppsRepository(private val context: Context) {
             ?.coerceAtLeast(0f)
             ?: 0f
 
-    fun setStartWallpaperScrollPx(value: Float) {
-        val safe = value.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
-        prefs.edit { putFloat(START_WALLPAPER_SCROLL_PX, safe) }
+    fun getStartScrollIndex(): Int =
+        prefs.getInt(START_SCROLL_INDEX, 0).coerceAtLeast(0)
+
+    fun getStartScrollOffsetPx(): Int =
+        prefs.getInt(START_SCROLL_OFFSET_PX, 0).coerceAtLeast(0)
+
+    fun setStartViewState(
+        firstVisibleItemIndex: Int,
+        firstVisibleItemScrollOffset: Int,
+        wallpaperScrollPx: Float,
+    ) {
+        val safeWallpaper =
+            wallpaperScrollPx.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
+        prefs.edit {
+            putInt(START_SCROLL_INDEX, firstVisibleItemIndex.coerceAtLeast(0))
+            putInt(START_SCROLL_OFFSET_PX, firstVisibleItemScrollOffset.coerceAtLeast(0))
+            putFloat(START_WALLPAPER_SCROLL_PX, safeWallpaper)
+        }
     }
 
     fun getLaunchTiming(allApps: Boolean = false): LaunchTiming {
@@ -592,6 +607,8 @@ class AppsRepository(private val context: Context) {
         const val LAUNCH_TIMING_STEPS = "launch_timing_steps"
         const val WALLPAPER_PARALLAX_ENABLED = "wallpaper_parallax_enabled"
         const val START_WALLPAPER_SCROLL_PX = "start_wallpaper_scroll_px"
+        const val START_SCROLL_INDEX = "start_scroll_index"
+        const val START_SCROLL_OFFSET_PX = "start_scroll_offset_px"
         const val DEFAULT_LAYOUT_GENERATION_KEY = "default_start_layout_generation"
         const val DEFAULT_LAYOUT_GENERATION = 2
 
