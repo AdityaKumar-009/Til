@@ -104,6 +104,30 @@ class StartTileReorderTest {
     }
 
     @Test
+    fun gutterDropCreatesIndependentGroupAtRequestedBoundary() {
+        val source = listOf(
+            tile("a", "One").copy(groupId = "one"),
+            tile("b", "One").copy(groupId = "one"),
+            tile("c", "Two").copy(groupId = "two"),
+        )
+
+        val result = moveDraggedTileToNewGroup(
+            tiles = source,
+            draggedId = "b",
+            newGroupId = "new",
+            insertBeforeGroupId = "two",
+        )
+
+        assertEquals(listOf("a", "b", "c"), result.map { it.id })
+        val moved = result.first { it.id == "b" }
+        assertEquals("new", moved.groupId)
+        assertEquals("", moved.groupName)
+        assertEquals(0, moved.startBand)
+        assertEquals(0, moved.startColumn)
+        assertEquals(0, moved.startRow)
+    }
+
+    @Test
     fun invalidTargetDoesNotLoseTiles() {
         val source = listOf(tile("a", order = 7), tile("b", order = 9))
         val result = reorderStartTiles(source, "a", "missing", false)
