@@ -385,7 +385,7 @@ fun StartScreen(
         lastSwapTargetId = null
         lastSwapAfterTarget = null
         dragTiles = null
-        if (commit && result != null && result.map { it.id } != tiles.map { it.id }) {
+        if (commit && result != null && result != tiles) {
             latestOnTilesChanged.value(result)
         }
     }
