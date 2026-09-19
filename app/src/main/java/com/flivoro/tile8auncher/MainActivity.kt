@@ -68,7 +68,10 @@ import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
+import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
 import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
+import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
+import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenRuntime
 import com.flivoro.tile8auncher.ui.components.charmsEdgeGesture
 import com.flivoro.tile8auncher.ui.dialogs.CustomizeTileDialog
 import com.flivoro.tile8auncher.ui.dialogs.PinAppsDialog
@@ -913,6 +916,18 @@ fun Tile8LauncherApp(
                     showPowerDialog = false
                     openLauncherSettings()
                 }
+            )
+        }
+
+        // Keep the emulated Windows lock surface in the same full-screen Compose window as Start.
+        // It is the final child so no Start/wallpaper content can draw over its clipped rectangle.
+        if (entranceReady &&
+            WindowsLockScreenRuntime.pending &&
+            WindowsLockScreenPreferences.isEnabled(context)
+        ) {
+            Windows81LockScreen(
+                cameraGestureEnabled = WindowsLockScreenPreferences.isCameraGestureEnabled(context),
+                onDismiss = { WindowsLockScreenRuntime.dismiss() },
             )
         }
     }
