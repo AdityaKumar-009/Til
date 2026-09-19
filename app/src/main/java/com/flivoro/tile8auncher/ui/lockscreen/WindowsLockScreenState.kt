@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.flivoro.tile8auncher.ui.components.LauncherImageCache
 
 object WindowsLockScreenPreferences {
     private const val PREFS_NAME = "tile8_launcher_prefs_v2"
@@ -38,7 +39,10 @@ object WindowsLockScreenPreferences {
             ?.takeIf(String::isNotBlank)
 
     fun setWallpaperUri(context: Context, uri: String?) {
+        val previous = wallpaperUri(context)
         val normalized = uri?.takeIf(String::isNotBlank)
+        if (normalized != null) LauncherImageCache.preload(context, normalized, maxSide = 2560)
+        if (previous != null && previous != normalized) LauncherImageCache.forget(previous)
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit {
                 if (normalized == null) remove(WALLPAPER_URI)
