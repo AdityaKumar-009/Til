@@ -246,14 +246,12 @@ class AppsRepository(private val context: Context) {
         if (generation >= DEFAULT_LAYOUT_GENERATION) return tiles
 
         val ids = tiles.mapTo(linkedSetOf()) { it.id }
-        val isUntouchedLegacyStock = ids == LEGACY_DEFAULT_TILE_IDS &&
-            tiles.all { tile ->
-                tile.groupId == "legacy:Start" || tile.groupId.isBlank()
-            }
+        val isLegacyStockSet = ids == LEGACY_DEFAULT_TILE_IDS
 
-        val result = if (isUntouchedLegacyStock) {
-            // One-time migration for the old single-cluster demo layout. This intentionally only
-            // touches the exact stock tile set; user-added/removed layouts are left alone.
+        val result = if (isLegacyStockSet) {
+            // One-time migration for the old 18-tile demo set. The exact stock ID set is narrow
+            // enough to avoid touching layouts where the user pinned or unpinned anything, while
+            // still upgrading testers who tried rearranging those stock tiles on earlier builds.
             getDefaultTiles()
         } else {
             tiles
