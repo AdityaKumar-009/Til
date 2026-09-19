@@ -858,7 +858,12 @@ fun Tile8LauncherApp(
                     onResize = { newSize ->
                         val index = tiles.indexOfFirst { it.id == tile.id }
                         if (index != -1) {
-                            tiles[index] = tile.copy(size = newSize)
+                            tiles[index] = tile.copy(
+                                size = newSize,
+                                startBand = null,
+                                startColumn = null,
+                                startRow = null,
+                            )
                             appsRepository.savePinnedTiles(tiles.toList())
                         }
                         selectedTileForCustomization = null
