@@ -267,7 +267,10 @@ class AppsRepository(private val context: Context) {
                             tileType = TileType.valueOf(obj.optString("tileType", TileType.APP.name)),
                             iconGlyph = obj.optString("iconGlyph", ""),
                             groupName = obj.optString("groupName", "Start"),
-                            order = obj.optInt("order", i)
+                            order = obj.optInt("order", i),
+                            startBand = obj.optInt("startBand", -1).takeIf { it >= 0 },
+                            startColumn = obj.optInt("startColumn", -1).takeIf { it >= 0 },
+                            startRow = obj.optInt("startRow", -1).takeIf { it >= 0 },
                         )
                     )
                 }
@@ -295,6 +298,9 @@ class AppsRepository(private val context: Context) {
                 put("iconGlyph", tile.iconGlyph)
                 put("groupName", tile.groupName)
                 put("order", index)
+                tile.startBand?.let { put("startBand", it) }
+                tile.startColumn?.let { put("startColumn", it) }
+                tile.startRow?.let { put("startRow", it) }
             }
             array.put(obj)
         }
