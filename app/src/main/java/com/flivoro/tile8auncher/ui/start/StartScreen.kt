@@ -410,16 +410,17 @@ fun StartScreen(
             activeGutterKey = null
             dragNewGroupId = "group:${System.currentTimeMillis()}:${tile.id}"
         }
+        // The drag must become active synchronously on the long-press frame. Waiting for
+        // the entrance Animatable coroutine to stop used to drop the first pointer deltas and made
+        // the held tile appear to lag/jump if the user grabbed it during Start's entrance.
         if (entranceRunning) {
+            entranceRunning = false
             scope.launch {
                 entrance.stop()
-                entranceRunning = false
                 entrance.snapTo(1f)
-                enterCustomization()
             }
-        } else {
-            enterCustomization()
         }
+        enterCustomization()
     }
 
     fun updateDraggedTilePlacement(visualCenter: Offset) {
