@@ -40,6 +40,8 @@ data class TileModel(
     val colorValue: Long = 0xFF0078D7,
     val tileType: TileType = TileType.APP,
     val iconGlyph: String = "",
+    /** Stable Windows Start group identity; the visible [groupName] may be empty or duplicated. */
+    val groupId: String = "",
     val groupName: String = "Start",
     val order: Int = 0,
     // Optional Windows Start snap position. Null keeps legacy first-fit packing.
