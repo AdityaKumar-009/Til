@@ -959,11 +959,8 @@ fun StartScreen(
             val canStackWidgets = selectedTiles.size >= 2 &&
                 selectedTiles.all { LauncherFeatureStore.widgetStackIds(context, it.id).isNotEmpty() }
             val singlePackage = selectedTiles.singleOrNull()?.packageName
-            val selectedLiveTileEnabled = singlePackage?.let {
-                // Reading the runtime revision keeps this command in sync with CustomizeTileDialog.
-                @Suppress("UNUSED_EXPRESSION")
-                liveTilesRevision
-                LauncherFeatureStore.isLiveTileEnabled(context, it)
+            val selectedLiveTileEnabled = remember(singlePackage, liveTilesRevision) {
+                singlePackage?.let { LauncherFeatureStore.isLiveTileEnabled(context, it) }
             }
             val oneGroup = selectedTiles.map { it.groupName }.distinct().singleOrNull()
             val existingGroups = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct()
