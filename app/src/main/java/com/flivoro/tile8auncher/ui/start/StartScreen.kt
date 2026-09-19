@@ -597,12 +597,21 @@ fun StartScreen(
 
         if (proposal == null) {
             activeGutterKey = null
+            // If the pointer leaves a valid target, let neighbors glide back to their committed
+            // positions while the held tile remains under the finger.
+            dragTiles = tiles.toList()
+            appliedDropProposal = null
+            lastGridDrop = null
             return
         }
 
         if (proposal is StartDropProposal.NewGroup) {
-            // Immediate visual separator, delayed/no structural reflow.
+            // Immediate separator only. Windows does not tear the source group apart merely by
+            // hovering over a group gutter; the new group is committed on release.
             activeGutterKey = proposal.gutterKey
+            dragTiles = tiles.toList()
+            appliedDropProposal = null
+            lastGridDrop = null
             return
         }
 
