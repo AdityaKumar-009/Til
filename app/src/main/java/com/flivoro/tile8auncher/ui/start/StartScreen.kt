@@ -209,6 +209,7 @@ fun StartScreen(
     onNavigateToAllApps: () -> Unit,
     onCharmsClick: () -> Unit = {},
     onTilesChanged: (List<TileModel>) -> Unit = {},
+    initialWallpaperScrollPx: Float = 0f,
     onWallpaperScrollOffsetChanged: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
     launchingTileId: String? = null,
@@ -258,7 +259,11 @@ fun StartScreen(
     var showResizeChoices by remember { mutableStateOf(false) }
     var openFolderTile by remember { mutableStateOf<TileModel?>(null) }
     var groupDialog by remember { mutableStateOf<GroupDialogRequest?>(null) }
-    var trackedWallpaperScrollPx by remember { mutableFloatStateOf(Float.NaN) }
+    var trackedWallpaperScrollPx by remember {
+        mutableFloatStateOf(
+            initialWallpaperScrollPx.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f,
+        )
+    }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
     val bandDropTargets = remember { mutableMapOf<String, StartBandDropTarget>() }
     val gutterDropTargets = remember { mutableMapOf<String, StartGroupGutterDropTarget>() }
