@@ -21,6 +21,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import com.flivoro.tile8auncher.data.TileSize
 
 /**
  * Windows 8.1 Tile Press and Click interaction.
@@ -37,23 +40,37 @@ class TileCoordinatesHolder {
 }
 
 fun Modifier.metroTilePress(
+    tileSize: TileSize,
     onClick: (bounds: Rect) -> Unit,
     onLongClick: (() -> Unit)? = null
 ): Modifier = composed {
     val coordsHolder = remember { TileCoordinatesHolder() }
+    val density = LocalDensity.current
+    val gridGapPx = with(density) { 8.dp.toPx() }
     val currentClick by rememberUpdatedState(onClick)
     val currentLongClick by rememberUpdatedState(onLongClick)
     var isPressed by remember { mutableStateOf(false) }
+    var targetScaleX by remember { mutableFloatStateOf(1f) }
+    var targetScaleY by remember { mutableFloatStateOf(1f) }
     var targetRotX by remember { mutableFloatStateOf(0f) }
     var targetRotY by remember { mutableFloatStateOf(0f) }
 
-    val scale = animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1.0f,
+    val scaleX = animateFloatAsState(
+        targetValue = if (isPressed) targetScaleX else 1.0f,
         animationSpec = spring(
             stiffness = Spring.StiffnessMedium,
             dampingRatio = Spring.DampingRatioNoBouncy
         ),
-        label = "TileScale"
+        label = "TileScaleX"
+    )
+
+    val scaleY = animateFloatAsState(
+        targetValue = if (isPressed) targetScaleY else 1.0f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMedium,
+            dampingRatio = Spring.DampingRatioNoBouncy
+        ),
+        label = "TileScaleY"
     )
 
     val rotationX = animateFloatAsState(
@@ -79,20 +96,25 @@ fun Modifier.metroTilePress(
             // Store reference without State to eliminate scroll recompositions
             coordsHolder.coordinates = coordinates
         }
-        .pointerInput(Unit) {
+        .pointerInput(tileSize, gridGapPx) {
             detectTapGestures(
                 onPress = { offset ->
-                    val w = size.width.toFloat()
-                    val h = size.height.toFloat()
-                    if (w > 0f && h > 0f) {
-                        val nx = ((offset.x - (w / 2f)) / (w / 2f)).coerceIn(-1f, 1f)
-                        val ny = ((offset.y - (h / 2f)) / (h / 2f)).coerceIn(-1f, 1f)
-                        targetRotX = -ny * 10f
-                        targetRotY = nx * 10f
-                    }
+                    val transform = tilePressTransform(
+                        tileSize = tileSize,
+                        widthPx = size.width.toFloat(),
+                        heightPx = size.height.toFloat(),
+                        gapPx = gridGapPx,
+                        touch = offset,
+                    )
+                    targetScaleX = transform.scaleX
+                    targetScaleY = transform.scaleY
+                    targetRotX = transform.rotationX
+                    targetRotY = transform.rotationY
                     isPressed = true
                     tryAwaitRelease()
                     isPressed = false
+                    targetScaleX = 1f
+                    targetScaleY = 1f
                     targetRotX = 0f
                     targetRotY = 0f
                 },
@@ -106,13 +128,76 @@ fun Modifier.metroTilePress(
             )
         }
         .graphicsLayer {
-            this.scaleX = scale.value
-            this.scaleY = scale.value
+            this.scaleX = scaleX.value
+            this.scaleY = scaleY.value
             this.rotationX = rotationX.value
             this.rotationY = rotationY.value
             this.cameraDistance = 10f // Authentic 3D tilt perspective in Compose
             this.transformOrigin = TransformOrigin(0.5f, 0.5f)
         }
+}
+
+internal data class TilePressTransform(
+    val scaleX: Float,
+    val scaleY: Float,
+    val rotationX: Float,
+    val rotationY: Float,
+)
+
+/**
+ * Preserve the SMALL tile's press feel across every tile size.
+ *
+ * A uniform 0.96 scale is subtle on a small tile but removes many more physical pixels from the
+ * edges of a medium/wide/large tile. Windows' press feedback reads more like a fixed edge inset
+ * than a fixed percentage. Derive the underlying one-cell size from the tile span and apply the
+ * same 4% one-cell contraction to each axis. SMALL remains exactly 0.96; larger tiles therefore
+ * move their edges by roughly the same physical amount instead of looking heavily squeezed.
+ *
+ * Perspective tilt is normalized the same way so a wide/large tile does not swing through the
+ * same 10-degree angle as a 1x1 tile.
+ */
+internal fun tilePressTransform(
+    tileSize: TileSize,
+    widthPx: Float,
+    heightPx: Float,
+    gapPx: Float,
+    touch: Offset,
+): TilePressTransform {
+    if (widthPx <= 0f || heightPx <= 0f) {
+        return TilePressTransform(1f, 1f, 0f, 0f)
+    }
+
+    val (columns, rows) = when (tileSize) {
+        TileSize.SMALL -> 1 to 1
+        TileSize.MEDIUM -> 2 to 2
+        TileSize.WIDE -> 4 to 2
+        TileSize.LARGE -> 4 to 4
+    }
+
+    fun underlyingCell(totalPx: Float, span: Int): Float =
+        ((totalPx - gapPx.coerceAtLeast(0f) * (span - 1)) / span)
+            .coerceIn(1f, totalPx)
+
+    val cellWidth = underlyingCell(widthPx, columns)
+    val cellHeight = underlyingCell(heightPx, rows)
+
+    val smallTileContraction = 0.04f
+    val scaleX = (1f - smallTileContraction * (cellWidth / widthPx)).coerceIn(0.96f, 1f)
+    val scaleY = (1f - smallTileContraction * (cellHeight / heightPx)).coerceIn(0.96f, 1f)
+
+    val nx = ((touch.x - widthPx / 2f) / (widthPx / 2f)).coerceIn(-1f, 1f)
+    val ny = ((touch.y - heightPx / 2f) / (heightPx / 2f)).coerceIn(-1f, 1f)
+
+    val maxSmallTileTilt = 10f
+    val rotationX = -ny * maxSmallTileTilt * (cellHeight / heightPx)
+    val rotationY = nx * maxSmallTileTilt * (cellWidth / widthPx)
+
+    return TilePressTransform(
+        scaleX = scaleX,
+        scaleY = scaleY,
+        rotationX = rotationX,
+        rotationY = rotationY,
+    )
 }
 
 /**
