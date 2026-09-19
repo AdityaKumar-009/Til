@@ -13,15 +13,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-      - uses: gradle/actions/setup-gradle@v4
-      - run: chmod +x gradlew
+      - name: Checkout without marketplace actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: |
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="${JAVA_HOME}/bin:${PATH}"
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --stacktrace
       - name: Compile debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="${JAVA_HOME}/bin:${PATH}"
+          ./gradlew assembleDebug --stacktrace
