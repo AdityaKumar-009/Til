@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -45,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -91,6 +93,7 @@ import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -151,6 +154,8 @@ fun StartScreen(
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
     var lastSwapTargetId by remember { mutableStateOf<String?>(null) }
+    var lastSwapAfterTarget by remember { mutableStateOf<Boolean?>(null) }
+    var tileViewportBounds by remember { mutableStateOf(Rect.Zero) }
     var showResizeChoices by remember { mutableStateOf(false) }
     var openFolderTile by remember { mutableStateOf<TileModel?>(null) }
     var groupDialog by remember { mutableStateOf<GroupDialogRequest?>(null) }
@@ -313,6 +318,7 @@ fun StartScreen(
             dragOriginBounds = bounds
             dragOffset = Offset.Zero
             lastSwapTargetId = null
+            lastSwapAfterTarget = null
         }
         if (entranceRunning) {
             scope.launch {
@@ -330,20 +336,44 @@ fun StartScreen(
         val draggedId = draggingTileId ?: return
         dragOffset += delta
         val center = dragOriginBounds.center + dragOffset
-        val targetEntry = tileBounds.entries.firstOrNull { (id, bounds) -> id != draggedId && bounds.contains(center) }
+
+        // Windows 8.1 treats the Start surface as a continuous set of snap targets: the held tile
+        // can be dropped into a gap, not only directly on top of another tile. Prefer a tile under
+        // the finger; otherwise use the nearest visible tile so empty space still resolves to a
+        // deterministic insertion point.
+        val viewport = tileViewportBounds
+        val candidates = tileBounds.entries.asSequence()
+            .filter { (id, bounds) ->
+                id != draggedId &&
+                    bounds.width > 0f &&
+                    bounds.height > 0f &&
+                    (viewport == Rect.Zero || bounds.overlaps(viewport))
+            }
+            .toList()
+        val targetEntry = candidates.firstOrNull { (_, bounds) -> bounds.contains(center) }
+            ?: candidates.minByOrNull { (_, bounds) -> distanceSquaredToRect(center, bounds) }
         val targetId = targetEntry?.key
         if (targetId == null) {
             lastSwapTargetId = null
+            lastSwapAfterTarget = null
             return
         }
-        if (targetId == lastSwapTargetId) return
 
         val targetBounds = targetEntry.value
-        val sameVisualRow = abs(center.y - targetBounds.center.y) <= targetBounds.height * 0.45f
-        val placeAfter = if (sameVisualRow) center.x >= targetBounds.center.x else center.y >= targetBounds.center.y
+        val sameVisualRow = abs(center.y - targetBounds.center.y) <=
+            maxOf(targetBounds.height, dragOriginBounds.height) * 0.48f
+        val placeAfter = if (sameVisualRow) {
+            center.x >= targetBounds.center.x
+        } else {
+            center.y >= targetBounds.center.y
+        }
+        if (targetId == lastSwapTargetId && placeAfter == lastSwapAfterTarget) return
+
         val current = dragTiles ?: tiles.toList()
-        dragTiles = reorderStartTiles(current, draggedId, targetId, placeAfter)
+        val reordered = reorderStartTiles(current, draggedId, targetId, placeAfter)
+        if (reordered != current) dragTiles = reordered
         lastSwapTargetId = targetId
+        lastSwapAfterTarget = placeAfter
     }
 
     fun finishTileDrag(commit: Boolean) {
@@ -352,6 +382,7 @@ fun StartScreen(
         draggingTileId = null
         dragOffset = Offset.Zero
         lastSwapTargetId = null
+        lastSwapAfterTarget = null
         dragTiles = null
         if (commit && result != null && result.map { it.id } != tiles.map { it.id }) {
             latestOnTilesChanged.value(result)
@@ -384,6 +415,34 @@ fun StartScreen(
             }
             entrance.snapTo(1f)
             listState.scrollToItem(index)
+        }
+    }
+
+    // Keep direct manipulation alive at the horizontal edges. Windows 8.1 lets a held
+    // Start tile travel beyond the current viewport; programmatic scrolling keeps the pointer
+    // anchored while LazyRow reveals the next/previous band.
+    LaunchedEffect(draggingTileId) {
+        if (draggingTileId == null) return@LaunchedEffect
+        val edgePx = with(density = androidx.compose.ui.unit.Density(context.resources.displayMetrics.density)) {
+            72.dp.toPx()
+        }
+        val maxStepPx = with(density = androidx.compose.ui.unit.Density(context.resources.displayMetrics.density)) {
+            20.dp.toPx()
+        }
+        while (draggingTileId != null) {
+            val viewport = tileViewportBounds
+            if (viewport.width > 0f) {
+                val centerX = (dragOriginBounds.center + dragOffset).x
+                val leftStrength = ((viewport.left + edgePx - centerX) / edgePx).coerceIn(0f, 1f)
+                val rightStrength = ((centerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
+                val step = when {
+                    rightStrength > 0f -> maxStepPx * rightStrength
+                    leftStrength > 0f -> -maxStepPx * leftStrength
+                    else -> 0f
+                }
+                if (step != 0f) listState.scrollBy(step)
+            }
+            delay(16L)
         }
     }
 
@@ -546,7 +605,13 @@ fun StartScreen(
                     .fillMaxSize()
                     .then(if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier)
 
-                Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { coordinates ->
+                            if (coordinates.isAttached) tileViewportBounds = coordinates.boundsInWindow()
+                        },
+                ) {
                     LazyRow(
                         state = listState,
                         userScrollEnabled = canScrollTiles,
@@ -618,6 +683,10 @@ fun StartScreen(
                                             label = "StartTileLift:${tile.id}",
                                         )
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
+
+                                        DisposableEffect(tile.id) {
+                                            onDispose { tileBounds.remove(tile.id) }
+                                        }
 
                                         Box(
                                             modifier = Modifier
@@ -893,6 +962,20 @@ fun StartScreen(
             },
         )
     }
+}
+
+private fun distanceSquaredToRect(point: Offset, rect: Rect): Float {
+    val dx = when {
+        point.x < rect.left -> rect.left - point.x
+        point.x > rect.right -> point.x - rect.right
+        else -> 0f
+    }
+    val dy = when {
+        point.y < rect.top -> rect.top - point.y
+        point.y > rect.bottom -> point.y - rect.bottom
+        else -> 0f
+    }
+    return dx * dx + dy * dy
 }
 
 @Composable
