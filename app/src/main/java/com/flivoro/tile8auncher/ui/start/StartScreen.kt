@@ -290,10 +290,16 @@ fun StartScreen(
             lastStartedRequest = Int.MIN_VALUE
             entrance.snapTo(0f)
             selectedTileIds = emptySet()
+            previewJob?.cancel()
+            previewJob = null
             dragTiles = null
             draggingTileId = null
             dragPointerWindow = Offset.Zero
             dragContactOffset = Offset.Zero
+            dragStartGridPositions = emptyMap()
+            pendingDropProposal = null
+            appliedDropProposal = null
+            lastGridDrop = null
             activeGutterKey = null
             dragNewGroupId = null
             openFolderTile = null
@@ -345,10 +351,16 @@ fun StartScreen(
         if (!interactionEnabled) {
             showBandOverview = false
             selectedTileIds = emptySet()
+            previewJob?.cancel()
+            previewJob = null
             dragTiles = null
             draggingTileId = null
             dragPointerWindow = Offset.Zero
             dragContactOffset = Offset.Zero
+            dragStartGridPositions = emptyMap()
+            pendingDropProposal = null
+            appliedDropProposal = null
+            lastGridDrop = null
             activeGutterKey = null
             dragNewGroupId = null
             openFolderTile = null
@@ -360,10 +372,16 @@ fun StartScreen(
         val validIds = tiles.mapTo(mutableSetOf()) { it.id }
         selectedTileIds = selectedTileIds.filterTo(mutableSetOf()) { it in validIds }
         if (draggingTileId !in validIds) {
+            previewJob?.cancel()
+            previewJob = null
             dragTiles = null
             draggingTileId = null
             dragPointerWindow = Offset.Zero
             dragContactOffset = Offset.Zero
+            dragStartGridPositions = emptyMap()
+            pendingDropProposal = null
+            appliedDropProposal = null
+            lastGridDrop = null
             activeGutterKey = null
             dragNewGroupId = null
         }
@@ -380,10 +398,16 @@ fun StartScreen(
             selectedTileIds.isNotEmpty() -> {
                 selectedTileIds = emptySet()
                 showResizeChoices = false
+                previewJob?.cancel()
+                previewJob = null
                 dragTiles = null
                 draggingTileId = null
                 dragPointerWindow = Offset.Zero
-            dragContactOffset = Offset.Zero
+                dragContactOffset = Offset.Zero
+                dragStartGridPositions = emptyMap()
+                pendingDropProposal = null
+                appliedDropProposal = null
+                lastGridDrop = null
                 activeGutterKey = null
                 dragNewGroupId = null
             }
