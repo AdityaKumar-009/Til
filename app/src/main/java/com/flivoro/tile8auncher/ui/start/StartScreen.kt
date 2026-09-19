@@ -692,7 +692,7 @@ fun StartScreen(
                 val viewportHeightPx = with(density) { maxHeight.toPx() }
                 val bandWidthPx = with(density) { metrics.bandWidthDp.dp.toPx() }
                 val bandExtentPx = with(density) {
-                    metrics.bandWidthDp.dp.toPx() + START_BAND_SPACING_DP.dp.toPx()
+                    metrics.bandWidthDp.dp.toPx() + START_WITHIN_GROUP_SPACING_DP.dp.toPx()
                 }
 
                 val tileSnapshot by remember(visibleTiles) { derivedStateOf { visibleTiles.toList() } }
@@ -721,7 +721,7 @@ fun StartScreen(
                         userScrollEnabled = canScrollTiles,
                         modifier = rowModifier,
                         contentPadding = PaddingValues(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(START_BAND_SPACING_DP.dp),
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         itemsIndexed(
@@ -730,27 +730,59 @@ fun StartScreen(
                         ) { bandIndex, band ->
                             val cellPx = with(density) { metrics.cellDp.dp.toPx() }
                             val gapPx = with(density) { metrics.gapDp.dp.toPx() }
+                            val previousBand = packed.bands.getOrNull(bandIndex - 1)
+                            val startsNewGroup = previousBand != null && previousBand.groupId != band.groupId
+                            val leadingSpacingDp = when {
+                                bandIndex == 0 -> 0f
+                                startsNewGroup -> START_GROUP_GUTTER_DP
+                                else -> START_WITHIN_GROUP_SPACING_DP
+                            }
+                            val leadingSpacingPx = with(density) { leadingSpacingDp.dp.toPx() }
+                            val gutterKey = "start-group-gutter:${band.groupId}:before"
 
-                            DisposableEffect(band.key) {
-                                onDispose { bandDropTargets.remove(band.key) }
+                            DisposableEffect(band.key, startsNewGroup) {
+                                onDispose {
+                                    bandDropTargets.remove(band.key)
+                                    if (startsNewGroup) gutterDropTargets.remove(gutterKey)
+                                }
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .width(metrics.bandWidthDp.dp)
+                                    .width((metrics.bandWidthDp + leadingSpacingDp).dp)
                                     .height(metrics.bandHeightDp.dp)
                                     .onGloballyPositioned { coordinates ->
                                         if (coordinates.isAttached) {
+                                            val whole = coordinates.boundsInWindow()
+                                            val bandBounds = Rect(
+                                                left = whole.left + leadingSpacingPx,
+                                                top = whole.top,
+                                                right = whole.right,
+                                                bottom = whole.bottom,
+                                            )
                                             bandDropTargets[band.key] = StartBandDropTarget(
                                                 key = band.key,
+                                                groupId = band.groupId,
                                                 groupName = band.groupName,
                                                 continuationIndex = band.continuationIndex,
                                                 columns = band.columns,
                                                 rows = band.rows,
                                                 cellPx = cellPx,
                                                 gapPx = gapPx,
-                                                bounds = coordinates.boundsInWindow(),
+                                                bounds = bandBounds,
                                             )
+                                            if (startsNewGroup) {
+                                                gutterDropTargets[gutterKey] = StartGroupGutterDropTarget(
+                                                    key = gutterKey,
+                                                    beforeGroupId = band.groupId,
+                                                    bounds = Rect(
+                                                        left = whole.left,
+                                                        top = whole.top,
+                                                        right = whole.left + leadingSpacingPx,
+                                                        bottom = whole.bottom,
+                                                    ),
+                                                )
+                                            }
                                         }
                                     }
                                     .graphicsLayer {
@@ -776,6 +808,17 @@ fun StartScreen(
                                         alpha = frame.alpha
                                     },
                             ) {
+                                if (startsNewGroup && activeGutterKey == gutterKey) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = ((leadingSpacingDp / 2f) - 2f).dp)
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(vertical = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
+
                                 band.tiles.forEach { placed ->
                                     key(placed.tile.id) {
                                         val tile = placed.tile
@@ -788,7 +831,9 @@ fun StartScreen(
                                             placed.rows * metrics.cellDp +
                                                 (placed.rows - 1) * metrics.gapDp
                                             ).dp
-                                        val targetX = (placed.column * (metrics.cellDp + metrics.gapDp)).dp
+                                        val targetX = (
+                                            leadingSpacingDp + placed.column * (metrics.cellDp + metrics.gapDp)
+                                            ).dp
                                         val targetY = (placed.row * (metrics.cellDp + metrics.gapDp)).dp
                                         val animatedX by animateDpAsState(
                                             targetValue = targetX,
@@ -825,6 +870,7 @@ fun StartScreen(
                                                     if (coordinates.isAttached) {
                                                         tileBounds[tile.id] = coordinates.boundsInWindow()
                                                         tileGridPositions[tile.id] = StartTileGridPosition(
+                                                            groupId = band.groupId,
                                                             groupName = band.groupName,
                                                             continuationIndex = band.continuationIndex,
                                                             column = placed.column,
