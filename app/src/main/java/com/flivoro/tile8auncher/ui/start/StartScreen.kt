@@ -90,6 +90,7 @@ import com.flivoro.tile8auncher.features.performStartDoubleTapAction
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
@@ -1076,11 +1077,6 @@ fun StartScreen(
                                         )
                                         val isDragging = tile.id == draggingTileId
                                         val isSelected = tile.id in selectedTileIds
-                                        val selectionScale by animateFloatAsState(
-                                            targetValue = if (isDragging) 1.055f else 1f,
-                                            animationSpec = tween(110, easing = FastOutSlowInEasing),
-                                            label = "StartTileLift:${tile.id}",
-                                        )
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
                                         DisposableEffect(tile.id) {
@@ -1094,7 +1090,7 @@ fun StartScreen(
                                             modifier = Modifier
                                                 .offset(x = animatedX, y = animatedY)
                                                 .size(tileWidth, tileHeight)
-                                                .zIndex(if (isDragging) 3f else if (isSelected) 1f else 0f)
+                                                .zIndex(if (isSelected && !isDragging) 1f else 0f)
                                                 .onGloballyPositioned { coordinates ->
                                                     if (coordinates.isAttached) {
                                                         tileBounds[tile.id] = coordinates.boundsInWindow()
@@ -1109,16 +1105,12 @@ fun StartScreen(
                                                         )
                                                     }
                                                 }
-                                                .graphicsLayer {
-                                                    scaleX = selectionScale
-                                                    scaleY = selectionScale
-                                                    if (isDragging) {
-                                                        translationX = dragOffset.x
-                                                        translationY = dragOffset.y
-                                                        shadowElevation = 18f
-                                                    }
-                                                }
-                                                .alpha(if (tile.id == launchingTileId) 0f else 1f),
+                                                // During a drag the grid copy is only the live
+                                                // placeholder. A separate absolute proxy follows
+                                                // the finger, so reflow can never tug the held tile.
+                                                .alpha(
+                                                    if (tile.id == launchingTileId || isDragging) 0f else 1f,
+                                                ),
                                         ) {
                                             // Android widget views are mounted only when the fitted Start entrance is
                                             // settled. During its short/long entrance the ordinary tile face stays in
@@ -1162,7 +1154,7 @@ fun StartScreen(
                                                 )
                                             }
 
-                                            if (isSelected) {
+                                            if (isSelected && !isDragging) {
                                                 Box(
                                                     modifier = Modifier
                                                         .align(Alignment.TopEnd)
@@ -1180,6 +1172,66 @@ fun StartScreen(
                             }
                         }
 
+                    }
+
+                    draggingTileId?.let { draggedId ->
+                        val draggedTile = tiles.firstOrNull { it.id == draggedId }
+                        if (draggedTile != null && tileViewportBounds != Rect.Zero) {
+                            val span = draggedTile.size.startTileSpan()
+                            val dragWidth = (
+                                span.columns * metrics.cellDp +
+                                    (span.columns - 1) * metrics.gapDp
+                                ).dp
+                            val dragHeight = (
+                                span.rows * metrics.cellDp +
+                                    (span.rows - 1) * metrics.gapDp
+                                ).dp
+                            val dragIcon = draggedTile.packageName?.let {
+                                rememberAppIcon(appsRepository, it)
+                            }
+                            val localLeft =
+                                dragOriginBounds.left - tileViewportBounds.left + dragPointerOffset.x
+                            val localTop =
+                                dragOriginBounds.top - tileViewportBounds.top + dragPointerOffset.y
+
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        androidx.compose.ui.unit.IntOffset(
+                                            localLeft.roundToInt(),
+                                            localTop.roundToInt(),
+                                        )
+                                    }
+                                    .size(dragWidth, dragHeight)
+                                    .zIndex(100f)
+                                    .graphicsLayer {
+                                        scaleX = 1.045f
+                                        scaleY = 1.045f
+                                        shadowElevation = 18f
+                                    },
+                            ) {
+                                WindowsTileFace(
+                                    tile = draggedTile,
+                                    appIcon = dragIcon,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(5.dp)
+                                        .size(20.dp)
+                                        .background(Color(0xCC6E6E6E)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        "✓",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     AnimatedVisibility(
