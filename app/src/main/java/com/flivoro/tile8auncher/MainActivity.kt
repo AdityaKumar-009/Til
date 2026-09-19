@@ -723,6 +723,7 @@ fun Tile8LauncherApp(
                                 appsRepository.savePinnedTiles(updatedTiles)
                             }
                         },
+                        initialWallpaperScrollPx = startWallpaperScrollPx,
                         onWallpaperScrollOffsetChanged = { startWallpaperScrollPx = it },
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
