@@ -79,6 +79,7 @@ import com.flivoro.tile8auncher.ui.start.StartScreen
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 enum class LauncherScreen {
@@ -457,17 +458,25 @@ fun Tile8LauncherApp(
     var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
     val drawerProgress = remember { mutableFloatStateOf(0f) }
     val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
-    val startScroll = rememberLazyListState()
+    val initialStartScrollIndex = remember { appsRepository.getStartScrollIndex() }
+    val initialStartScrollOffset = remember { appsRepository.getStartScrollOffsetPx() }
+    val startScroll = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialStartScrollIndex,
+        initialFirstVisibleItemScrollOffset = initialStartScrollOffset,
+    )
     val appsScroll = rememberLazyListState()
     // Start's bands have different physical widths because group gutters are real layout items.
     // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
     // it from firstVisibleItemIndex * currentItemWidth (which jumps when the first item changes).
-    var startWallpaperScrollPx by rememberSaveable { mutableStateOf(0f) }
+    var startWallpaperScrollPx by rememberSaveable {
+        mutableStateOf(appsRepository.getStartWallpaperScrollPx())
+    }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
     var wallpaperStyle by remember { mutableIntStateOf(appsRepository.getWallpaperStyle()) }
     val tiles = remember { mutableStateListOf<TileModel>() }
+    var tilesLoaded by remember { mutableStateOf(false) }
     var selectedTileForCustomization by remember { mutableStateOf<TileModel?>(null) }
     var showPowerDialog by remember { mutableStateOf(false) }
     var showPinAppsDialog by remember { mutableStateOf(false) }
@@ -483,6 +492,23 @@ fun Tile8LauncherApp(
     val context = LocalContext.current
 
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
+
+    // Save only after the parallax position has been quiet for a moment. A cold launcher start
+    // can then paint the previous Start position on frame one instead of showing x=0 and snapping
+    // to the restored LazyRow coordinate after layout arrives.
+    LaunchedEffect(startWallpaperScrollPx, startScroll.firstVisibleItemIndex, startScroll.firstVisibleItemScrollOffset) {
+        delay(350L)
+        val index = startScroll.firstVisibleItemIndex
+        val offset = startScroll.firstVisibleItemScrollOffset
+        val wallpaper = startWallpaperScrollPx
+        withContext(Dispatchers.IO) {
+            appsRepository.setStartViewState(
+                firstVisibleItemIndex = index,
+                firstVisibleItemScrollOffset = offset,
+                wallpaperScrollPx = wallpaper,
+            )
+        }
+    }
 
     // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
     // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
@@ -577,6 +603,7 @@ fun Tile8LauncherApp(
         val pinned = withContext(Dispatchers.IO) { appsRepository.loadPinnedTiles() }
         tiles.clear()
         tiles.addAll(pinned)
+        tilesLoaded = true
     }
 
     val categorizedApps by produceState<List<AppSection>>(emptyList(), appsRepository) {
@@ -666,6 +693,12 @@ fun Tile8LauncherApp(
                 resetRequest = homeRequest + drawerResetRequest,
                 progressState = drawerProgress,
                 startContent = {
+                    if (!tilesLoaded) {
+                        // Do not measure an empty LazyRow before the persisted Start index/offset
+                        // can be applied. The wallpaper is already painted at its persisted world
+                        // coordinate, so the first visible Start frame arrives fully settled.
+                        Box(Modifier.fillMaxSize())
+                    } else {
                     StartScreen(
                         listState = startScroll,
                         tiles = tiles,
@@ -690,6 +723,7 @@ fun Tile8LauncherApp(
                                 appsRepository.savePinnedTiles(updatedTiles)
                             }
                         },
+                        initialWallpaperScrollPx = startWallpaperScrollPx,
                         onWallpaperScrollOffsetChanged = { startWallpaperScrollPx = it },
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
@@ -697,6 +731,7 @@ fun Tile8LauncherApp(
                         onAddAppsClick = { if (entranceReady) showPinAppsDialog = true },
                         onNavigateToAllApps = { navigateToAllApps() },
                     )
+                    }
                 },
                 allAppsContent = {
                     AllAppsScreen(

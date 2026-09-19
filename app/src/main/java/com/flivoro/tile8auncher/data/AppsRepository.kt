@@ -509,6 +509,37 @@ class AppsRepository(private val context: Context) {
         prefs.edit { putBoolean(WALLPAPER_PARALLAX_ENABLED, enabled) }
     }
 
+    fun getStartWallpaperScrollPx(): Float {
+        // Older builds persisted only the wallpaper coordinate, not the matching LazyRow state.
+        // Treat that orphaned value as stale on first upgrade; otherwise Start would paint the old
+        // parallax position and then snap back to item 0 as soon as its layout becomes available.
+        if (!prefs.contains(START_SCROLL_INDEX)) return 0f
+        return prefs.getFloat(START_WALLPAPER_SCROLL_PX, 0f)
+            .takeIf(Float::isFinite)
+            ?.coerceAtLeast(0f)
+            ?: 0f
+    }
+
+    fun getStartScrollIndex(): Int =
+        prefs.getInt(START_SCROLL_INDEX, 0).coerceAtLeast(0)
+
+    fun getStartScrollOffsetPx(): Int =
+        prefs.getInt(START_SCROLL_OFFSET_PX, 0).coerceAtLeast(0)
+
+    fun setStartViewState(
+        firstVisibleItemIndex: Int,
+        firstVisibleItemScrollOffset: Int,
+        wallpaperScrollPx: Float,
+    ) {
+        val safeWallpaper =
+            wallpaperScrollPx.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
+        prefs.edit {
+            putInt(START_SCROLL_INDEX, firstVisibleItemIndex.coerceAtLeast(0))
+            putInt(START_SCROLL_OFFSET_PX, firstVisibleItemScrollOffset.coerceAtLeast(0))
+            putFloat(START_WALLPAPER_SCROLL_PX, safeWallpaper)
+        }
+    }
+
     fun getLaunchTiming(allApps: Boolean = false): LaunchTiming {
         fun key(name: String) = if (allApps) "all_apps_$name" else name
         val defaults = LaunchTiming()
@@ -580,6 +611,9 @@ class AppsRepository(private val context: Context) {
         const val LAUNCH_TIMING_STRENGTH = "launch_timing_strength"
         const val LAUNCH_TIMING_STEPS = "launch_timing_steps"
         const val WALLPAPER_PARALLAX_ENABLED = "wallpaper_parallax_enabled"
+        const val START_WALLPAPER_SCROLL_PX = "start_wallpaper_scroll_px"
+        const val START_SCROLL_INDEX = "start_scroll_index"
+        const val START_SCROLL_OFFSET_PX = "start_scroll_offset_px"
         const val DEFAULT_LAYOUT_GENERATION_KEY = "default_start_layout_generation"
         const val DEFAULT_LAYOUT_GENERATION = 2
 
