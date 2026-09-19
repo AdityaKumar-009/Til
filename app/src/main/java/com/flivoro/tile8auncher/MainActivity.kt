@@ -56,6 +56,7 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -244,6 +245,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        LiveTileRuntime.requestReconnect(this)
         suppressLauncherTransitions()
         val homeWasPending = homeIntentPending
         homeIntentPending = false

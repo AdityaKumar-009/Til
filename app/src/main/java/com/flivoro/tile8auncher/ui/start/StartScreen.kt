@@ -196,6 +196,7 @@ fun StartScreen(
     val latestOnTileLongClick = rememberUpdatedState(onTileLongClick)
     val latestOnTilesChanged = rememberUpdatedState(onTilesChanged)
     val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
+    val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val doubleTapAction = LauncherFeatureStore.doubleTapAction(context)
 
     // Widget picker / backup restore run outside MainActivity by design. A tiny process-local revision
@@ -957,6 +958,10 @@ fun StartScreen(
             val selectedWidgetIds = selectedTiles.flatMap { LauncherFeatureStore.widgetStackIds(context, it.id) }
             val canStackWidgets = selectedTiles.size >= 2 &&
                 selectedTiles.all { LauncherFeatureStore.widgetStackIds(context, it.id).isNotEmpty() }
+            val singlePackage = selectedTiles.singleOrNull()?.packageName
+            val selectedLiveTileEnabled = remember(singlePackage, liveTilesRevision) {
+                singlePackage?.let { LauncherFeatureStore.isLiveTileEnabled(context, it) }
+            }
             val oneGroup = selectedTiles.map { it.groupName }.distinct().singleOrNull()
             val existingGroups = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct()
 
@@ -986,6 +991,13 @@ fun StartScreen(
                     selectedTiles.singleOrNull()?.let { latestOnTileLongClick.value(it) }
                     selectedTileIds = emptySet()
                     showResizeChoices = false
+                },
+                liveTileEnabled = selectedLiveTileEnabled,
+                onToggleLiveTile = singlePackage?.let { packageName ->
+                    {
+                        val enabled = LauncherFeatureStore.isLiveTileEnabled(context, packageName)
+                        LauncherFeatureStore.setLiveTileEnabled(context, packageName, !enabled)
+                    }
                 },
                 onCreateFolder = if (canCreateFolder) {
                     {
@@ -1126,6 +1138,8 @@ private fun StartCustomizationBar(
     onResize: (TileSize) -> Unit,
     onUnpin: () -> Unit,
     onCustomize: () -> Unit,
+    liveTileEnabled: Boolean?,
+    onToggleLiveTile: (() -> Unit)?,
     onCreateFolder: (() -> Unit)?,
     onStackWidgets: (() -> Unit)?,
     onRenameGroup: (() -> Unit)?,
@@ -1177,6 +1191,13 @@ private fun StartCustomizationBar(
             StartCommandButton("Unpin from Start", "unpin", onUnpin)
             if (singleTile != null) {
                 StartCommandButton("Resize", "app", onToggleResizeChoices)
+                if (onToggleLiveTile != null && liveTileEnabled != null) {
+                    StartCommandButton(
+                        if (liveTileEnabled) "Turn live tile off" else "Turn live tile on",
+                        "mail",
+                        onToggleLiveTile,
+                    )
+                }
                 StartCommandButton("Customize", "settings", onCustomize)
             }
             onCreateFolder?.let { StartCommandButton("Create folder", "app", it) }

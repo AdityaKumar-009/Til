@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -55,6 +56,23 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var appPickerMode by remember { mutableStateOf<AppPickerMode?>(null) }
     var showIconPacks by remember { mutableStateOf(false) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        LiveTileRuntime.requestReconnect(context)
+    }
+    val liveTileAccessGranted = LiveTileRuntime.hasNotificationAccess(context)
+    val liveTileConnected = LiveTileRuntime.listenerConnected
+    val liveUpdateCount = LiveTileNotificationStore.current().size
+    val liveTileStatus = when {
+        liveTileConnected && liveUpdateCount > 0 ->
+            "Connected • $liveUpdateCount active update(s) captured. Medium/wide tiles keep live content visible; small tiles show badges."
+        liveTileConnected ->
+            "Connected • waiting for notifications. A tile becomes live when its Android app posts readable notification content."
+        liveTileAccessGranted ->
+            "Notification access is granted, but the listener is reconnecting. Tap here if it remains disconnected."
+        else ->
+            "Grant Notification access so Tile8 can project Android notifications into Windows-style live tile updates."
+    }
 
     val installedApps by produceState<List<AppInfo>>(emptyList(), repository) {
         value = withContext(Dispatchers.IO) { repository.getInstalledApps() }
@@ -130,10 +148,11 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     Spacer(Modifier.height(12.dp))
 
     SettingsActionRow(
-        title = "Live tiles",
-        description = "Use notification content for Windows-style upward live-tile updates.",
+        title = if (liveTileConnected) "Live tiles • Connected" else "Live tiles",
+        description = liveTileStatus,
         glyph = "mail",
     ) {
+        LiveTileRuntime.requestReconnect(context)
         runCatching { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
     }
 
