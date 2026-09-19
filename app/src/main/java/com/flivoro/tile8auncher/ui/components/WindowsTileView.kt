@@ -85,6 +85,7 @@ fun WindowsTileView(
                 onDragCancel = onDragCancel,
             )
             .metroTilePress(
+                tileSize = tile.size,
                 onClick = onClick,
                 // The drag recognizer owns the long-press threshold when enabled. Keeping
                 // this null prevents the old modal action from firing at the same instant.
