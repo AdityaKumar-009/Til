@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.animation.UnlockEntranceMotionOverride
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.LauncherImageCache
@@ -108,6 +109,9 @@ class Tile8Application : Application() {
             WindowsLockScreenPreferences.wallpaperUri(this),
             maxSide = 2560,
         )
+        LauncherFeatureStore.lockSlideshowUris(this).forEach { uri ->
+            LauncherImageCache.preload(this, uri, maxSide = 2560)
+        }
 
         // If the process itself is created while the phone is asleep/locked, treat the eventual
         // reveal as an unlock even though this process missed the earlier SCREEN_OFF broadcast.
