@@ -42,6 +42,10 @@ data class TileModel(
     val iconGlyph: String = "",
     val groupName: String = "Start",
     val order: Int = 0,
+    // Optional Windows Start snap position. Null keeps legacy first-fit packing.
+    val startBand: Int? = null,
+    val startColumn: Int? = null,
+    val startRow: Int? = null,
 )
 
 @Immutable
