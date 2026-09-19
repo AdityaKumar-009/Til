@@ -241,6 +241,27 @@ class AppsRepository(private val context: Context) {
         return null
     }
 
+    private fun upgradeLegacyStockStartIfNeeded(tiles: List<TileModel>): List<TileModel> {
+        val generation = prefs.getInt(DEFAULT_LAYOUT_GENERATION_KEY, 0)
+        if (generation >= DEFAULT_LAYOUT_GENERATION) return tiles
+
+        val ids = tiles.mapTo(linkedSetOf()) { it.id }
+        val isLegacyStockSet = ids == LEGACY_DEFAULT_TILE_IDS
+
+        val result = if (isLegacyStockSet) {
+            // One-time migration for the old 18-tile demo set. The exact stock ID set is narrow
+            // enough to avoid touching layouts where the user pinned or unpinned anything, while
+            // still upgrading testers who tried rearranging those stock tiles on earlier builds.
+            getDefaultTiles()
+        } else {
+            tiles
+        }
+
+        prefs.edit { putInt(DEFAULT_LAYOUT_GENERATION_KEY, DEFAULT_LAYOUT_GENERATION) }
+        if (result !== tiles) savePinnedTiles(result)
+        return result
+    }
+
     fun loadPinnedTiles(): List<TileModel> {
         val savedJson = prefs.getString("pinned_tiles_json", null)
         if (!savedJson.isNullOrEmpty()) {
@@ -276,13 +297,14 @@ class AppsRepository(private val context: Context) {
                         )
                     )
                 }
-                if (list.isNotEmpty()) return list
+                if (list.isNotEmpty()) return upgradeLegacyStockStartIfNeeded(list)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
         val defaultTiles = getDefaultTiles()
         savePinnedTiles(defaultTiles)
+        prefs.edit { putInt(DEFAULT_LAYOUT_GENERATION_KEY, DEFAULT_LAYOUT_GENERATION) }
         return defaultTiles
     }
 
@@ -318,216 +340,147 @@ class AppsRepository(private val context: Context) {
         val installed = getInstalledApps()
 
         val mailApp = findAppForKeywords(installed, "mail", "gmail", "outlook")
+        val calendarApp = findAppForKeywords(installed, "calendar")
+        val peopleApp = findAppForKeywords(installed, "contact", "people", "dialer")
+        val chatApp = findAppForKeywords(installed, "skype", "whatsapp", "telegram", "message")
+        val weatherApp = findAppForKeywords(installed, "weather")
         val browserApp = findAppForKeywords(installed, "chrome", "browser", "firefox", "edge")
         val storeApp = findAppForKeywords(installed, "vending", "store", "play")
         val photosApp = findAppForKeywords(installed, "gallery", "photos", "photo")
-        val calendarApp = findAppForKeywords(installed, "calendar")
-        val clockApp = findAppForKeywords(installed, "clock", "deskclock")
         val settingsApp = findAppForKeywords(installed, "settings")
         val cameraApp = findAppForKeywords(installed, "camera")
-        val musicApp = findAppForKeywords(installed, "music", "spotify", "audio")
+        val clockApp = findAppForKeywords(installed, "clock", "deskclock")
+        val driveApp = findAppForKeywords(installed, "onedrive", "drive")
         val mapsApp = findAppForKeywords(installed, "maps", "map")
-        val weatherApp = findAppForKeywords(installed, "weather")
+        val musicApp = findAppForKeywords(installed, "music", "spotify", "audio")
+        val videoApp = findAppForKeywords(installed, "youtube", "video", "movies")
+        val gamesApp = findAppForKeywords(installed, "play games", "games", "gaming")
+        val newsApp = findAppForKeywords(installed, "news")
+
+        fun tile(
+            id: String,
+            title: String,
+            groupId: String,
+            size: TileSize,
+            color: Long,
+            type: TileType = TileType.APP,
+            glyph: String = "app",
+            app: AppInfo? = null,
+        ) = TileModel(
+            id = id,
+            title = title,
+            packageName = app?.packageName,
+            activityName = app?.activityName,
+            size = size,
+            colorValue = color,
+            tileType = type,
+            iconGlyph = glyph,
+            groupId = groupId,
+            // Microsoft's own 8.1 product-guide Start example uses separated unnamed clusters.
+            // Keep categories as stable identities while leaving the labels blank by default.
+            groupName = "",
+        )
+
+        val connect = "default:connect"
+        val windows = "default:windows"
+        val explore = "default:explore"
 
         return listOf(
-            // Row 1 - Mail (Wide, Blue), Weather (Wide, Cyan), Store (Large, Green)
-            TileModel(
-                id = "tile_mail",
-                title = "Mail",
-                packageName = mailApp?.packageName,
-                activityName = mailApp?.activityName,
-                size = TileSize.WIDE,
-                colorValue = WindowsColors.MailBlue,
-                tileType = TileType.MAIL,
-                iconGlyph = "mail",
-                order = 0
+            // Cluster 1 — the at-a-glance block from the period Windows 8.1 Start layout.
+            // It intentionally spans more than one four-cell band, with ordinary 8dp tile spacing
+            // inside the cluster and no artificial empty category row.
+            tile(
+                "tile_mail", "Mail", connect, TileSize.WIDE, WindowsColors.MailBlue,
+                TileType.MAIL, "mail", mailApp,
             ),
-            TileModel(
-                id = "tile_weather",
-                title = "Weather",
-                packageName = weatherApp?.packageName,
-                activityName = weatherApp?.activityName,
-                size = TileSize.WIDE,
-                colorValue = WindowsColors.WeatherCyan,
-                tileType = TileType.WEATHER,
-                iconGlyph = "weather",
-                order = 1
+            tile(
+                "tile_calendar", "Calendar", connect, TileSize.WIDE, WindowsColors.CalendarPurple,
+                TileType.CALENDAR, "calendar", calendarApp,
             ),
-            TileModel(
-                id = "tile_store",
-                title = "Store",
-                packageName = storeApp?.packageName,
-                activityName = storeApp?.activityName,
-                size = TileSize.LARGE,
-                colorValue = WindowsColors.StoreGreen,
-                tileType = TileType.STORE,
-                iconGlyph = "store",
-                order = 2
+            tile(
+                "tile_people", "People", connect, TileSize.MEDIUM, WindowsColors.PeopleOrange,
+                TileType.APP, "people", peopleApp,
             ),
-
-            // Row 2 - Clock & Calendar
-            TileModel(
-                id = "tile_clock",
-                title = "Alarms & Clock",
-                packageName = clockApp?.packageName,
-                activityName = clockApp?.activityName,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.SportsPurple,
-                tileType = TileType.CLOCK,
-                iconGlyph = "clock",
-                order = 3
+            tile(
+                "tile_skype", "Skype", connect, TileSize.MEDIUM, WindowsColors.SkypeCyan,
+                TileType.APP, "skype", chatApp,
             ),
-            TileModel(
-                id = "tile_calendar",
-                title = "Calendar",
-                packageName = calendarApp?.packageName,
-                activityName = calendarApp?.activityName,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.CalendarPurple,
-                tileType = TileType.CALENDAR,
-                iconGlyph = "calendar",
-                order = 4
+            tile(
+                "tile_desktop", "Desktop", connect, TileSize.MEDIUM, WindowsColors.DesktopBlue,
+                TileType.DESKTOP, "desktop",
+            ),
+            tile(
+                "tile_weather", "Weather", connect, TileSize.WIDE, WindowsColors.WeatherCyan,
+                TileType.WEATHER, "weather", weatherApp,
+            ),
+            tile(
+                "tile_settings", "PC settings", connect, TileSize.SMALL, WindowsColors.SettingsPurple,
+                TileType.SETTINGS, "settings", settingsApp,
+            ),
+            tile(
+                "tile_clock", "Alarms & Clock", connect, TileSize.SMALL, WindowsColors.SportsPurple,
+                TileType.CLOCK, "clock", clockApp,
             ),
 
-            // Mini / Small Tiles (People, Skype, IE, Music, Camera, Settings)
-            TileModel(
-                id = "tile_people",
-                title = "People",
-                packageName = findAppForKeywords(installed, "contact", "people", "dialer")?.packageName,
-                size = TileSize.SMALL,
-                colorValue = WindowsColors.PeopleOrange,
-                tileType = TileType.APP,
-                iconGlyph = "people",
-                order = 5
+            // Cluster 2 — browser/cloud/photos plus the four small media tiles. This follows the
+            // visual rhythm of Microsoft's 8.1 Product Guide screenshot, where IE and four small
+            // media tiles sit beside Help+Tips/OneDrive/Photos.
+            tile(
+                "tile_ie", "Internet Explorer", windows, TileSize.MEDIUM,
+                WindowsColors.InternetExplorerBlue, TileType.INTERNET_EXPLORER, "ie", browserApp,
             ),
-            TileModel(
-                id = "tile_skype",
-                title = "Skype",
-                packageName = findAppForKeywords(installed, "skype", "whatsapp", "telegram", "message")?.packageName,
-                size = TileSize.SMALL,
-                colorValue = WindowsColors.SkypeCyan,
-                tileType = TileType.APP,
-                iconGlyph = "skype",
-                order = 6
+            tile(
+                "tile_video", "Video", windows, TileSize.SMALL, WindowsColors.NewsRed,
+                TileType.APP, "video", videoApp,
             ),
-            TileModel(
-                id = "tile_ie",
-                title = "Internet Explorer",
-                packageName = browserApp?.packageName,
-                activityName = browserApp?.activityName,
-                size = TileSize.SMALL,
-                colorValue = WindowsColors.InternetExplorerBlue,
-                tileType = TileType.INTERNET_EXPLORER,
-                iconGlyph = "ie",
-                order = 7
+            tile(
+                "tile_music", "Music", windows, TileSize.SMALL, WindowsColors.MusicOrange,
+                TileType.APP, "music", musicApp,
             ),
-            TileModel(
-                id = "tile_music",
-                title = "Music",
-                packageName = musicApp?.packageName,
-                size = TileSize.SMALL,
-                colorValue = WindowsColors.MusicOrange,
-                tileType = TileType.APP,
-                iconGlyph = "music",
-                order = 8
+            tile(
+                "tile_games", "Games", windows, TileSize.SMALL, WindowsColors.StoreGreen,
+                TileType.APP, "games", gamesApp,
             ),
-            TileModel(
-                id = "tile_camera",
-                title = "Camera",
-                packageName = cameraApp?.packageName,
-                activityName = cameraApp?.activityName,
-                size = TileSize.SMALL,
-                colorValue = WindowsColors.CameraPink,
-                tileType = TileType.APP,
-                iconGlyph = "camera",
-                order = 9
+            tile(
+                "tile_camera", "Camera", windows, TileSize.SMALL, WindowsColors.CameraPink,
+                TileType.APP, "camera", cameraApp,
             ),
-            TileModel(
-                id = "tile_settings",
-                title = "PC settings",
-                packageName = settingsApp?.packageName,
-                activityName = settingsApp?.activityName,
-                size = TileSize.SMALL,
-                colorValue = WindowsColors.SettingsPurple,
-                tileType = TileType.SETTINGS,
-                iconGlyph = "settings",
-                order = 10
+            tile(
+                "tile_help", "Help+Tips", windows, TileSize.MEDIUM, WindowsColors.HelpOrange,
+                TileType.APP, "help",
+            ),
+            tile(
+                "tile_onedrive", "OneDrive", windows, TileSize.MEDIUM, WindowsColors.InternetExplorerBlue,
+                TileType.APP, "cloud", driveApp,
+            ),
+            tile(
+                "tile_photos", "Photos", windows, TileSize.WIDE, WindowsColors.Teal,
+                TileType.PHOTOS, "photos", photosApp,
             ),
 
-            // Row 3 - Desktop, Help+Tips, Reading List, Maps, Photos, Money, News
-            TileModel(
-                id = "tile_desktop",
-                title = "Desktop",
-                packageName = null,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.DesktopBlue,
-                tileType = TileType.DESKTOP,
-                iconGlyph = "desktop",
-                order = 11
+            // Cluster 3 — information/discovery. At the common six-row phone layout this fills a
+            // single band rather than leaving a mostly empty continuation column.
+            tile(
+                "tile_news", "News", explore, TileSize.WIDE, WindowsColors.NewsRed,
+                TileType.APP, "news", newsApp,
             ),
-            TileModel(
-                id = "tile_help",
-                title = "Help+Tips",
-                packageName = null,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.HelpOrange,
-                tileType = TileType.APP,
-                iconGlyph = "help",
-                order = 12
+            tile(
+                "tile_money", "Money", explore, TileSize.MEDIUM, WindowsColors.MoneyGreen,
+                TileType.MONEY, "money",
             ),
-            TileModel(
-                id = "tile_reading_list",
-                title = "Reading List",
-                packageName = null,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.ReadingListCrimson,
-                tileType = TileType.READING_LIST,
-                iconGlyph = "reading_list",
-                order = 13
+            tile(
+                "tile_maps", "Maps", explore, TileSize.MEDIUM, WindowsColors.Purple,
+                TileType.APP, "maps", mapsApp,
             ),
-            TileModel(
-                id = "tile_maps",
-                title = "Maps",
-                packageName = mapsApp?.packageName,
-                activityName = mapsApp?.activityName,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.Purple,
-                tileType = TileType.APP,
-                iconGlyph = "maps",
-                order = 14
+            tile(
+                "tile_reading_list", "Reading List", explore, TileSize.MEDIUM,
+                WindowsColors.ReadingListCrimson, TileType.READING_LIST, "reading_list",
             ),
-            TileModel(
-                id = "tile_photos",
-                title = "Photos",
-                packageName = photosApp?.packageName,
-                activityName = photosApp?.activityName,
-                size = TileSize.MEDIUM,
-                colorValue = WindowsColors.Teal,
-                tileType = TileType.PHOTOS,
-                iconGlyph = "photos",
-                order = 15
+            tile(
+                "tile_store", "Store", explore, TileSize.MEDIUM, WindowsColors.StoreGreen,
+                TileType.STORE, "store", storeApp,
             ),
-            TileModel(
-                id = "tile_money",
-                title = "Money",
-                packageName = null,
-                size = TileSize.WIDE,
-                colorValue = WindowsColors.MoneyGreen,
-                tileType = TileType.MONEY,
-                iconGlyph = "money",
-                order = 16
-            ),
-            TileModel(
-                id = "tile_news",
-                title = "News",
-                packageName = null,
-                size = TileSize.WIDE,
-                colorValue = WindowsColors.NewsRed,
-                tileType = TileType.APP,
-                iconGlyph = "news",
-                order = 17
-            )
-        )
+        ).mapIndexed { index, tile -> tile.copy(order = index) }
     }
 
     fun getFlipAnimationMode(): FlipAnimationMode {
@@ -627,5 +580,28 @@ class AppsRepository(private val context: Context) {
         const val LAUNCH_TIMING_STRENGTH = "launch_timing_strength"
         const val LAUNCH_TIMING_STEPS = "launch_timing_steps"
         const val WALLPAPER_PARALLAX_ENABLED = "wallpaper_parallax_enabled"
+        const val DEFAULT_LAYOUT_GENERATION_KEY = "default_start_layout_generation"
+        const val DEFAULT_LAYOUT_GENERATION = 2
+
+        val LEGACY_DEFAULT_TILE_IDS = linkedSetOf(
+            "tile_mail",
+            "tile_weather",
+            "tile_store",
+            "tile_clock",
+            "tile_calendar",
+            "tile_people",
+            "tile_skype",
+            "tile_ie",
+            "tile_music",
+            "tile_camera",
+            "tile_settings",
+            "tile_desktop",
+            "tile_help",
+            "tile_reading_list",
+            "tile_maps",
+            "tile_photos",
+            "tile_money",
+            "tile_news",
+        )
     }
 }

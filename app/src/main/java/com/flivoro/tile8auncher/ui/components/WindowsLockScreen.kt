@@ -97,6 +97,7 @@ import kotlin.math.roundToInt
 fun Windows81LockScreen(
     cameraGestureEnabled: Boolean,
     onDismiss: () -> Unit,
+    backgroundContent: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -191,6 +192,13 @@ fun Windows81LockScreen(
             .clipToBounds()
             .onSizeChanged { heightPx = it.height.coerceAtLeast(1) },
     ) {
+        // Windows reveals the Start background behind the moving lock surface. Render that
+        // underlay explicitly instead of depending on whatever happens to be underneath this
+        // composited lock layer on a particular GPU/OEM implementation.
+        Box(Modifier.fillMaxSize()) {
+            backgroundContent()
+        }
+
         if (cameraGestureEnabled) {
             CameraSwipeCue(
                 revealPx = offsetY.coerceAtLeast(0f),

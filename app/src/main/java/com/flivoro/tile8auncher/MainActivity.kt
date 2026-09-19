@@ -933,6 +933,23 @@ fun Tile8LauncherApp(
             Windows81LockScreen(
                 cameraGestureEnabled = WindowsLockScreenPreferences.isCameraGestureEnabled(context),
                 onDismiss = { WindowsLockScreenRuntime.dismiss() },
+                backgroundContent = {
+                    // The revealed area must be the Start wallpaper at Start's real horizontal
+                    // position, not another copy of the lock picture and not the Apps-view offset.
+                    WindowsWallpaper(
+                        wallpaperStyle = wallpaperStyle,
+                        enabled = wallpaperParallaxEnabled,
+                        scrollOffsetPx = {
+                            val info = startScroll.layoutInfo
+                            val itemWidth = info.visibleItemsInfo.firstOrNull()?.size ?: 0
+                            (
+                                startScroll.firstVisibleItemIndex.toFloat() *
+                                    (itemWidth + info.mainAxisItemSpacing) +
+                                    startScroll.firstVisibleItemScrollOffset
+                                ).coerceAtLeast(0f)
+                        },
+                    )
+                },
             )
         }
     }

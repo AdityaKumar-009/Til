@@ -198,6 +198,19 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
             drawRect(cutColor, topLeft = Offset(cx + (gap / 2), cy + (gap / 2)), size = Size(sqSize, sqSize))
         }
 
+        "cloud" -> {
+            // Windows 8.1 OneDrive/SkyDrive-style cloud silhouette.
+            val cloud = Path().apply {
+                moveTo(w * 0.22f, h * 0.68f)
+                cubicTo(w * 0.12f, h * 0.68f, w * 0.10f, h * 0.54f, w * 0.19f, h * 0.50f)
+                cubicTo(w * 0.20f, h * 0.36f, w * 0.34f, h * 0.30f, w * 0.45f, h * 0.37f)
+                cubicTo(w * 0.52f, h * 0.24f, w * 0.72f, h * 0.27f, w * 0.76f, h * 0.43f)
+                cubicTo(w * 0.90f, h * 0.44f, w * 0.93f, h * 0.62f, w * 0.82f, h * 0.68f)
+                close()
+            }
+            drawPath(cloud, color = color, style = Fill)
+        }
+
         "weather" -> {
             // Sun glyph with rays
             val cx = w * 0.5f

@@ -101,8 +101,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val START_WITHIN_GROUP_SPACING_DP = 8f
-private const val START_GROUP_GUTTER_DP = 36f
-private const val START_END_GROUP_DROP_ZONE_DP = 56f
+private const val START_GROUP_GUTTER_DP = 24f
+private const val START_END_GROUP_DROP_ZONE_DP = 32f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
 
@@ -707,7 +707,14 @@ fun StartScreen(
 
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val layoutWidth = maxWidth - 48.dp
-                val tileAreaHeight = (maxHeight - START_GROUP_LABEL_HEIGHT_DP.dp).coerceAtLeast(1.dp)
+                val hasVisibleGroupLabels = remember(visibleTiles) {
+                    visibleTiles.any { tile ->
+                        tile.groupName.isNotBlank() &&
+                            !(tile.effectiveStartGroupId() == "legacy:Start" && tile.groupName == "Start")
+                    }
+                }
+                val groupLabelHeightDp = if (hasVisibleGroupLabels) START_GROUP_LABEL_HEIGHT_DP else 0f
+                val tileAreaHeight = (maxHeight - groupLabelHeightDp.dp).coerceAtLeast(1.dp)
                 val metrics = remember(layoutWidth, tileAreaHeight) {
                     calculateStartGridMetrics(
                         availableWidthDp = layoutWidth.value,
@@ -771,7 +778,7 @@ fun StartScreen(
                                 0f
                             }
                             val trailingEndPx = with(density) { trailingEndDp.dp.toPx() }
-                            val labelHeightPx = with(density) { START_GROUP_LABEL_HEIGHT_DP.dp.toPx() }
+                            val labelHeightPx = with(density) { groupLabelHeightDp.dp.toPx() }
                             val gutterKey = "start-group-gutter:${band.groupId}:before"
                             val startGutterKey = "start-group-gutter:start"
                             val endGutterKey = "start-group-gutter:end"
@@ -792,7 +799,7 @@ fun StartScreen(
                             Box(
                                 modifier = Modifier
                                     .width((metrics.bandWidthDp + leadingSpacingDp + trailingEndDp).dp)
-                                    .height((metrics.bandHeightDp + START_GROUP_LABEL_HEIGHT_DP).dp)
+                                    .height((metrics.bandHeightDp + groupLabelHeightDp).dp)
                                     .onGloballyPositioned { coordinates ->
                                         if (coordinates.isAttached) {
                                             val whole = coordinates.boundsInWindow()
@@ -890,7 +897,7 @@ fun StartScreen(
                                         maxLines = 1,
                                         modifier = Modifier
                                             .offset(x = leadingSpacingDp.dp)
-                                            .height(START_GROUP_LABEL_HEIGHT_DP.dp),
+                                            .height(groupLabelHeightDp.dp),
                                     )
                                 }
 
@@ -900,7 +907,7 @@ fun StartScreen(
                                             .offset(x = (-6).dp)
                                             .width(4.dp)
                                             .fillMaxHeight()
-                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .padding(top = groupLabelHeightDp.dp + 6.dp, bottom = 6.dp)
                                             .background(Color.White.copy(alpha = 0.92f)),
                                     )
                                 }
@@ -948,7 +955,7 @@ fun StartScreen(
                                             leadingSpacingDp + placed.column * (metrics.cellDp + metrics.gapDp)
                                             ).dp
                                         val targetY = (
-                                            START_GROUP_LABEL_HEIGHT_DP +
+                                            groupLabelHeightDp +
                                                 placed.row * (metrics.cellDp + metrics.gapDp)
                                             ).dp
                                         val animatedX by animateDpAsState(

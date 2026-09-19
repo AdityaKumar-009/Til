@@ -51,7 +51,6 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LiveTileNotification
 import com.flivoro.tile8auncher.features.LiveTileNotificationStore
-import com.flivoro.tile8auncher.ui.animation.metroTileLongPressDrag
 import com.flivoro.tile8auncher.ui.animation.metroTilePress
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -78,20 +77,16 @@ fun WindowsTileView(
         tile = tile,
         appIcon = appIcon,
         modifier = modifier
-            .metroTileLongPressDrag(
-                enabled = dragEnabled,
+            .metroTilePress(
+                tileSize = tile.size,
+                onClick = onClick,
+                onLongClick = onLongClick,
+                dragEnabled = dragEnabled,
                 onDragStart = onDragStart,
                 onDrag = onDrag,
                 onLayoutShift = onDragLayoutShift,
                 onDragEnd = onDragEnd,
                 onDragCancel = onDragCancel,
-            )
-            .metroTilePress(
-                tileSize = tile.size,
-                onClick = onClick,
-                // The drag recognizer owns the long-press threshold when enabled. Keeping
-                // this null prevents the old modal action from firing at the same instant.
-                onLongClick = if (dragEnabled) null else onLongClick,
             ),
     )
 }
