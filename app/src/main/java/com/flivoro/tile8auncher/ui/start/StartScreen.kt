@@ -1072,7 +1072,12 @@ fun StartScreen(
                 val updated = tiles.map { tile ->
                     when {
                         request.renameWholeGroup && tile.groupName == oldGroup -> tile.copy(groupName = newName)
-                        !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(groupName = newName)
+                        !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(
+                            groupName = newName,
+                            startBand = null,
+                            startColumn = null,
+                            startRow = null,
+                        )
                         else -> tile
                     }
                 }
