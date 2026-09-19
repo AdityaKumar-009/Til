@@ -239,6 +239,7 @@ fun StartScreen(
             selectedTileIds = emptySet()
             dragTiles = null
             draggingTileId = null
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
@@ -293,6 +294,7 @@ fun StartScreen(
             selectedTileIds = emptySet()
             dragTiles = null
             draggingTileId = null
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
@@ -307,6 +309,7 @@ fun StartScreen(
         if (draggingTileId !in validIds) {
             dragTiles = null
             draggingTileId = null
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
@@ -326,6 +329,7 @@ fun StartScreen(
                 showResizeChoices = false
                 dragTiles = null
                 draggingTileId = null
+                dragPointerOffset = Offset.Zero
                 dragOffset = Offset.Zero
                 activeGutterKey = null
                 dragNewGroupId = null
