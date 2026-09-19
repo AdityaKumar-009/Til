@@ -29,7 +29,12 @@ internal fun reorderStartTiles(
     val moved = if (dragged.groupName == target.groupName) {
         dragged
     } else {
-        dragged.copy(groupName = target.groupName)
+        dragged.copy(
+            groupName = target.groupName,
+            startBand = null,
+            startColumn = null,
+            startRow = null,
+        )
     }
     val insertionIndex = (targetIndexAfterRemoval + if (placeAfterTarget) 1 else 0)
         .coerceIn(0, working.size)
