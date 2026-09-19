@@ -17,6 +17,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -69,6 +73,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -869,6 +875,51 @@ fun StartScreen(
                         .fillMaxSize()
                         .onGloballyPositioned { coordinates ->
                             if (coordinates.isAttached) tileViewportBounds = coordinates.boundsInWindow()
+                        }
+                        .pointerInput(interactionEnabled, launchingTileId) {
+                            if (!interactionEnabled || launchingTileId != null) return@pointerInput
+
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val viewport = tileViewportBounds
+                                if (viewport == Rect.Zero) return@awaitEachGesture
+
+                                val downInWindow = Offset(
+                                    x = viewport.left + down.position.x,
+                                    y = viewport.top + down.position.y,
+                                )
+                                val hitId = tileBounds.entries
+                                    .lastOrNull { (_, bounds) -> bounds.contains(downInWindow) }
+                                    ?.key
+                                    ?: return@awaitEachGesture
+                                val hitTile = tiles.firstOrNull { it.id == hitId }
+                                    ?: return@awaitEachGesture
+
+                                val longPress = awaitLongPressOrCancellation(down.id)
+                                    ?: return@awaitEachGesture
+                                val bounds = tileBounds[hitId] ?: return@awaitEachGesture
+
+                                beginTileDrag(hitTile, bounds)
+
+                                // Preserve the contact point if the finger drifted inside touch
+                                // slop during the hold interval.
+                                val heldDelta = longPress.position - down.position
+                                if (heldDelta != Offset.Zero) moveDraggedTile(heldDelta)
+
+                                val completed = drag(longPress.id) { change ->
+                                    val delta = change.positionChange()
+                                    if (delta != Offset.Zero) {
+                                        moveDraggedTile(delta)
+                                        change.consume()
+                                    }
+                                }
+
+                                if (completed) {
+                                    finishTileDrag(commit = true)
+                                } else {
+                                    finishTileDrag(commit = false)
+                                }
+                            }
                         },
                 ) {
                     LazyRow(
@@ -1160,11 +1211,7 @@ fun StartScreen(
                                                     modifier = Modifier.fillMaxSize(),
                                                     onClick = { bounds -> handleTileClick(tile, bounds) },
                                                     onLongClick = { selectedTileIds = setOf(tile.id) },
-                                                    dragEnabled = interactionEnabled && launchingTileId == null,
-                                                    onDragStart = { bounds -> beginTileDrag(tile, bounds) },
-                                                    onDrag = ::moveDraggedTile,
-                                                    onDragEnd = { finishTileDrag(commit = true) },
-                                                    onDragCancel = { finishTileDrag(commit = false) },
+                                                    dragEnabled = false,
                                                 )
                                             }
 
