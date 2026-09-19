@@ -159,6 +159,13 @@ private data class StartGroupGutterDropTarget(
     val bounds: Rect,
 )
 
+private data class StartWallpaperScrollFrame(
+    val isScrolling: Boolean,
+    val firstIndex: Int,
+    val firstOffsetPx: Int,
+    val visibleOffsets: List<Pair<Any, Int>>,
+)
+
 internal fun absoluteStartScrollPx(
     itemWidthsPx: List<Float>,
     firstVisibleItemIndex: Int,
@@ -596,7 +603,13 @@ fun StartScreen(
                     else -> 0f
                 }
                 if (step != 0f) {
-                    listState.scrollBy(step)
+                    val consumed = listState.scrollBy(step)
+                    if (consumed != 0f && !listState.isScrollInProgress) {
+                        trackedWallpaperScrollPx =
+                            (trackedWallpaperScrollPx.takeIf(Float::isFinite) ?: 0f) + consumed
+                        trackedWallpaperScrollPx = trackedWallpaperScrollPx.coerceAtLeast(0f)
+                        latestOnWallpaperScrollOffsetChanged.value(trackedWallpaperScrollPx)
+                    }
                     // The pointer did not move, but the grid underneath it did.
                     updateDraggedTilePlacement(dragOriginBounds.center + dragPointerOffset)
                 }
@@ -787,20 +800,66 @@ fun StartScreen(
                     }
                 }
 
-                LaunchedEffect(listState, bandItemWidthsPx) {
+                val latestBandItemWidthsPx = rememberUpdatedState(bandItemWidthsPx)
+
+                LaunchedEffect(listState, bandItemWidthsPx.isNotEmpty()) {
                     if (bandItemWidthsPx.isEmpty()) return@LaunchedEffect
 
+                    var previousOffsets = emptyMap<Any, Int>()
+                    var wasScrolling = false
+
                     snapshotFlow {
-                        listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                    }.collect { (firstIndex, firstOffsetPx) ->
-                        // This is the exact LazyRow world X. Unlike index * currentItemWidth, the
-                        // prefix sum remains continuous when a 24dp group gutter makes one band
-                        // wider than the next.
-                        trackedWallpaperScrollPx = absoluteStartScrollPx(
-                            itemWidthsPx = bandItemWidthsPx,
-                            firstVisibleItemIndex = firstIndex,
-                            firstVisibleItemScrollOffset = firstOffsetPx,
+                        StartWallpaperScrollFrame(
+                            isScrolling = listState.isScrollInProgress,
+                            firstIndex = listState.firstVisibleItemIndex,
+                            firstOffsetPx = listState.firstVisibleItemScrollOffset,
+                            visibleOffsets = listState.layoutInfo.visibleItemsInfo.map { info ->
+                                info.key to info.offset
+                            },
                         )
+                    }.collect { frame ->
+                        val widths = latestBandItemWidthsPx.value
+                        if (widths.isEmpty()) return@collect
+
+                        val currentOffsets = frame.visibleOffsets.toMap()
+                        if (!trackedWallpaperScrollPx.isFinite()) {
+                            trackedWallpaperScrollPx = absoluteStartScrollPx(
+                                itemWidthsPx = widths,
+                                firstVisibleItemIndex = frame.firstIndex,
+                                firstVisibleItemScrollOffset = frame.firstOffsetPx,
+                            )
+                        } else if (previousOffsets.isNotEmpty()) {
+                            val commonDelta = frame.visibleOffsets.firstNotNullOfOrNull {
+                                    (key, currentOffset) ->
+                                previousOffsets[key]?.let { previousOffset ->
+                                    previousOffset - currentOffset
+                                }
+                            }
+
+                            when {
+                                // Real list motion advances the wallpaper by the same consumed
+                                // pixels. Reflow while stationary only refreshes the baseline.
+                                (frame.isScrolling || wasScrolling) && commonDelta != null -> {
+                                    trackedWallpaperScrollPx =
+                                        (trackedWallpaperScrollPx + commonDelta).coerceAtLeast(0f)
+                                }
+
+                                // scrollToItem can replace every visible key in one frame without
+                                // entering an animated scroll. That is a genuine navigation jump,
+                                // so resolve its exact world coordinate from the variable widths.
+                                currentOffsets.keys.none { it in previousOffsets } &&
+                                    frame.firstIndex != 0 -> {
+                                    trackedWallpaperScrollPx = absoluteStartScrollPx(
+                                        itemWidthsPx = widths,
+                                        firstVisibleItemIndex = frame.firstIndex,
+                                        firstVisibleItemScrollOffset = frame.firstOffsetPx,
+                                    )
+                                }
+                            }
+                        }
+
+                        previousOffsets = currentOffsets
+                        wasScrolling = frame.isScrolling
                         latestOnWallpaperScrollOffsetChanged.value(trackedWallpaperScrollPx)
                     }
                 }
