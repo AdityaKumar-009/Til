@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -247,6 +248,9 @@ fun StartScreen(
     var previewJob by remember { mutableStateOf<Job?>(null) }
     var dragAutoScrollActive by remember { mutableStateOf(false) }
     var dragStartGridPositions by remember {
+        mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
+    }
+    var packedGridPositions by remember {
         mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
     }
     var dragNewGroupId by remember { mutableStateOf<String?>(null) }
@@ -466,7 +470,7 @@ fun StartScreen(
                 x = (pointerWindow.x - bounds.left).coerceIn(0f, bounds.width),
                 y = (pointerWindow.y - bounds.top).coerceIn(0f, bounds.height),
             )
-            dragStartGridPositions = tileGridPositions.toMap()
+            dragStartGridPositions = packedGridPositions.ifEmpty { tileGridPositions.toMap() }
             pendingDropProposal = null
             appliedDropProposal = null
             lastGridDrop = null
@@ -506,7 +510,24 @@ fun StartScreen(
     ) {
         val draggedId = draggingTileId ?: return
         val base = tiles.toList()
-        val dragged = base.firstOrNull { it.id == draggedId } ?: return
+        // Freeze every tile at the exact grid position it occupied when the drag started. Windows
+        // tiles have explicit row/column positions; leaving most Tile8 tiles as first-fit/null was
+        // why one hover could make half a group reshuffle. Only true conflicts are released.
+        val anchoredBase = base.map { tile ->
+            val position = dragStartGridPositions[tile.id]
+            if (position == null) {
+                tile
+            } else {
+                tile.copy(
+                    groupId = position.groupId,
+                    groupName = position.groupName,
+                    startBand = position.continuationIndex,
+                    startColumn = position.column,
+                    startRow = position.row,
+                )
+            }
+        }
+        val dragged = anchoredBase.firstOrNull { it.id == draggedId } ?: return
 
         when (proposal) {
             is StartDropProposal.NewGroup -> {
@@ -519,7 +540,7 @@ fun StartScreen(
                 val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
                 dragNewGroupId = newGroupId
                 dragTiles = moveDraggedTileToNewGroup(
-                    tiles = base,
+                    tiles = anchoredBase,
                     draggedId = draggedId,
                     newGroupId = newGroupId,
                     insertBeforeGroupId = proposal.beforeGroupId,
@@ -556,7 +577,7 @@ fun StartScreen(
                     .keys
 
                 var working = moveDraggedTileToExistingGroup(
-                    tiles = base,
+                    tiles = anchoredBase,
                     draggedId = draggedId,
                     targetGroupId = key.groupId,
                     targetGroupName = targetBand.groupName,
@@ -952,6 +973,30 @@ fun StartScreen(
                         maxRows = metrics.rows,
                         maxColumns = metrics.columns,
                     )
+                }
+
+                val currentPackedGridPositions = remember(packed) {
+                    buildMap<String, StartTileGridPosition> {
+                        packed.bands.forEach { band ->
+                            band.tiles.forEach { placed ->
+                                put(
+                                    placed.tile.id,
+                                    StartTileGridPosition(
+                                        groupId = band.groupId,
+                                        groupName = band.groupName,
+                                        continuationIndex = band.continuationIndex,
+                                        column = placed.column,
+                                        row = placed.row,
+                                        columns = placed.columns,
+                                        rows = placed.rows,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                SideEffect {
+                    packedGridPositions = currentPackedGridPositions
                 }
 
                 // LazyRow items are not equal-width once Windows group gutters are included.
