@@ -464,7 +464,7 @@ fun Tile8LauncherApp(
     // Start's bands have different physical widths because group gutters are real layout items.
     // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
     // it from firstVisibleItemIndex * currentItemWidth (which jumps when the first item changes).
-    var startWallpaperScrollPx by rememberSaveable { mutableFloatStateOf(0f) }
+    var startWallpaperScrollPx by rememberSaveable { mutableStateOf(0f) }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
