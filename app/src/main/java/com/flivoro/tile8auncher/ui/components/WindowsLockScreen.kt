@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
@@ -207,6 +208,10 @@ fun Windows81LockScreen(
                     translationY = offsetY
                     clip = true
                     shape = RectangleShape
+                    // Force the moving lock panel into its own bounded texture. Some Android GPU
+                    // pipelines can otherwise let an oversized diagonal DrawScope path survive a
+                    // translated RenderNode clip by a few pixels at the bottom-right corner.
+                    compositingStrategy = CompositingStrategy.Offscreen
                 }
                 .clipToBounds()
                 .draggable(
