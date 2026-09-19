@@ -237,6 +237,8 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragOffset = Offset.Zero
+            activeGutterKey = null
+            dragNewGroupId = null
             openFolderTile = null
             groupDialog = null
         }
@@ -289,6 +291,8 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragOffset = Offset.Zero
+            activeGutterKey = null
+            dragNewGroupId = null
             openFolderTile = null
             groupDialog = null
         }
@@ -301,6 +305,8 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragOffset = Offset.Zero
+            activeGutterKey = null
+            dragNewGroupId = null
         }
     }
 
@@ -318,6 +324,8 @@ fun StartScreen(
                 dragTiles = null
                 draggingTileId = null
                 dragOffset = Offset.Zero
+                activeGutterKey = null
+                dragNewGroupId = null
             }
         }
     }
