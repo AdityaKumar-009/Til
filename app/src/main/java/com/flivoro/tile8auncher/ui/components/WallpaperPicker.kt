@@ -1,12 +1,16 @@
 package com.flivoro.tile8auncher.ui.components
 
+import android.content.Intent
 import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -60,7 +64,40 @@ internal fun WallpaperPicker(
     var cameraGestureEnabled by remember {
         mutableStateOf(WindowsLockScreenPreferences.isCameraGestureEnabled(context))
     }
+    var lockWallpaperUri by remember {
+        mutableStateOf(WindowsLockScreenPreferences.wallpaperUri(context))
+    }
     val accentColor = StartPersonalization.accentColor
+    val customStartWallpaperUri = StartPersonalization.customWallpaperUri
+    val customStartOverlay = StartPersonalization.customWallpaperOverlay
+
+    fun persistReadPermission(uri: android.net.Uri) {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+    }
+
+    val startWallpaperPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            persistReadPermission(uri)
+            StartPersonalization.setCustomWallpaperUri(context, uri.toString())
+        }
+    }
+
+    val lockWallpaperPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            persistReadPermission(uri)
+            lockWallpaperUri = uri.toString()
+            WindowsLockScreenPreferences.setWallpaperUri(context, uri.toString())
+        }
+    }
 
     fun updateLockScreen(enabled: Boolean) {
         lockScreenEnabled = enabled
@@ -73,7 +110,54 @@ internal fun WallpaperPicker(
     }
 
     Text("Start background", color = Color(0xFF5133AB), fontSize = 20.sp)
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(6.dp))
+    Text(
+        "Choose a Windows background below or use your own picture. A dark overlay can improve tile contrast.",
+        color = Color(0xFF666666),
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+    )
+    Spacer(Modifier.height(10.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = if (customStartWallpaperUri == null) "Choose picture" else "Change picture",
+            color = Color.White,
+            modifier = Modifier
+                .background(Color(0xFF5133AB))
+                .clickable { startWallpaperPicker.launch(arrayOf("image/*")) }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+        if (customStartWallpaperUri != null) {
+            Text(
+                text = "Use Windows background",
+                color = Color(0xFF5133AB),
+                modifier = Modifier
+                    .border(1.dp, Color(0xFF5133AB))
+                    .clickable { StartPersonalization.setCustomWallpaperUri(context, null) }
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+            )
+        }
+    }
+    if (customStartWallpaperUri != null) {
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Dark overlay ${(customStartOverlay * 100).toInt()}%",
+            color = Color(0xFF444444),
+            fontSize = 12.sp,
+        )
+        Slider(
+            value = customStartOverlay,
+            onValueChange = { StartPersonalization.setCustomWallpaperOverlay(context, it) },
+            valueRange = 0f..0.72f,
+        )
+    }
+
+    Spacer(Modifier.height(16.dp))
+    Text("Windows backgrounds", color = Color(0xFF5133AB), fontSize = 16.sp)
+    Spacer(Modifier.height(10.dp))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         wallpaperNames.indices.chunked(2).forEach { indices ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -111,7 +195,7 @@ internal fun WallpaperPicker(
                                 .background(Color(0xFF23053D)),
                         ) {
                             if (index == 0) {
-                                WindowsWallpaper(enabled = false)
+                                WindowsWallpaper(enabled = false, allowCustomWallpaper = false)
                             } else {
                                 preview?.let {
                                     Image(
@@ -162,6 +246,47 @@ internal fun WallpaperPicker(
     )
     Spacer(Modifier.height(12.dp))
 
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFD0D0D0))
+            .background(Color.White)
+            .clickable { lockWallpaperPicker.launch(arrayOf("image/*")) }
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Lock screen picture", color = Color(0xFF222222), fontSize = 15.sp)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                if (lockWallpaperUri == null) "Use the Windows default artwork or choose your own picture."
+                else "Custom picture selected. This is independent from the Start wallpaper.",
+                color = Color(0xFF666666),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            )
+        }
+        Text(
+            if (lockWallpaperUri == null) "Choose" else "Change",
+            color = Color(0xFF5133AB),
+            fontSize = 13.sp,
+        )
+    }
+    if (lockWallpaperUri != null) {
+        Text(
+            "Use default picture",
+            color = Color(0xFF5133AB),
+            fontSize = 12.sp,
+            modifier = Modifier
+                .clickable {
+                    lockWallpaperUri = null
+                    WindowsLockScreenPreferences.setWallpaperUri(context, null)
+                }
+                .padding(vertical = 10.dp),
+        )
+    }
+
+    Spacer(Modifier.height(10.dp))
     Row(
         modifier = Modifier
             .fillMaxWidth()
