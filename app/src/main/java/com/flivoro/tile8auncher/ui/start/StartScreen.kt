@@ -216,10 +216,9 @@ fun StartScreen(
     var selectedTileIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dragTiles by remember { mutableStateOf<List<TileModel>?>(null) }
     var draggingTileId by remember { mutableStateOf<String?>(null) }
-    // Real pointer motion stays separate from inverse layout compensation. This keeps the drop
-    // coordinate under the user's finger while the LazyRow or neighboring tiles move.
+    // The drag proxy is positioned only from real pointer deltas. Grid reflow and LazyRow
+    // scrolling never mutate this vector, so the held tile cannot jump away from the finger.
     var dragPointerOffset by remember { mutableStateOf(Offset.Zero) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
     var lastGridDrop by remember { mutableStateOf<StartGridDropKey?>(null) }
     var dragNewGroupId by remember { mutableStateOf<String?>(null) }
@@ -266,7 +265,6 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragPointerOffset = Offset.Zero
-            dragOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
             openFolderTile = null
@@ -321,7 +319,6 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragPointerOffset = Offset.Zero
-            dragOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
             openFolderTile = null
@@ -336,7 +333,6 @@ fun StartScreen(
             dragTiles = null
             draggingTileId = null
             dragPointerOffset = Offset.Zero
-            dragOffset = Offset.Zero
             activeGutterKey = null
             dragNewGroupId = null
         }
@@ -356,7 +352,6 @@ fun StartScreen(
                 dragTiles = null
                 draggingTileId = null
                 dragPointerOffset = Offset.Zero
-                dragOffset = Offset.Zero
                 activeGutterKey = null
                 dragNewGroupId = null
             }
@@ -404,7 +399,6 @@ fun StartScreen(
             draggingTileId = tile.id
             dragOriginBounds = bounds
             dragPointerOffset = Offset.Zero
-            dragOffset = Offset.Zero
             lastGridDrop = null
             activeGutterKey = null
             dragNewGroupId = "group:${System.currentTimeMillis()}:${tile.id}"
@@ -421,29 +415,31 @@ fun StartScreen(
         }
     }
 
-    fun moveDraggedTile(delta: Offset) {
+    fun updateDraggedTilePlacement(visualCenter: Offset) {
         val draggedId = draggingTileId ?: return
-        dragPointerOffset += delta
-        dragOffset += delta
-        val visualCenter = dragOriginBounds.center + dragPointerOffset
         val current = dragTiles ?: tiles.toList()
         val dragged = current.firstOrNull { it.id == draggedId } ?: return
 
-        // The wider Windows 8.1 inter-group gutter is a real drop target. Dropping on it creates
-        // a new group at that exact position, signalled by a vertical separator.
+        // Windows treats the wide inter-group gutter as a stable new-group target. Do not keep
+        // rebuilding the same group every pointer frame while the finger remains inside it.
         val gutter = gutterDropTargets.values
             .firstOrNull { target -> target.bounds.contains(visualCenter) }
         if (gutter != null) {
             val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
             dragNewGroupId = newGroupId
+            if (
+                activeGutterKey != gutter.key ||
+                dragged.effectiveStartGroupId() != newGroupId
+            ) {
+                dragTiles = moveDraggedTileToNewGroup(
+                    tiles = current,
+                    draggedId = draggedId,
+                    newGroupId = newGroupId,
+                    insertBeforeGroupId = gutter.beforeGroupId,
+                )
+            }
             activeGutterKey = gutter.key
             lastGridDrop = null
-            dragTiles = moveDraggedTileToNewGroup(
-                tiles = current,
-                draggedId = draggedId,
-                newGroupId = newGroupId,
-                insertBeforeGroupId = gutter.beforeGroupId,
-            )
             return
         }
         activeGutterKey = null
@@ -465,12 +461,23 @@ fun StartScreen(
             span.rows * targetBand.cellPx + (span.rows - 1) * targetBand.gapPx
         val visualLeft = visualCenter.x - tileWidthPx / 2f
         val visualTop = visualCenter.y - tileHeightPx / 2f
-        val localLeft = visualLeft - targetBand.bounds.left
-        val localTop = visualTop - targetBand.bounds.top
-        val column = (localLeft / stepPx).roundToInt()
-            .coerceIn(0, targetBand.columns - span.columns)
-        val row = (localTop / stepPx).roundToInt()
-            .coerceIn(0, targetBand.rows - span.rows)
+        val rawColumn = (visualLeft - targetBand.bounds.left) / stepPx
+        val rawRow = (visualTop - targetBand.bounds.top) / stepPx
+
+        val previous = lastGridDrop?.takeIf {
+            it.groupId == targetBand.groupId &&
+                it.continuationIndex == targetBand.continuationIndex
+        }
+        val column = snapStartCell(
+            rawCell = rawColumn,
+            previousCell = previous?.column,
+            maxStart = targetBand.columns - span.columns,
+        )
+        val row = snapStartCell(
+            rawCell = rawRow,
+            previousCell = previous?.row,
+            maxStart = targetBand.rows - span.rows,
+        )
 
         val dropKey = StartGridDropKey(
             groupId = targetBand.groupId,
@@ -527,9 +534,10 @@ fun StartScreen(
         lastGridDrop = dropKey
     }
 
-    fun compensateDraggedTileForLayout(delta: Offset) {
+    fun moveDraggedTile(delta: Offset) {
         if (draggingTileId == null) return
-        dragOffset += delta
+        dragPointerOffset += delta
+        updateDraggedTilePlacement(dragOriginBounds.center + dragPointerOffset)
     }
 
     fun finishTileDrag(commit: Boolean) {
@@ -537,7 +545,6 @@ fun StartScreen(
         val result = dragTiles
         draggingTileId = null
         dragPointerOffset = Offset.Zero
-        dragOffset = Offset.Zero
         lastGridDrop = null
         activeGutterKey = null
         dragNewGroupId = null
@@ -594,7 +601,11 @@ fun StartScreen(
                     leftStrength > 0f -> -maxStepPx * leftStrength
                     else -> 0f
                 }
-                if (step != 0f) listState.scrollBy(step)
+                if (step != 0f) {
+                    listState.scrollBy(step)
+                    // The pointer did not move, but the grid underneath it did.
+                    updateDraggedTilePlacement(dragOriginBounds.center + dragPointerOffset)
+                }
             }
             delay(16L)
         }
@@ -1146,7 +1157,6 @@ fun StartScreen(
                                                     dragEnabled = interactionEnabled && launchingTileId == null,
                                                     onDragStart = { bounds -> beginTileDrag(tile, bounds) },
                                                     onDrag = ::moveDraggedTile,
-                                                    onDragLayoutShift = ::compensateDraggedTileForLayout,
                                                     onDragEnd = { finishTileDrag(commit = true) },
                                                     onDragCancel = { finishTileDrag(commit = false) },
                                                 )
@@ -1480,6 +1490,20 @@ internal fun moveDraggedTileToNewGroup(
         ),
     )
     return normalizeStartTileOrder(working)
+}
+
+internal fun snapStartCell(
+    rawCell: Float,
+    previousCell: Int?,
+    maxStart: Int,
+    hysteresis: Float = 0.62f,
+): Int {
+    val max = maxStart.coerceAtLeast(0)
+    val previous = previousCell?.coerceIn(0, max)
+    if (previous != null && kotlin.math.abs(rawCell - previous) < hysteresis) {
+        return previous
+    }
+    return rawCell.roundToInt().coerceIn(0, max)
 }
 
 private fun gridRectanglesOverlap(
