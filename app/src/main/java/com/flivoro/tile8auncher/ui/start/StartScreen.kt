@@ -103,6 +103,7 @@ import kotlin.math.roundToInt
 private const val START_WITHIN_GROUP_SPACING_DP = 8f
 private const val START_GROUP_GUTTER_DP = 36f
 private const val START_END_GROUP_DROP_ZONE_DP = 56f
+private const val START_GROUP_LABEL_HEIGHT_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
 
 private data class EntranceViewportSnapshot(
@@ -706,10 +707,11 @@ fun StartScreen(
 
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val layoutWidth = maxWidth - 48.dp
-                val metrics = remember(layoutWidth, maxHeight) {
+                val tileAreaHeight = (maxHeight - START_GROUP_LABEL_HEIGHT_DP.dp).coerceAtLeast(1.dp)
+                val metrics = remember(layoutWidth, tileAreaHeight) {
                     calculateStartGridMetrics(
                         availableWidthDp = layoutWidth.value,
-                        availableHeightDp = maxHeight.value,
+                        availableHeightDp = tileAreaHeight.value,
                     )
                 }
                 val density = LocalDensity.current
@@ -763,7 +765,12 @@ fun StartScreen(
                                 else -> START_WITHIN_GROUP_SPACING_DP
                             }
                             val leadingSpacingPx = with(density) { leadingSpacingDp.dp.toPx() }
+                            val labelHeightPx = with(density) { START_GROUP_LABEL_HEIGHT_DP.dp.toPx() }
                             val gutterKey = "start-group-gutter:${band.groupId}:before"
+                            val visibleGroupName = band.groupName.takeIf {
+                                it.isNotBlank() &&
+                                    !(band.groupId == "legacy:Start" && it == "Start")
+                            }
 
                             DisposableEffect(band.key, startsNewGroup) {
                                 onDispose {
@@ -775,13 +782,13 @@ fun StartScreen(
                             Box(
                                 modifier = Modifier
                                     .width((metrics.bandWidthDp + leadingSpacingDp).dp)
-                                    .height(metrics.bandHeightDp.dp)
+                                    .height((metrics.bandHeightDp + START_GROUP_LABEL_HEIGHT_DP).dp)
                                     .onGloballyPositioned { coordinates ->
                                         if (coordinates.isAttached) {
                                             val whole = coordinates.boundsInWindow()
                                             val bandBounds = Rect(
                                                 left = whole.left + leadingSpacingPx,
-                                                top = whole.top,
+                                                top = whole.top + labelHeightPx,
                                                 right = whole.right,
                                                 bottom = whole.bottom,
                                             )
@@ -802,7 +809,7 @@ fun StartScreen(
                                                     beforeGroupId = band.groupId,
                                                     bounds = Rect(
                                                         left = whole.left,
-                                                        top = whole.top,
+                                                        top = whole.top + labelHeightPx,
                                                         right = whole.left + leadingSpacingPx,
                                                         bottom = whole.bottom,
                                                     ),
@@ -833,13 +840,28 @@ fun StartScreen(
                                         alpha = frame.alpha
                                     },
                             ) {
+                                if (band.continuationIndex == 0 && visibleGroupName != null) {
+                                    Text(
+                                        text = visibleGroupName,
+                                        color = Color.White.copy(alpha = 0.96f),
+                                        style = WindowsTypography.bodyMedium.copy(
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Normal,
+                                        ),
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .offset(x = leadingSpacingDp.dp)
+                                            .height(START_GROUP_LABEL_HEIGHT_DP.dp),
+                                    )
+                                }
+
                                 if (startsNewGroup && activeGutterKey == gutterKey) {
                                     Box(
                                         modifier = Modifier
                                             .offset(x = ((leadingSpacingDp / 2f) - 2f).dp)
                                             .width(4.dp)
                                             .fillMaxHeight()
-                                            .padding(vertical = 6.dp)
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
                                             .background(Color.White.copy(alpha = 0.92f)),
                                     )
                                 }
@@ -859,7 +881,10 @@ fun StartScreen(
                                         val targetX = (
                                             leadingSpacingDp + placed.column * (metrics.cellDp + metrics.gapDp)
                                             ).dp
-                                        val targetY = (placed.row * (metrics.cellDp + metrics.gapDp)).dp
+                                        val targetY = (
+                                            START_GROUP_LABEL_HEIGHT_DP +
+                                                placed.row * (metrics.cellDp + metrics.gapDp)
+                                            ).dp
                                         val animatedX by animateDpAsState(
                                             targetValue = targetX,
                                             animationSpec = tween(TILE_REORDER_DURATION_MS, easing = FastOutSlowInEasing),
@@ -985,13 +1010,22 @@ fun StartScreen(
                             Box(
                                 modifier = Modifier
                                     .width(START_END_GROUP_DROP_ZONE_DP.dp)
-                                    .height(metrics.bandHeightDp.dp)
+                                    .height((metrics.bandHeightDp + START_GROUP_LABEL_HEIGHT_DP).dp)
                                     .onGloballyPositioned { coordinates ->
                                         if (coordinates.isAttached) {
+                                            val whole = coordinates.boundsInWindow()
+                                            val labelHeightPx = with(density) {
+                                                START_GROUP_LABEL_HEIGHT_DP.dp.toPx()
+                                            }
                                             gutterDropTargets[gutterKey] = StartGroupGutterDropTarget(
                                                 key = gutterKey,
                                                 beforeGroupId = null,
-                                                bounds = coordinates.boundsInWindow(),
+                                                bounds = Rect(
+                                                    left = whole.left,
+                                                    top = whole.top + labelHeightPx,
+                                                    right = whole.right,
+                                                    bottom = whole.bottom,
+                                                ),
                                             )
                                         }
                                     },
@@ -1002,7 +1036,7 @@ fun StartScreen(
                                         Modifier
                                             .width(4.dp)
                                             .fillMaxHeight()
-                                            .padding(vertical = 6.dp)
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
                                             .background(Color.White.copy(alpha = 0.92f)),
                                     )
                                 }
