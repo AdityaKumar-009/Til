@@ -423,7 +423,7 @@ fun StartScreen(
     fun beginTileDrag(
         tile: TileModel,
         bounds: Rect,
-        pointerWindow: Offset,
+        pointerWindow: Offset = bounds.center,
     ) {
         if (!latestInteractionEnabled.value) return
 
@@ -1410,10 +1410,9 @@ fun StartScreen(
                             val dragIcon = draggedTile.packageName?.let {
                                 rememberAppIcon(appsRepository, it)
                             }
-                            val localLeft =
-                                dragOriginBounds.left - tileViewportBounds.left + dragPointerOffset.x
-                            val localTop =
-                                dragOriginBounds.top - tileViewportBounds.top + dragPointerOffset.y
+                            val visualTopLeft = dragVisualTopLeft()
+                            val localLeft = visualTopLeft.x - tileViewportBounds.left
+                            val localTop = visualTopLeft.y - tileViewportBounds.top
 
                             Box(
                                 modifier = Modifier
