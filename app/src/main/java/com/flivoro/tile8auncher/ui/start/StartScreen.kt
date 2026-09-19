@@ -795,6 +795,7 @@ fun StartScreen(
                 }
 
                 LaunchedEffect(listState, bandItemWidthsPx) {
+                    if (bandItemWidthsPx.isEmpty()) return@LaunchedEffect
                     var previousOffsets = emptyMap<Any, Int>()
                     snapshotFlow {
                         StartWallpaperScrollFrame(
