@@ -765,23 +765,31 @@ fun StartScreen(
                                 else -> START_WITHIN_GROUP_SPACING_DP
                             }
                             val leadingSpacingPx = with(density) { leadingSpacingDp.dp.toPx() }
+                            val trailingEndDp = if (bandIndex == packed.bands.lastIndex) {
+                                START_END_GROUP_DROP_ZONE_DP
+                            } else {
+                                0f
+                            }
+                            val trailingEndPx = with(density) { trailingEndDp.dp.toPx() }
                             val labelHeightPx = with(density) { START_GROUP_LABEL_HEIGHT_DP.dp.toPx() }
                             val gutterKey = "start-group-gutter:${band.groupId}:before"
+                            val endGutterKey = "start-group-gutter:end"
                             val visibleGroupName = band.groupName.takeIf {
                                 it.isNotBlank() &&
                                     !(band.groupId == "legacy:Start" && it == "Start")
                             }
 
-                            DisposableEffect(band.key, startsNewGroup) {
+                            DisposableEffect(band.key, startsNewGroup, trailingEndDp) {
                                 onDispose {
                                     bandDropTargets.remove(band.key)
                                     if (startsNewGroup) gutterDropTargets.remove(gutterKey)
+                                    if (trailingEndDp > 0f) gutterDropTargets.remove(endGutterKey)
                                 }
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .width((metrics.bandWidthDp + leadingSpacingDp).dp)
+                                    .width((metrics.bandWidthDp + leadingSpacingDp + trailingEndDp).dp)
                                     .height((metrics.bandHeightDp + START_GROUP_LABEL_HEIGHT_DP).dp)
                                     .onGloballyPositioned { coordinates ->
                                         if (coordinates.isAttached) {
@@ -789,7 +797,7 @@ fun StartScreen(
                                             val bandBounds = Rect(
                                                 left = whole.left + leadingSpacingPx,
                                                 top = whole.top + labelHeightPx,
-                                                right = whole.right,
+                                                right = whole.right - trailingEndPx,
                                                 bottom = whole.bottom,
                                             )
                                             bandDropTargets[band.key] = StartBandDropTarget(
@@ -811,6 +819,18 @@ fun StartScreen(
                                                         left = whole.left,
                                                         top = whole.top + labelHeightPx,
                                                         right = whole.left + leadingSpacingPx,
+                                                        bottom = whole.bottom,
+                                                    ),
+                                                )
+                                            }
+                                            if (trailingEndDp > 0f) {
+                                                gutterDropTargets[endGutterKey] = StartGroupGutterDropTarget(
+                                                    key = endGutterKey,
+                                                    beforeGroupId = null,
+                                                    bounds = Rect(
+                                                        left = whole.right - trailingEndPx,
+                                                        top = whole.top + labelHeightPx,
+                                                        right = whole.right,
                                                         bottom = whole.bottom,
                                                     ),
                                                 )
@@ -859,6 +879,23 @@ fun StartScreen(
                                     Box(
                                         modifier = Modifier
                                             .offset(x = ((leadingSpacingDp / 2f) - 2f).dp)
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
+                                if (trailingEndDp > 0f && activeGutterKey == endGutterKey) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(
+                                                x = (
+                                                    leadingSpacingDp +
+                                                        metrics.bandWidthDp +
+                                                        trailingEndDp / 2f -
+                                                        2f
+                                                    ).dp,
+                                            )
                                             .width(4.dp)
                                             .fillMaxHeight()
                                             .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
@@ -1002,46 +1039,6 @@ fun StartScreen(
                             }
                         }
 
-                        item(key = "start-group-gutter:end") {
-                            val gutterKey = "start-group-gutter:end"
-                            DisposableEffect(gutterKey) {
-                                onDispose { gutterDropTargets.remove(gutterKey) }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .width(START_END_GROUP_DROP_ZONE_DP.dp)
-                                    .height((metrics.bandHeightDp + START_GROUP_LABEL_HEIGHT_DP).dp)
-                                    .onGloballyPositioned { coordinates ->
-                                        if (coordinates.isAttached) {
-                                            val whole = coordinates.boundsInWindow()
-                                            val labelHeightPx = with(density) {
-                                                START_GROUP_LABEL_HEIGHT_DP.dp.toPx()
-                                            }
-                                            gutterDropTargets[gutterKey] = StartGroupGutterDropTarget(
-                                                key = gutterKey,
-                                                beforeGroupId = null,
-                                                bounds = Rect(
-                                                    left = whole.left,
-                                                    top = whole.top + labelHeightPx,
-                                                    right = whole.right,
-                                                    bottom = whole.bottom,
-                                                ),
-                                            )
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (activeGutterKey == gutterKey) {
-                                    Box(
-                                        Modifier
-                                            .width(4.dp)
-                                            .fillMaxHeight()
-                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
-                                            .background(Color.White.copy(alpha = 0.92f)),
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     AnimatedVisibility(
