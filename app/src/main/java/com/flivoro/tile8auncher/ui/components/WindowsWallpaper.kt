@@ -59,6 +59,7 @@ fun WindowsWallpaper(
     enabled: Boolean = true,
     scrollOffsetPx: () -> Float = { 0f },
     wallpaperStyle: Int = 0,
+    allowCustomWallpaper: Boolean = true,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val viewportWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
@@ -66,7 +67,7 @@ fun WindowsWallpaper(
 
         WallpaperBase(baseColor = baseColor)
 
-        val customWallpaperUri = StartPersonalization.customWallpaperUri
+        val customWallpaperUri = StartPersonalization.customWallpaperUri.takeIf { allowCustomWallpaper }
         val customBitmap = if (customWallpaperUri != null) {
             rememberCustomWallpaperBitmap(customWallpaperUri)
         } else {
