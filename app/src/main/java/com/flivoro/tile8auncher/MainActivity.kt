@@ -476,6 +476,7 @@ fun Tile8LauncherApp(
     }
     var wallpaperStyle by remember { mutableIntStateOf(appsRepository.getWallpaperStyle()) }
     val tiles = remember { mutableStateListOf<TileModel>() }
+    var tilesLoaded by remember { mutableStateOf(false) }
     var selectedTileForCustomization by remember { mutableStateOf<TileModel?>(null) }
     var showPowerDialog by remember { mutableStateOf(false) }
     var showPinAppsDialog by remember { mutableStateOf(false) }
@@ -602,6 +603,7 @@ fun Tile8LauncherApp(
         val pinned = withContext(Dispatchers.IO) { appsRepository.loadPinnedTiles() }
         tiles.clear()
         tiles.addAll(pinned)
+        tilesLoaded = true
     }
 
     val categorizedApps by produceState<List<AppSection>>(emptyList(), appsRepository) {
@@ -691,6 +693,12 @@ fun Tile8LauncherApp(
                 resetRequest = homeRequest + drawerResetRequest,
                 progressState = drawerProgress,
                 startContent = {
+                    if (!tilesLoaded) {
+                        // Do not measure an empty LazyRow before the persisted Start index/offset
+                        // can be applied. The wallpaper is already painted at its persisted world
+                        // coordinate, so the first visible Start frame arrives fully settled.
+                        Box(Modifier.fillMaxSize())
+                    } else {
                     StartScreen(
                         listState = startScroll,
                         tiles = tiles,
@@ -722,6 +730,7 @@ fun Tile8LauncherApp(
                         onAddAppsClick = { if (entranceReady) showPinAppsDialog = true },
                         onNavigateToAllApps = { navigateToAllApps() },
                     )
+                    }
                 },
                 allAppsContent = {
                     AllAppsScreen(
