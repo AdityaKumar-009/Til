@@ -806,6 +806,7 @@ fun StartScreen(
                     if (bandItemWidthsPx.isEmpty()) return@LaunchedEffect
 
                     var previousOffsets = emptyMap<Any, Int>()
+                    var previousFirstIndex: Int? = null
                     var wasScrolling = false
 
                     snapshotFlow {
@@ -849,7 +850,8 @@ fun StartScreen(
                                 // entering an animated scroll. That is a genuine navigation jump,
                                 // so resolve its exact world coordinate from the variable widths.
                                 currentOffsets.keys.none { it in previousOffsets } &&
-                                    frame.firstIndex != 0 -> {
+                                    previousFirstIndex != null &&
+                                    frame.firstIndex != previousFirstIndex -> {
                                     trackedWallpaperScrollPx = absoluteStartScrollPx(
                                         itemWidthsPx = widths,
                                         firstVisibleItemIndex = frame.firstIndex,
@@ -860,6 +862,7 @@ fun StartScreen(
                         }
 
                         previousOffsets = currentOffsets
+                        previousFirstIndex = frame.firstIndex
                         wasScrolling = frame.isScrolling
                         latestOnWallpaperScrollOffsetChanged.value(trackedWallpaperScrollPx)
                     }
