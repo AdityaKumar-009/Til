@@ -22,6 +22,8 @@ object LauncherFeatureRuntime {
         private set
     var iconsRevision by mutableIntStateOf(0)
         private set
+    var liveTilesRevision by mutableIntStateOf(0)
+        private set
 
     fun notifyPinnedTilesChanged() {
         pinnedTilesRevision++
@@ -29,6 +31,10 @@ object LauncherFeatureRuntime {
 
     fun notifyIconsChanged() {
         iconsRevision++
+    }
+
+    fun notifyLiveTilesChanged() {
+        liveTilesRevision++
     }
 }
 
@@ -81,6 +87,7 @@ object LauncherFeatureStore {
             .getStringSet(LIVE_TILE_DISABLED_PACKAGES, emptySet()).orEmpty().toMutableSet()
         if (enabled) current.remove(packageName) else current.add(packageName)
         prefs(context).edit { putStringSet(LIVE_TILE_DISABLED_PACKAGES, current) }
+        LauncherFeatureRuntime.notifyLiveTilesChanged()
     }
 
     fun selectedIconPack(context: Context): String? =
