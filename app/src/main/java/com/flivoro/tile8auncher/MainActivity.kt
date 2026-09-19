@@ -458,7 +458,12 @@ fun Tile8LauncherApp(
     var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
     val drawerProgress = remember { mutableFloatStateOf(0f) }
     val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
-    val startScroll = rememberLazyListState()
+    val initialStartScrollIndex = remember { appsRepository.getStartScrollIndex() }
+    val initialStartScrollOffset = remember { appsRepository.getStartScrollOffsetPx() }
+    val startScroll = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialStartScrollIndex,
+        initialFirstVisibleItemScrollOffset = initialStartScrollOffset,
+    )
     val appsScroll = rememberLazyListState()
     // Start's bands have different physical widths because group gutters are real layout items.
     // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
@@ -490,10 +495,17 @@ fun Tile8LauncherApp(
     // Save only after the parallax position has been quiet for a moment. A cold launcher start
     // can then paint the previous Start position on frame one instead of showing x=0 and snapping
     // to the restored LazyRow coordinate after layout arrives.
-    LaunchedEffect(startWallpaperScrollPx) {
+    LaunchedEffect(startWallpaperScrollPx, startScroll.firstVisibleItemIndex, startScroll.firstVisibleItemScrollOffset) {
         delay(350L)
+        val index = startScroll.firstVisibleItemIndex
+        val offset = startScroll.firstVisibleItemScrollOffset
+        val wallpaper = startWallpaperScrollPx
         withContext(Dispatchers.IO) {
-            appsRepository.setStartWallpaperScrollPx(startWallpaperScrollPx)
+            appsRepository.setStartViewState(
+                firstVisibleItemIndex = index,
+                firstVisibleItemScrollOffset = offset,
+                wallpaperScrollPx = wallpaper,
+            )
         }
     }
 
