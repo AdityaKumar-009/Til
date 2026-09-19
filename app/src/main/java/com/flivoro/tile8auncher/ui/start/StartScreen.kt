@@ -603,13 +603,7 @@ fun StartScreen(
                     else -> 0f
                 }
                 if (step != 0f) {
-                    val consumed = listState.scrollBy(step)
-                    if (consumed != 0f && !listState.isScrollInProgress) {
-                        trackedWallpaperScrollPx =
-                            (trackedWallpaperScrollPx.takeIf(Float::isFinite) ?: 0f) + consumed
-                        trackedWallpaperScrollPx = trackedWallpaperScrollPx.coerceAtLeast(0f)
-                        latestOnWallpaperScrollOffsetChanged.value(trackedWallpaperScrollPx)
-                    }
+                    listState.scrollBy(step)
                     // The pointer did not move, but the grid underneath it did.
                     updateDraggedTilePlacement(dragOriginBounds.center + dragPointerOffset)
                 }
@@ -839,7 +833,8 @@ fun StartScreen(
                             when {
                                 // Real list motion advances the wallpaper by the same consumed
                                 // pixels. Reflow while stationary only refreshes the baseline.
-                                (frame.isScrolling || wasScrolling) && commonDelta != null -> {
+                                (frame.isScrolling || wasScrolling || draggingTileId != null) &&
+                                    commonDelta != null -> {
                                     trackedWallpaperScrollPx =
                                         (trackedWallpaperScrollPx + commonDelta).coerceAtLeast(0f)
                                 }
