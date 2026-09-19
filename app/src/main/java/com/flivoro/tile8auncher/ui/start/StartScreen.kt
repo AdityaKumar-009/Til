@@ -1029,27 +1029,45 @@ fun StartScreen(
                                 val longPress = awaitLongPressOrCancellation(down.id)
                                     ?: return@awaitEachGesture
                                 val bounds = tileBounds[hitId] ?: return@awaitEachGesture
+                                val currentViewport = tileViewportBounds
+                                if (currentViewport == Rect.Zero) return@awaitEachGesture
 
-                                beginTileDrag(hitTile, bounds)
+                                beginTileDrag(
+                                    tile = hitTile,
+                                    bounds = bounds,
+                                    pointerWindow = Offset(
+                                        x = currentViewport.left + longPress.position.x,
+                                        y = currentViewport.top + longPress.position.y,
+                                    ),
+                                )
 
-                                // Preserve the contact point if the finger drifted inside touch
-                                // slop during the hold interval.
-                                val heldDelta = longPress.position - down.position
-                                if (heldDelta != Offset.Zero) moveDraggedTile(heldDelta)
+                                // After long-press, the stable viewport owns the stream at Initial
+                                // pass. We use the absolute pointer coordinate, not accumulated
+                                // deltas, so no child re-layout or consumed event can make the tile
+                                // lag behind or detach from the finger.
+                                var completed = false
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                        ?: break
+                                    val liveViewport = tileViewportBounds
+                                    if (liveViewport != Rect.Zero) {
+                                        moveDraggedPointer(
+                                            Offset(
+                                                x = liveViewport.left + change.position.x,
+                                                y = liveViewport.top + change.position.y,
+                                            ),
+                                        )
+                                    }
 
-                                val completed = drag(longPress.id) { change ->
-                                    val delta = change.positionChange()
-                                    if (delta != Offset.Zero) {
-                                        moveDraggedTile(delta)
-                                        change.consume()
+                                    change.consume()
+                                    if (!change.pressed) {
+                                        completed = true
+                                        break
                                     }
                                 }
 
-                                if (completed) {
-                                    finishTileDrag(commit = true)
-                                } else {
-                                    finishTileDrag(commit = false)
-                                }
+                                finishTileDrag(commit = completed)
                             }
                         },
                 ) {
