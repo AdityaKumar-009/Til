@@ -44,6 +44,23 @@ class StartTileReorderTest {
     }
 
     @Test
+    fun crossingGroupClearsOldGridAnchor() {
+        val anchored = tile("a", "One").copy(startBand = 1, startColumn = 2, startRow = 3)
+        val result = reorderStartTiles(
+            listOf(anchored, tile("b", "Two")),
+            draggedId = "a",
+            targetId = "b",
+            placeAfterTarget = true,
+        )
+
+        val moved = result.first { it.id == "a" }
+        assertEquals("Two", moved.groupName)
+        assertEquals(null, moved.startBand)
+        assertEquals(null, moved.startColumn)
+        assertEquals(null, moved.startRow)
+    }
+
+    @Test
     fun invalidTargetDoesNotLoseTiles() {
         val source = listOf(tile("a", order = 7), tile("b", order = 9))
         val result = reorderStartTiles(source, "a", "missing", false)
