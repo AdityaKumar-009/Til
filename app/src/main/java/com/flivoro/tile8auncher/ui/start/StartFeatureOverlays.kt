@@ -162,8 +162,8 @@ internal fun StartGroupNameDialog(
                     modifier = Modifier
                         .background(Color(0xFF5133AB))
                         .clickable {
-                            val safe = value.trim().ifEmpty { "Start" }
-                            onConfirm(safe)
+                            // Windows 8.1 groups may intentionally have no visible name.
+                            onConfirm(value.trim())
                         }
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                 )

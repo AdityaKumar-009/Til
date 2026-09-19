@@ -34,6 +34,7 @@ internal object StartPersonalization {
             accentState.value = Color(accent)
             customWallpaperUriState.value = prefs.getString(KEY_CUSTOM_WALLPAPER_URI, null)
                 ?.takeIf(String::isNotBlank)
+            LauncherImageCache.preload(context, customWallpaperUriState.value)
             customWallpaperOverlayState.value =
                 prefs.getFloat(KEY_CUSTOM_WALLPAPER_OVERLAY, 0.24f).coerceIn(0f, 0.72f)
             WindowsColors.Purple = accent
@@ -56,7 +57,10 @@ internal object StartPersonalization {
     fun setCustomWallpaperUri(context: Context, uri: String?) {
         ensureLoaded(context)
         val normalized = uri?.takeIf(String::isNotBlank)
+        val previous = customWallpaperUriState.value
         customWallpaperUriState.value = normalized
+        if (normalized != null) LauncherImageCache.preload(context, normalized)
+        if (previous != null && previous != normalized) LauncherImageCache.forget(previous)
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .apply {

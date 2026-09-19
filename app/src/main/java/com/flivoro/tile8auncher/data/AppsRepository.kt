@@ -266,6 +266,8 @@ class AppsRepository(private val context: Context) {
                             colorValue = colorVal,
                             tileType = TileType.valueOf(obj.optString("tileType", TileType.APP.name)),
                             iconGlyph = obj.optString("iconGlyph", ""),
+                            groupId = obj.optString("groupId", "").takeIf { it.isNotBlank() }
+                                ?: "legacy:${obj.optString("groupName", "Start").trim().ifEmpty { "Start" }}",
                             groupName = obj.optString("groupName", "Start"),
                             order = obj.optInt("order", i),
                             startBand = obj.optInt("startBand", -1).takeIf { it >= 0 },
@@ -296,6 +298,11 @@ class AppsRepository(private val context: Context) {
                 put("colorValue", tile.colorValue)
                 put("tileType", tile.tileType.name)
                 put("iconGlyph", tile.iconGlyph)
+                put(
+                    "groupId",
+                    tile.groupId.takeIf(String::isNotBlank)
+                        ?: "legacy:${tile.groupName.trim().ifEmpty { "Start" }}",
+                )
                 put("groupName", tile.groupName)
                 put("order", index)
                 tile.startBand?.let { put("startBand", it) }

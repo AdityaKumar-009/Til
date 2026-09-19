@@ -46,6 +46,8 @@ data class TileModel(
     val startBand: Int? = null,
     val startColumn: Int? = null,
     val startRow: Int? = null,
+    /** Stable Windows Start group identity; the visible [groupName] may be empty or duplicated. */
+    val groupId: String = "",
 )
 
 @Immutable

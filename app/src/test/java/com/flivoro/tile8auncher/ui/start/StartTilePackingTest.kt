@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 class StartTilePackingTest {
 
@@ -79,6 +78,20 @@ class StartTilePackingTest {
     }
 
     @Test
+    fun groupsWithSameVisibleNameStaySeparatedByStableIdentity() {
+        val tiles = listOf(
+            tile("a", TileSize.SMALL, group = "").copy(groupId = "group-a"),
+            tile("b", TileSize.SMALL, group = "").copy(groupId = "group-b"),
+        )
+
+        val packed = packStartTiles(tiles, maxRows = 4)
+
+        assertEquals(2, packed.bands.size)
+        assertEquals(listOf("group-a", "group-b"), packed.bands.map { it.groupId })
+        assertEquals(listOf("", ""), packed.bands.map { it.groupName })
+    }
+
+    @Test
     fun placementRemainsValidAcrossPhoneLandscapeAndTabletViewports() {
         val tiles = listOf(
             tile("small-1", TileSize.SMALL),
@@ -119,6 +132,21 @@ class StartTilePackingTest {
             assertEquals(tiles.map { it.id }, packed.tiles.map { it.tile.id })
             assertBandGeometryIsValid(packed)
         }
+    }
+
+    @Test
+    fun groupsWithTheSameVisibleNameRemainSeparatedByStableIds() {
+        val tiles = listOf(
+            tile("left", TileSize.SMALL, group = "").copy(groupId = "group:left"),
+            tile("right", TileSize.SMALL, group = "").copy(groupId = "group:right"),
+        )
+
+        val packed = packStartTiles(tiles, maxRows = 4)
+
+        assertEquals(2, packed.bands.size)
+        assertEquals(listOf("group:left", "group:right"), packed.bands.map { it.groupId })
+        assertEquals(listOf("", ""), packed.bands.map { it.groupName })
+        assertBandGeometryIsValid(packed)
     }
 
     @Test
@@ -244,7 +272,11 @@ class StartTilePackingTest {
         assertTrue(layout.tiles.all { it.columns > 0 && it.rows > 0 })
         assertTrue(layout.bands.zipWithNext().all { (first, second) ->
             first.key != second.key &&
-                abs(first.continuationIndex - second.continuationIndex) <= 1
+                if (first.groupId == second.groupId) {
+                    second.continuationIndex == first.continuationIndex + 1
+                } else {
+                    second.continuationIndex == 0
+                }
         })
     }
 

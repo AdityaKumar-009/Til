@@ -78,6 +78,10 @@ internal fun TileSize.startTileSpan(): StartTileSpan = when (this) {
     TileSize.LARGE -> StartTileSpan(columns = 4, rows = 4)
 }
 
+internal fun TileModel.effectiveStartGroupId(): String =
+    groupId.takeIf(String::isNotBlank)
+        ?: "legacy:${groupName.trim().ifEmpty { "Start" }}"
+
 internal data class PackedTile(
     val tile: TileModel,
     val column: Int,
@@ -88,6 +92,7 @@ internal data class PackedTile(
 
 internal data class StartTileBand(
     val key: String,
+    val groupId: String,
     val groupName: String,
     val continuationIndex: Int,
     val columns: Int,
@@ -103,7 +108,7 @@ internal data class PackedStartTiles(
 }
 
 /**
- * Packs each named group in input order into four-cell-wide bands. A tile is
+ * Packs each Windows Start group in input order into four-cell-wide bands. A tile is
  * placed at the first free position that can contain its complete span. When
  * the current band's height is full, a continuation band is emitted to the
  * right. Keeping the scan order stable makes pin order predictable while
@@ -125,17 +130,17 @@ internal fun packStartTiles(
     val requiredRows = tiles.maxOf { it.size.startTileSpan().rows }
     val rowCount = maxOf(START_GRID_MIN_ROWS, maxRows, requiredRows)
 
-    // Linked grouping preserves the order in which groups first appear. The
-    // normal launcher has one "Start" group, while named groups remain
-    // independently packed and receive a stable horizontal continuation.
+    // Linked grouping preserves the order in which stable group ids first appear. Visible names
+    // are labels only: Windows 8.1 allowed unnamed groups, so two groups must not collapse merely
+    // because they share an empty or identical label.
     val grouped = linkedMapOf<String, MutableList<TileModel>>()
     tiles.forEach { tile ->
-        val groupName = tile.groupName.trim().ifEmpty { "Start" }
-        grouped.getOrPut(groupName) { mutableListOf() }.add(tile)
+        grouped.getOrPut(tile.effectiveStartGroupId()) { mutableListOf() }.add(tile)
     }
 
     val bands = mutableListOf<StartTileBand>()
-    grouped.entries.forEach { (groupName, groupTiles) ->
+    grouped.entries.forEach { (groupId, groupTiles) ->
+        val groupName = groupTiles.firstOrNull()?.groupName.orEmpty()
         val builders = mutableListOf<BandBuilder>()
 
         fun builderAt(index: Int): BandBuilder {
@@ -187,6 +192,7 @@ internal fun packStartTiles(
         builders.forEachIndexed { continuationIndex, builder ->
             if (builder.hasTiles || continuationIndex < builders.lastIndex) {
                 bands += builder.build(
+                    groupId = groupId,
                     groupName = groupName,
                     continuationIndex = continuationIndex,
                 )
@@ -240,9 +246,10 @@ private class BandBuilder(
         ).also(placedTiles::add)
     }
 
-    fun build(groupName: String, continuationIndex: Int): StartTileBand =
+    fun build(groupId: String, groupName: String, continuationIndex: Int): StartTileBand =
         StartTileBand(
-            key = "start-band:$groupName:$continuationIndex",
+            key = "start-band:$groupId:$continuationIndex",
+            groupId = groupId,
             groupName = groupName,
             continuationIndex = continuationIndex,
             columns = columns,

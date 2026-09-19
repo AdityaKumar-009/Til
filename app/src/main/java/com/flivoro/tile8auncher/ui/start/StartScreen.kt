@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -99,7 +100,10 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private const val START_BAND_SPACING_DP = 24f
+private const val START_WITHIN_GROUP_SPACING_DP = 8f
+private const val START_GROUP_GUTTER_DP = 36f
+private const val START_END_GROUP_DROP_ZONE_DP = 56f
+private const val START_GROUP_LABEL_HEIGHT_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
 
 private data class EntranceViewportSnapshot(
@@ -112,10 +116,12 @@ private data class GroupDialogRequest(
     val initialValue: String,
     val selectedIds: Set<String>,
     val renameWholeGroup: Boolean,
+    val groupId: String? = null,
 )
 
 private data class StartBandDropTarget(
     val key: String,
+    val groupId: String,
     val groupName: String,
     val continuationIndex: Int,
     val columns: Int,
@@ -126,6 +132,7 @@ private data class StartBandDropTarget(
 )
 
 private data class StartTileGridPosition(
+    val groupId: String,
     val groupName: String,
     val continuationIndex: Int,
     val column: Int,
@@ -135,10 +142,17 @@ private data class StartTileGridPosition(
 )
 
 private data class StartGridDropKey(
+    val groupId: String,
     val groupName: String,
     val continuationIndex: Int,
     val column: Int,
     val row: Int,
+)
+
+private data class StartGroupGutterDropTarget(
+    val key: String,
+    val beforeGroupId: String?,
+    val bounds: Rect,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -180,15 +194,21 @@ fun StartScreen(
     var selectedTileIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dragTiles by remember { mutableStateOf<List<TileModel>?>(null) }
     var draggingTileId by remember { mutableStateOf<String?>(null) }
+    // Real pointer motion stays separate from inverse layout compensation. This keeps the drop
+    // coordinate under the user's finger while the LazyRow or neighboring tiles move.
+    var dragPointerOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
     var lastGridDrop by remember { mutableStateOf<StartGridDropKey?>(null) }
+    var dragNewGroupId by remember { mutableStateOf<String?>(null) }
+    var activeGutterKey by remember { mutableStateOf<String?>(null) }
     var tileViewportBounds by remember { mutableStateOf(Rect.Zero) }
     var showResizeChoices by remember { mutableStateOf(false) }
     var openFolderTile by remember { mutableStateOf<TileModel?>(null) }
     var groupDialog by remember { mutableStateOf<GroupDialogRequest?>(null) }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
     val bandDropTargets = remember { mutableMapOf<String, StartBandDropTarget>() }
+    val gutterDropTargets = remember { mutableMapOf<String, StartGroupGutterDropTarget>() }
     val tileGridPositions = remember { mutableMapOf<String, StartTileGridPosition>() }
 
     val latestInteractionEnabled = rememberUpdatedState(interactionEnabled)
@@ -221,7 +241,10 @@ fun StartScreen(
             selectedTileIds = emptySet()
             dragTiles = null
             draggingTileId = null
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
+            activeGutterKey = null
+            dragNewGroupId = null
             openFolderTile = null
             groupDialog = null
         }
@@ -273,7 +296,10 @@ fun StartScreen(
             selectedTileIds = emptySet()
             dragTiles = null
             draggingTileId = null
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
+            activeGutterKey = null
+            dragNewGroupId = null
             openFolderTile = null
             groupDialog = null
         }
@@ -285,7 +311,10 @@ fun StartScreen(
         if (draggingTileId !in validIds) {
             dragTiles = null
             draggingTileId = null
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
+            activeGutterKey = null
+            dragNewGroupId = null
         }
     }
 
@@ -302,7 +331,10 @@ fun StartScreen(
                 showResizeChoices = false
                 dragTiles = null
                 draggingTileId = null
+                dragPointerOffset = Offset.Zero
                 dragOffset = Offset.Zero
+                activeGutterKey = null
+                dragNewGroupId = null
             }
         }
     }
@@ -347,8 +379,11 @@ fun StartScreen(
             dragTiles = tiles.toList()
             draggingTileId = tile.id
             dragOriginBounds = bounds
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
             lastGridDrop = null
+            activeGutterKey = null
+            dragNewGroupId = "group:${System.currentTimeMillis()}:${tile.id}"
         }
         if (entranceRunning) {
             scope.launch {
@@ -364,16 +399,36 @@ fun StartScreen(
 
     fun moveDraggedTile(delta: Offset) {
         val draggedId = draggingTileId ?: return
+        dragPointerOffset += delta
         dragOffset += delta
-        val center = dragOriginBounds.center + dragOffset
+        val visualCenter = dragOriginBounds.center + dragPointerOffset
         val current = dragTiles ?: tiles.toList()
         val dragged = current.firstOrNull { it.id == draggedId } ?: return
+
+        // The wider Windows 8.1 inter-group gutter is a real drop target. Dropping on it creates
+        // a new group at that exact position, signalled by a vertical separator.
+        val gutter = gutterDropTargets.values
+            .firstOrNull { target -> target.bounds.contains(visualCenter) }
+        if (gutter != null) {
+            val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
+            dragNewGroupId = newGroupId
+            activeGutterKey = gutter.key
+            lastGridDrop = null
+            dragTiles = moveDraggedTileToNewGroup(
+                tiles = current,
+                draggedId = draggedId,
+                newGroupId = newGroupId,
+                insertBeforeGroupId = gutter.beforeGroupId,
+            )
+            return
+        }
+        activeGutterKey = null
 
         val viewport = tileViewportBounds
         val candidates = bandDropTargets.values
             .filter { target -> viewport == Rect.Zero || target.bounds.overlaps(viewport) }
-        val targetBand = candidates.firstOrNull { it.bounds.contains(center) }
-            ?: candidates.minByOrNull { distanceSquaredToRect(center, it.bounds) }
+        val targetBand = candidates.firstOrNull { it.bounds.contains(visualCenter) }
+            ?: candidates.minByOrNull { distanceSquaredToRect(visualCenter, it.bounds) }
             ?: return
 
         val span = dragged.size.startTileSpan()
@@ -384,14 +439,17 @@ fun StartScreen(
             span.columns * targetBand.cellPx + (span.columns - 1) * targetBand.gapPx
         val tileHeightPx =
             span.rows * targetBand.cellPx + (span.rows - 1) * targetBand.gapPx
-        val localLeft = center.x - targetBand.bounds.left - tileWidthPx / 2f
-        val localTop = center.y - targetBand.bounds.top - tileHeightPx / 2f
+        val visualLeft = visualCenter.x - tileWidthPx / 2f
+        val visualTop = visualCenter.y - tileHeightPx / 2f
+        val localLeft = visualLeft - targetBand.bounds.left
+        val localTop = visualTop - targetBand.bounds.top
         val column = (localLeft / stepPx).roundToInt()
             .coerceIn(0, targetBand.columns - span.columns)
         val row = (localTop / stepPx).roundToInt()
             .coerceIn(0, targetBand.rows - span.rows)
 
         val dropKey = StartGridDropKey(
+            groupId = targetBand.groupId,
             groupName = targetBand.groupName,
             continuationIndex = targetBand.continuationIndex,
             column = column,
@@ -399,12 +457,10 @@ fun StartScreen(
         )
         if (dropKey == lastGridDrop) return
 
-        // Any tile occupying the requested grid rectangle is released from its explicit anchor.
-        // The packer then reflows it around the dragged tile, matching Windows' live tile shuffle.
         val conflictIds = tileGridPositions
             .filter { (id, position) ->
                 id != draggedId &&
-                    position.groupName == targetBand.groupName &&
+                    position.groupId == targetBand.groupId &&
                     position.continuationIndex == targetBand.continuationIndex &&
                     gridRectanglesOverlap(
                         columnA = column,
@@ -419,38 +475,17 @@ fun StartScreen(
             }
             .keys
 
-        // Keep the stable ordering close to the visual drop target as a fallback for rotations,
-        // row-count changes, or an invalid future snap coordinate.
-        val orderTargetId = tileGridPositions.entries
-            .asSequence()
-            .filter { (id, position) ->
-                id != draggedId &&
-                    position.groupName == targetBand.groupName &&
-                    position.continuationIndex == targetBand.continuationIndex
-            }
-            .mapNotNull { (id, _) -> tileBounds[id]?.let { bounds -> id to bounds } }
-            .minByOrNull { (_, bounds) -> distanceSquaredToRect(center, bounds) }
-            ?.first
-
-        var working = current
-        if (orderTargetId != null) {
-            val targetBounds = tileBounds[orderTargetId]
-            val placeAfter = targetBounds?.let { bounds ->
-                val sameVisualRow = abs(center.y - bounds.center.y) <=
-                    maxOf(bounds.height, dragOriginBounds.height) * 0.48f
-                if (sameVisualRow) center.x >= bounds.center.x else center.y >= bounds.center.y
-            } ?: true
-            working = reorderStartTiles(
-                tiles = working,
-                draggedId = draggedId,
-                targetId = orderTargetId,
-                placeAfterTarget = placeAfter,
-            )
-        }
+        var working = moveDraggedTileToExistingGroup(
+            tiles = current,
+            draggedId = draggedId,
+            targetGroupId = targetBand.groupId,
+            targetGroupName = targetBand.groupName,
+        )
 
         working = working.map { tile ->
             when {
                 tile.id == draggedId -> tile.copy(
+                    groupId = targetBand.groupId,
                     groupName = targetBand.groupName,
                     startBand = targetBand.continuationIndex,
                     startColumn = column,
@@ -468,12 +503,20 @@ fun StartScreen(
         lastGridDrop = dropKey
     }
 
+    fun compensateDraggedTileForLayout(delta: Offset) {
+        if (draggingTileId == null) return
+        dragOffset += delta
+    }
+
     fun finishTileDrag(commit: Boolean) {
         if (draggingTileId == null) return
         val result = dragTiles
         draggingTileId = null
+        dragPointerOffset = Offset.Zero
         dragOffset = Offset.Zero
         lastGridDrop = null
+        activeGutterKey = null
+        dragNewGroupId = null
         dragTiles = null
         if (commit && result != null && result != tiles) {
             latestOnTilesChanged.value(result)
@@ -519,7 +562,7 @@ fun StartScreen(
         while (draggingTileId != null) {
             val viewport = tileViewportBounds
             if (viewport.width > 0f) {
-                val centerX = (dragOriginBounds.center + dragOffset).x
+                val centerX = (dragOriginBounds.center + dragPointerOffset).x
                 val leftStrength = ((viewport.left + edgePx - centerX) / edgePx).coerceIn(0f, 1f)
                 val rightStrength = ((centerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
                 val step = when {
@@ -664,10 +707,11 @@ fun StartScreen(
 
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val layoutWidth = maxWidth - 48.dp
-                val metrics = remember(layoutWidth, maxHeight) {
+                val tileAreaHeight = (maxHeight - START_GROUP_LABEL_HEIGHT_DP.dp).coerceAtLeast(1.dp)
+                val metrics = remember(layoutWidth, tileAreaHeight) {
                     calculateStartGridMetrics(
                         availableWidthDp = layoutWidth.value,
-                        availableHeightDp = maxHeight.value,
+                        availableHeightDp = tileAreaHeight.value,
                     )
                 }
                 val density = LocalDensity.current
@@ -675,7 +719,7 @@ fun StartScreen(
                 val viewportHeightPx = with(density) { maxHeight.toPx() }
                 val bandWidthPx = with(density) { metrics.bandWidthDp.dp.toPx() }
                 val bandExtentPx = with(density) {
-                    metrics.bandWidthDp.dp.toPx() + START_BAND_SPACING_DP.dp.toPx()
+                    metrics.bandWidthDp.dp.toPx() + START_WITHIN_GROUP_SPACING_DP.dp.toPx()
                 }
 
                 val tileSnapshot by remember(visibleTiles) { derivedStateOf { visibleTiles.toList() } }
@@ -704,7 +748,7 @@ fun StartScreen(
                         userScrollEnabled = canScrollTiles,
                         modifier = rowModifier,
                         contentPadding = PaddingValues(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(START_BAND_SPACING_DP.dp),
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         itemsIndexed(
@@ -713,27 +757,103 @@ fun StartScreen(
                         ) { bandIndex, band ->
                             val cellPx = with(density) { metrics.cellDp.dp.toPx() }
                             val gapPx = with(density) { metrics.gapDp.dp.toPx() }
+                            val previousBand = packed.bands.getOrNull(bandIndex - 1)
+                            val startsNewGroup = previousBand != null && previousBand.groupId != band.groupId
+                            val leadingSpacingDp = when {
+                                bandIndex == 0 -> 0f
+                                startsNewGroup -> START_GROUP_GUTTER_DP
+                                else -> START_WITHIN_GROUP_SPACING_DP
+                            }
+                            val leadingSpacingPx = with(density) { leadingSpacingDp.dp.toPx() }
+                            val trailingEndDp = if (bandIndex == packed.bands.lastIndex) {
+                                START_END_GROUP_DROP_ZONE_DP
+                            } else {
+                                0f
+                            }
+                            val trailingEndPx = with(density) { trailingEndDp.dp.toPx() }
+                            val labelHeightPx = with(density) { START_GROUP_LABEL_HEIGHT_DP.dp.toPx() }
+                            val gutterKey = "start-group-gutter:${band.groupId}:before"
+                            val startGutterKey = "start-group-gutter:start"
+                            val endGutterKey = "start-group-gutter:end"
+                            val visibleGroupName = band.groupName.takeIf {
+                                it.isNotBlank() &&
+                                    !(band.groupId == "legacy:Start" && it == "Start")
+                            }
 
-                            DisposableEffect(band.key) {
-                                onDispose { bandDropTargets.remove(band.key) }
+                            DisposableEffect(band.key, startsNewGroup, trailingEndDp) {
+                                onDispose {
+                                    bandDropTargets.remove(band.key)
+                                    if (startsNewGroup) gutterDropTargets.remove(gutterKey)
+                                    if (bandIndex == 0) gutterDropTargets.remove(startGutterKey)
+                                    if (trailingEndDp > 0f) gutterDropTargets.remove(endGutterKey)
+                                }
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .width(metrics.bandWidthDp.dp)
-                                    .height(metrics.bandHeightDp.dp)
+                                    .width((metrics.bandWidthDp + leadingSpacingDp + trailingEndDp).dp)
+                                    .height((metrics.bandHeightDp + START_GROUP_LABEL_HEIGHT_DP).dp)
                                     .onGloballyPositioned { coordinates ->
                                         if (coordinates.isAttached) {
+                                            val whole = coordinates.boundsInWindow()
+                                            val bandBounds = Rect(
+                                                left = whole.left + leadingSpacingPx,
+                                                top = whole.top + labelHeightPx,
+                                                right = whole.right - trailingEndPx,
+                                                bottom = whole.bottom,
+                                            )
                                             bandDropTargets[band.key] = StartBandDropTarget(
                                                 key = band.key,
+                                                groupId = band.groupId,
                                                 groupName = band.groupName,
                                                 continuationIndex = band.continuationIndex,
                                                 columns = band.columns,
                                                 rows = band.rows,
                                                 cellPx = cellPx,
                                                 gapPx = gapPx,
-                                                bounds = coordinates.boundsInWindow(),
+                                                bounds = bandBounds,
                                             )
+                                            if (bandIndex == 0) {
+                                                val viewportLeft = tileViewportBounds.left
+                                                val desiredWidth = with(density) {
+                                                    START_END_GROUP_DROP_ZONE_DP.dp.toPx()
+                                                }
+                                                gutterDropTargets[startGutterKey] =
+                                                    StartGroupGutterDropTarget(
+                                                        key = startGutterKey,
+                                                        beforeGroupId = band.groupId,
+                                                        bounds = Rect(
+                                                            left = maxOf(viewportLeft, whole.left - desiredWidth),
+                                                            top = whole.top + labelHeightPx,
+                                                            right = whole.left,
+                                                            bottom = whole.bottom,
+                                                        ),
+                                                    )
+                                            }
+                                            if (startsNewGroup) {
+                                                gutterDropTargets[gutterKey] = StartGroupGutterDropTarget(
+                                                    key = gutterKey,
+                                                    beforeGroupId = band.groupId,
+                                                    bounds = Rect(
+                                                        left = whole.left,
+                                                        top = whole.top + labelHeightPx,
+                                                        right = whole.left + leadingSpacingPx,
+                                                        bottom = whole.bottom,
+                                                    ),
+                                                )
+                                            }
+                                            if (trailingEndDp > 0f) {
+                                                gutterDropTargets[endGutterKey] = StartGroupGutterDropTarget(
+                                                    key = endGutterKey,
+                                                    beforeGroupId = null,
+                                                    bounds = Rect(
+                                                        left = whole.right - trailingEndPx,
+                                                        top = whole.top + labelHeightPx,
+                                                        right = whole.right,
+                                                        bottom = whole.bottom,
+                                                    ),
+                                                )
+                                            }
                                         }
                                     }
                                     .graphicsLayer {
@@ -759,6 +879,59 @@ fun StartScreen(
                                         alpha = frame.alpha
                                     },
                             ) {
+                                if (band.continuationIndex == 0 && visibleGroupName != null) {
+                                    Text(
+                                        text = visibleGroupName,
+                                        color = Color.White.copy(alpha = 0.96f),
+                                        style = WindowsTypography.bodyMedium.copy(
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Normal,
+                                        ),
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .offset(x = leadingSpacingDp.dp)
+                                            .height(START_GROUP_LABEL_HEIGHT_DP.dp),
+                                    )
+                                }
+
+                                if (bandIndex == 0 && activeGutterKey == startGutterKey) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = (-6).dp)
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
+                                if (startsNewGroup && activeGutterKey == gutterKey) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = ((leadingSpacingDp / 2f) - 2f).dp)
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
+                                if (trailingEndDp > 0f && activeGutterKey == endGutterKey) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(
+                                                x = (
+                                                    leadingSpacingDp +
+                                                        metrics.bandWidthDp +
+                                                        trailingEndDp / 2f -
+                                                        2f
+                                                    ).dp,
+                                            )
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
+
                                 band.tiles.forEach { placed ->
                                     key(placed.tile.id) {
                                         val tile = placed.tile
@@ -771,8 +944,13 @@ fun StartScreen(
                                             placed.rows * metrics.cellDp +
                                                 (placed.rows - 1) * metrics.gapDp
                                             ).dp
-                                        val targetX = (placed.column * (metrics.cellDp + metrics.gapDp)).dp
-                                        val targetY = (placed.row * (metrics.cellDp + metrics.gapDp)).dp
+                                        val targetX = (
+                                            leadingSpacingDp + placed.column * (metrics.cellDp + metrics.gapDp)
+                                            ).dp
+                                        val targetY = (
+                                            START_GROUP_LABEL_HEIGHT_DP +
+                                                placed.row * (metrics.cellDp + metrics.gapDp)
+                                            ).dp
                                         val animatedX by animateDpAsState(
                                             targetValue = targetX,
                                             animationSpec = tween(TILE_REORDER_DURATION_MS, easing = FastOutSlowInEasing),
@@ -808,6 +986,7 @@ fun StartScreen(
                                                     if (coordinates.isAttached) {
                                                         tileBounds[tile.id] = coordinates.boundsInWindow()
                                                         tileGridPositions[tile.id] = StartTileGridPosition(
+                                                            groupId = band.groupId,
                                                             groupName = band.groupName,
                                                             continuationIndex = band.continuationIndex,
                                                             column = placed.column,
@@ -865,6 +1044,7 @@ fun StartScreen(
                                                     dragEnabled = interactionEnabled && launchingTileId == null,
                                                     onDragStart = { bounds -> beginTileDrag(tile, bounds) },
                                                     onDrag = ::moveDraggedTile,
+                                                    onDragLayoutShift = ::compensateDraggedTileForLayout,
                                                     onDragEnd = { finishTileDrag(commit = true) },
                                                     onDragCancel = { finishTileDrag(commit = false) },
                                                 )
@@ -887,6 +1067,7 @@ fun StartScreen(
                                 }
                             }
                         }
+
                     }
 
                     AnimatedVisibility(
@@ -962,8 +1143,13 @@ fun StartScreen(
             val selectedLiveTileEnabled = remember(singlePackage, liveTilesRevision) {
                 singlePackage?.let { LauncherFeatureStore.isLiveTileEnabled(context, it) }
             }
-            val oneGroup = selectedTiles.map { it.groupName }.distinct().singleOrNull()
-            val existingGroups = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct()
+            val oneGroupId = selectedTiles.map { it.effectiveStartGroupId() }.distinct().singleOrNull()
+            val oneGroupName = oneGroupId?.let { id ->
+                tiles.firstOrNull { it.effectiveStartGroupId() == id }?.groupName.orEmpty()
+            }
+            val existingGroups = tiles
+                .distinctBy { it.effectiveStartGroupId() }
+                .map { it.groupName.trim().ifEmpty { "Start" } }
 
             StartCustomizationBar(
                 selectedTiles = selectedTiles,
@@ -972,7 +1158,16 @@ fun StartScreen(
                 onResize = { size ->
                     val selected = selectedTiles.singleOrNull() ?: return@StartCustomizationBar
                     val updated = normalizeStartTileOrder(
-                        tiles.map { tile -> if (tile.id == selected.id) tile.copy(size = size) else tile },
+                        tiles.map { tile ->
+                            if (tile.id == selected.id) {
+                                tile.copy(
+                                    size = size,
+                                    startBand = null,
+                                    startColumn = null,
+                                    startRow = null,
+                                )
+                            } else tile
+                        },
                     )
                     latestOnTilesChanged.value(updated)
                     showResizeChoices = false
@@ -1009,6 +1204,7 @@ fun StartScreen(
                             size = TileSize.MEDIUM,
                             colorValue = first.colorValue,
                             iconGlyph = "app",
+                            groupId = first.effectiveStartGroupId(),
                             groupName = first.groupName,
                             order = firstIndex,
                         )
@@ -1039,23 +1235,43 @@ fun StartScreen(
                         selectedTileIds = emptySet()
                     }
                 } else null,
-                onRenameGroup = oneGroup?.let { groupName ->
+                onRenameGroup = oneGroupId?.let { groupId ->
                     {
                         groupDialog = GroupDialogRequest(
                             title = "Name group",
-                            initialValue = groupName,
+                            initialValue = oneGroupName.orEmpty(),
                             selectedIds = selectedTileIds,
                             renameWholeGroup = true,
+                            groupId = groupId,
                         )
                     }
                 },
                 onMoveGroup = {
                     groupDialog = GroupDialogRequest(
                         title = "Move to group",
-                        initialValue = oneGroup ?: existingGroups.firstOrNull().orEmpty(),
+                        initialValue = oneGroupName?.takeIf(String::isNotBlank)
+                            ?: existingGroups.firstOrNull().orEmpty(),
                         selectedIds = selectedTileIds,
                         renameWholeGroup = false,
                     )
+                },
+                onCreateGroup = {
+                    val selectedIdsSnapshot = selectedTileIds
+                    val newGroupId = "group:${System.currentTimeMillis()}"
+                    val selected = tiles.filter { it.id in selectedIdsSnapshot }
+                    val remaining = tiles.filterNot { it.id in selectedIdsSnapshot }
+                    val moved = selected.mapIndexed { index, tile ->
+                        tile.copy(
+                            groupId = newGroupId,
+                            groupName = "",
+                            startBand = if (index == 0) 0 else null,
+                            startColumn = if (index == 0) 0 else null,
+                            startRow = if (index == 0) 0 else null,
+                        )
+                    }
+                    latestOnTilesChanged.value(normalizeStartTileOrder(remaining + moved))
+                    selectedTileIds = emptySet()
+                    showResizeChoices = false
                 },
                 onDone = {
                     selectedTileIds = emptySet()
@@ -1080,12 +1296,24 @@ fun StartScreen(
             suggestions = tiles.map { it.groupName.trim().ifEmpty { "Start" } }.distinct(),
             onDismiss = { groupDialog = null },
             onConfirm = { newName ->
-                val oldGroup = request.initialValue
+                val normalizedName = newName.trim()
+                val targetGroupId = if (request.renameWholeGroup) {
+                    request.groupId
+                } else {
+                    tiles.firstOrNull {
+                        it.groupName.trim().equals(normalizedName, ignoreCase = true)
+                    }?.effectiveStartGroupId()
+                        ?: "group:${System.currentTimeMillis()}"
+                }
                 val updated = tiles.map { tile ->
                     when {
-                        request.renameWholeGroup && tile.groupName == oldGroup -> tile.copy(groupName = newName)
+                        request.renameWholeGroup &&
+                            request.groupId != null &&
+                            tile.effectiveStartGroupId() == request.groupId ->
+                            tile.copy(groupName = normalizedName)
                         !request.renameWholeGroup && tile.id in request.selectedIds -> tile.copy(
-                            groupName = newName,
+                            groupId = targetGroupId.orEmpty(),
+                            groupName = normalizedName,
                             startBand = null,
                             startColumn = null,
                             startRow = null,
@@ -1099,6 +1327,57 @@ fun StartScreen(
             },
         )
     }
+}
+
+internal fun moveDraggedTileToExistingGroup(
+    tiles: List<TileModel>,
+    draggedId: String,
+    targetGroupId: String,
+    targetGroupName: String,
+): List<TileModel> {
+    val dragged = tiles.firstOrNull { it.id == draggedId } ?: return tiles
+    if (dragged.effectiveStartGroupId() == targetGroupId) return tiles
+
+    val working = tiles.filterNot { it.id == draggedId }.toMutableList()
+    val insertionIndex = working.indexOfLast { it.effectiveStartGroupId() == targetGroupId }
+        .let { if (it >= 0) it + 1 else working.size }
+    working.add(
+        insertionIndex.coerceIn(0, working.size),
+        dragged.copy(
+            groupId = targetGroupId,
+            groupName = targetGroupName,
+            startBand = null,
+            startColumn = null,
+            startRow = null,
+        ),
+    )
+    return normalizeStartTileOrder(working)
+}
+
+internal fun moveDraggedTileToNewGroup(
+    tiles: List<TileModel>,
+    draggedId: String,
+    newGroupId: String,
+    insertBeforeGroupId: String?,
+): List<TileModel> {
+    val dragged = tiles.firstOrNull { it.id == draggedId } ?: return tiles
+    val working = tiles.filterNot { it.id == draggedId }.toMutableList()
+    val insertionIndex = insertBeforeGroupId
+        ?.let { groupId -> working.indexOfFirst { it.effectiveStartGroupId() == groupId } }
+        ?.takeIf { it >= 0 }
+        ?: working.size
+
+    working.add(
+        insertionIndex.coerceIn(0, working.size),
+        dragged.copy(
+            groupId = newGroupId,
+            groupName = "",
+            startBand = 0,
+            startColumn = 0,
+            startRow = 0,
+        ),
+    )
+    return normalizeStartTileOrder(working)
 }
 
 private fun gridRectanglesOverlap(
@@ -1144,6 +1423,7 @@ private fun StartCustomizationBar(
     onStackWidgets: (() -> Unit)?,
     onRenameGroup: (() -> Unit)?,
     onMoveGroup: (() -> Unit)?,
+    onCreateGroup: (() -> Unit)?,
     onDone: () -> Unit,
 ) {
     val singleTile = selectedTiles.singleOrNull()
@@ -1203,7 +1483,8 @@ private fun StartCustomizationBar(
             onCreateFolder?.let { StartCommandButton("Create folder", "app", it) }
             onStackWidgets?.let { StartCommandButton("Stack widgets", "app", it) }
             onRenameGroup?.let { StartCommandButton("Name group", "settings", it) }
-            onMoveGroup?.let { StartCommandButton("Move group", "arrow_down", it) }
+            onMoveGroup?.let { StartCommandButton("Move to group", "arrow_down", it) }
+            onCreateGroup?.let { StartCommandButton("New group", "app", it) }
             StartCommandButton("Done", "arrow_down", onDone)
         }
     }

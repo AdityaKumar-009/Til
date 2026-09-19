@@ -61,6 +61,73 @@ class StartTileReorderTest {
     }
 
     @Test
+    fun newGroupDropCreatesAStableGroupAtRequestedGutter() {
+        val source = listOf(
+            tile("a", "One").copy(groupId = "g1"),
+            tile("b", "One").copy(groupId = "g1"),
+            tile("c", "Two").copy(groupId = "g2"),
+        )
+
+        val result = moveDraggedTileToNewGroup(
+            tiles = source,
+            draggedId = "b",
+            newGroupId = "new",
+            insertBeforeGroupId = "g2",
+        )
+
+        assertEquals(listOf("a", "b", "c"), result.map { it.id })
+        val moved = result[1]
+        assertEquals("new", moved.groupId)
+        assertEquals("", moved.groupName)
+        assertEquals(0, moved.startBand)
+        assertEquals(0, moved.startColumn)
+        assertEquals(0, moved.startRow)
+    }
+
+    @Test
+    fun movingIntoExistingGroupAdoptsItsStableIdentity() {
+        val source = listOf(
+            tile("a", "One").copy(groupId = "g1"),
+            tile("b", "Two").copy(groupId = "g2"),
+        )
+
+        val result = moveDraggedTileToExistingGroup(
+            tiles = source,
+            draggedId = "a",
+            targetGroupId = "g2",
+            targetGroupName = "Two",
+        )
+
+        assertEquals(listOf("b", "a"), result.map { it.id })
+        assertEquals("g2", result.last().groupId)
+        assertEquals("Two", result.last().groupName)
+    }
+
+    @Test
+    fun gutterDropCreatesIndependentGroupAtRequestedBoundary() {
+        val source = listOf(
+            tile("a", "One").copy(groupId = "one"),
+            tile("b", "One").copy(groupId = "one"),
+            tile("c", "Two").copy(groupId = "two"),
+        )
+
+        val result = moveDraggedTileToNewGroup(
+            tiles = source,
+            draggedId = "b",
+            newGroupId = "new",
+            insertBeforeGroupId = "two",
+        )
+
+        assertEquals(listOf("a", "b", "c"), result.map { it.id })
+        val moved = result.first { it.id == "b" }
+        assertEquals("new", moved.groupId)
+        assertEquals("", moved.groupName)
+        assertEquals(0, moved.startBand)
+        assertEquals(0, moved.startColumn)
+        assertEquals(0, moved.startRow)
+    }
+
+    @Test
     fun invalidTargetDoesNotLoseTiles() {
         val source = listOf(tile("a", order = 7), tile("b", order = 9))
         val result = reorderStartTiles(source, "a", "missing", false)

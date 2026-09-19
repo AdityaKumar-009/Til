@@ -7,7 +7,6 @@ import android.graphics.BitmapShader
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
-import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -74,12 +74,18 @@ fun WindowsWallpaper(
             null
         }
 
-        if (customBitmap != null) {
-            BitmapWallpaper(
-                bitmap = customBitmap,
-                enabled = enabled,
-                scrollOffsetPx = scrollOffsetPx,
-            )
+        if (customWallpaperUri != null) {
+            // Never fall through to a stock wallpaper while the selected custom image is decoding.
+            // LauncherImageCache normally provides either the full bitmap or a same-aspect disk
+            // preview immediately; if neither exists yet, the stable base stays on screen for the
+            // few decode frames instead of producing a visible zoom/style jump after unlock.
+            if (customBitmap != null) {
+                BitmapWallpaper(
+                    bitmap = customBitmap,
+                    enabled = enabled,
+                    scrollOffsetPx = scrollOffsetPx,
+                )
+            }
             val overlay = StartPersonalization.customWallpaperOverlay.coerceIn(0f, 0.72f)
             if (overlay > 0.001f) {
                 Spacer(
@@ -518,25 +524,12 @@ private fun wallpaperResourceId(style: Int): Int = when (style) {
 @Composable
 private fun rememberCustomWallpaperBitmap(uriString: String): Bitmap? {
     val context = LocalContext.current
-    return produceState<Bitmap?>(null, context, uriString) {
+    val initial = remember(context, uriString) {
+        LauncherImageCache.peekOrPreview(context, uriString)
+    }
+    return produceState<Bitmap?>(initial, context, uriString) {
         value = withContext(Dispatchers.IO) {
-            runCatching {
-                val uri = Uri.parse(uriString)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream, null, bounds)
-                }
-                val longestSide = maxOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
-                var sample = 1
-                while (longestSide / sample > 2560) sample *= 2
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = sample.coerceAtLeast(1)
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
-                }
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream, null, options)
-                }
-            }.getOrNull()
+            LauncherImageCache.getOrDecode(context, uriString, maxSide = 2560)
         }
     }.value
 }

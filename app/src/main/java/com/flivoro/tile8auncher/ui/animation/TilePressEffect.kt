@@ -218,6 +218,7 @@ fun Modifier.metroTileLongPressDrag(
     enabled: Boolean,
     onDragStart: (bounds: Rect) -> Unit,
     onDrag: (delta: Offset) -> Unit,
+    onLayoutShift: (delta: Offset) -> Unit = {},
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit = onDragEnd,
 ): Modifier = composed {
@@ -226,6 +227,7 @@ fun Modifier.metroTileLongPressDrag(
     val coordinates = remember { TileCoordinatesHolder() }
     val latestStart by rememberUpdatedState(onDragStart)
     val latestDrag by rememberUpdatedState(onDrag)
+    val latestLayoutShift by rememberUpdatedState(onLayoutShift)
     val latestEnd by rememberUpdatedState(onDragEnd)
     val latestCancel by rememberUpdatedState(onDragCancel)
     var dragging by remember { mutableStateOf(false) }
@@ -241,9 +243,10 @@ fun Modifier.metroTileLongPressDrag(
             if (dragging && previous != null) {
                 val layoutDelta = topLeft - previous
                 if (kotlin.math.abs(layoutDelta.x) > 0.5f || kotlin.math.abs(layoutDelta.y) > 0.5f) {
-                    // Offset the visual drag by the inverse layout movement. This callback is
-                    // triggered by the packer's layout offset animation, not pointer translation.
-                    latestDrag(Offset(-layoutDelta.x, -layoutDelta.y))
+                    // Keep layout compensation separate from actual finger movement. Feeding this
+                    // synthetic delta into onDrag corrupts the absolute drop coordinate whenever
+                    // the LazyRow scrolls or neighboring tiles reflow.
+                    latestLayoutShift(Offset(-layoutDelta.x, -layoutDelta.y))
                 }
             }
             lastLayoutTopLeft = topLeft

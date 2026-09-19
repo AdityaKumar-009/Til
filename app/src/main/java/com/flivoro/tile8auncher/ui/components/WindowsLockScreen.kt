@@ -3,7 +3,6 @@ package com.flivoro.tile8auncher.ui.components
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -50,12 +49,15 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -199,8 +201,19 @@ fun Windows81LockScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // Translate and clip in the same RenderNode. Modifier.offset() could move a
+                // descendant draw outside the panel's visual clip on some GPU/OEM pipelines,
+                // producing the diagonal bottom-right bleed seen while the lock surface moves.
+                .graphicsLayer {
+                    translationY = offsetY
+                    clip = true
+                    shape = RectangleShape
+                    // Force the moving lock panel into its own bounded texture. Some Android GPU
+                    // pipelines can otherwise let an oversized diagonal DrawScope path survive a
+                    // translated RenderNode clip by a few pixels at the bottom-right corner.
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
                 .clipToBounds()
-                .offset { IntOffset(0, offsetY.roundToInt()) }
                 .draggable(
                 state = dragState,
                 orientation = Orientation.Vertical,
@@ -343,21 +356,30 @@ private fun LockArtwork(
     val context = LocalContext.current
 
     if (!wallpaperUri.isNullOrBlank()) {
-        val bitmap by produceState<ImageBitmap?>(null, wallpaperUri, context) {
+        val initial = remember(context, wallpaperUri) {
+            LauncherImageCache.peekOrPreview(context, wallpaperUri)
+        }
+        val bitmap by produceState<android.graphics.Bitmap?>(initial, wallpaperUri, context) {
             value = withContext(Dispatchers.IO) {
-                decodeLockBitmap(context, Uri.parse(wallpaperUri))
+                LauncherImageCache.getOrDecode(context, wallpaperUri, maxSide = 2560)
             }
         }
+
+        // A selected picture must never flash the stock lock artwork while its full bitmap is
+        // decoding. The cache normally supplies a same-aspect preview immediately; on the first
+        // ever decode, hold a neutral surface for those few frames instead of switching artwork.
         if (bitmap != null) {
             Image(
-                bitmap = bitmap!!,
+                bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
             Canvas(Modifier.fillMaxSize()) { drawRect(Color(0x12000000)) }
-            return
+        } else {
+            Canvas(Modifier.fillMaxSize()) { drawRect(Color(0xFF151515)) }
         }
+        return
     }
 
     if (slideshowUris.isEmpty()) {
@@ -370,20 +392,27 @@ private fun LockArtwork(
         label = "Windows81LockSlideshow",
     ) { index ->
         val uri = slideshowUris.getOrNull(index)
-        val bitmap by produceState<ImageBitmap?>(null, uri, context) {
-            value = uri?.let { withContext(Dispatchers.IO) { decodeLockBitmap(context, Uri.parse(it)) } }
+        val initial = remember(context, uri) {
+            uri?.let { LauncherImageCache.peekOrPreview(context, it) }
+        }
+        val bitmap by produceState<android.graphics.Bitmap?>(initial, uri, context) {
+            value = uri?.let {
+                withContext(Dispatchers.IO) {
+                    LauncherImageCache.getOrDecode(context, it, maxSide = 2560)
+                }
+            }
         }
         Box(Modifier.fillMaxSize()) {
             if (bitmap != null) {
                 Image(
-                    bitmap = bitmap!!,
+                    bitmap = bitmap!!.asImageBitmap(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
                 Canvas(Modifier.fillMaxSize()) { drawRect(Color(0x18000000)) }
             } else {
-                Windows81DefaultLockArtwork(Modifier.fillMaxSize())
+                Canvas(Modifier.fillMaxSize()) { drawRect(Color(0xFF151515)) }
             }
         }
     }
@@ -432,11 +461,15 @@ private fun TextWithWindowsLockStyle(
 
 @Composable
 private fun Windows81DefaultLockArtwork(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        drawRect(Color(0xFF6D6B65))
-        drawRect(Color(0x1C000000))
+    Canvas(modifier = modifier.clipToBounds()) {
+        // DrawScope paths are allowed to extend beyond layout bounds. Explicitly clip the artwork
+        // itself, not only its parent, so the oversized diagonal endpoints can never leak into the
+        // area revealed beneath a moving lock panel.
+        clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
+            drawRect(Color(0xFF6D6B65))
+            drawRect(Color(0x1C000000))
 
-        val colors = listOf(
+            val colors = listOf(
             Color(0xFF2F8BC4), Color(0xFF1676B7), Color(0xFF185FA9),
             Color(0xFF7843A4), Color(0xFFC12E73), Color(0xFFDE3554),
             Color(0xFFEF4939), Color(0xFFF26B31), Color(0xFFF49A28),
@@ -468,13 +501,14 @@ private fun Windows81DefaultLockArtwork(modifier: Modifier = Modifier) {
             drawPath(separator, Color(0x35000000), style = Stroke(width = 1.1f))
         }
 
-        drawLine(
-            color = Color(0x26FFFFFF),
-            start = Offset(-size.width * 0.25f, size.height * 0.38f),
-            end = Offset(size.width * 1.25f, size.height * 0.90f),
-            strokeWidth = size.height * 0.018f,
-            cap = StrokeCap.Round,
-        )
+            drawLine(
+                color = Color(0x26FFFFFF),
+                start = Offset(-size.width * 0.25f, size.height * 0.38f),
+                end = Offset(size.width * 1.25f, size.height * 0.90f),
+                strokeWidth = size.height * 0.018f,
+                cap = StrokeCap.Round,
+            )
+        }
     }
 }
 
@@ -528,18 +562,6 @@ private fun BatteryStatusGlyph(level: Int) {
         )
     }
 }
-
-private fun decodeLockBitmap(context: Context, uri: Uri): ImageBitmap? = runCatching {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-    val longest = maxOf(bounds.outWidth, bounds.outHeight).coerceAtLeast(1)
-    var sample = 1
-    while (longest / sample > 1920) sample *= 2
-    val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
-    context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
-    }
-}.getOrNull()
 
 private fun readBatteryLevel(context: Context): Int {
     val manager = context.getSystemService(BatteryManager::class.java)

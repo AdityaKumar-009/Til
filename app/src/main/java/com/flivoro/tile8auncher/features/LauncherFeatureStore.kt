@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import com.flivoro.tile8auncher.ui.components.LauncherImageCache
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -149,8 +150,10 @@ object LauncherFeatureStore {
         parseArray(prefs(context).getString(LOCK_SLIDESHOW_URIS, null))
 
     fun setLockSlideshowUris(context: Context, uris: List<String>) {
+        val distinctUris = uris.distinct()
+        distinctUris.forEach { LauncherImageCache.preload(context, it, maxSide = 2560) }
         val array = JSONArray()
-        uris.distinct().forEach(array::put)
+        distinctUris.forEach(array::put)
         prefs(context).edit { putString(LOCK_SLIDESHOW_URIS, array.toString()) }
     }
 
