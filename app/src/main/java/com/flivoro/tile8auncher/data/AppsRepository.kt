@@ -386,14 +386,15 @@ class AppsRepository(private val context: Context) {
         val explore = "default:explore"
 
         return listOf(
-            // Cluster 1 — communication / at-a-glance. Mirrors the dense left cluster seen in
-            // Microsoft's Windows 8.1 Product Guide: Mail, Calendar, People/Skype and Weather.
+            // Cluster 1 — the at-a-glance block from the period Windows 8.1 Start layout.
+            // It intentionally spans more than one four-cell band, with ordinary 8dp tile spacing
+            // inside the cluster and no artificial empty category row.
             tile(
                 "tile_mail", "Mail", connect, TileSize.WIDE, WindowsColors.MailBlue,
                 TileType.MAIL, "mail", mailApp,
             ),
             tile(
-                "tile_calendar", "Calendar", connect, TileSize.MEDIUM, WindowsColors.CalendarPurple,
+                "tile_calendar", "Calendar", connect, TileSize.WIDE, WindowsColors.CalendarPurple,
                 TileType.CALENDAR, "calendar", calendarApp,
             ),
             tile(
@@ -405,23 +406,44 @@ class AppsRepository(private val context: Context) {
                 TileType.APP, "skype", chatApp,
             ),
             tile(
+                "tile_desktop", "Desktop", connect, TileSize.MEDIUM, WindowsColors.DesktopBlue,
+                TileType.DESKTOP, "desktop",
+            ),
+            tile(
                 "tile_weather", "Weather", connect, TileSize.WIDE, WindowsColors.WeatherCyan,
                 TileType.WEATHER, "weather", weatherApp,
             ),
             tile(
-                "tile_desktop", "Desktop", connect, TileSize.MEDIUM, WindowsColors.DesktopBlue,
-                TileType.DESKTOP, "desktop",
+                "tile_settings", "PC settings", connect, TileSize.SMALL, WindowsColors.SettingsPurple,
+                TileType.SETTINGS, "settings", settingsApp,
+            ),
+            tile(
+                "tile_clock", "Alarms & Clock", connect, TileSize.SMALL, WindowsColors.SportsPurple,
+                TileType.CLOCK, "clock", clockApp,
             ),
 
-            // Cluster 2 — core Windows/device entry points. Kept dense with mixed medium/small
-            // sizes rather than large 4x4 blocks so a phone still reads like the original Start.
+            // Cluster 2 — browser/cloud/photos plus the four small media tiles. This follows the
+            // visual rhythm of Microsoft's 8.1 Product Guide screenshot, where IE and four small
+            // media tiles sit beside Help+Tips/OneDrive/Photos.
             tile(
                 "tile_ie", "Internet Explorer", windows, TileSize.MEDIUM,
                 WindowsColors.InternetExplorerBlue, TileType.INTERNET_EXPLORER, "ie", browserApp,
             ),
             tile(
-                "tile_store", "Store", windows, TileSize.MEDIUM, WindowsColors.StoreGreen,
-                TileType.STORE, "store", storeApp,
+                "tile_video", "Video", windows, TileSize.SMALL, WindowsColors.NewsRed,
+                TileType.APP, "video", videoApp,
+            ),
+            tile(
+                "tile_music", "Music", windows, TileSize.SMALL, WindowsColors.MusicOrange,
+                TileType.APP, "music", musicApp,
+            ),
+            tile(
+                "tile_games", "Games", windows, TileSize.SMALL, WindowsColors.StoreGreen,
+                TileType.APP, "games", gamesApp,
+            ),
+            tile(
+                "tile_camera", "Camera", windows, TileSize.SMALL, WindowsColors.CameraPink,
+                TileType.APP, "camera", cameraApp,
             ),
             tile(
                 "tile_help", "Help+Tips", windows, TileSize.MEDIUM, WindowsColors.HelpOrange,
@@ -435,27 +457,15 @@ class AppsRepository(private val context: Context) {
                 "tile_photos", "Photos", windows, TileSize.WIDE, WindowsColors.Teal,
                 TileType.PHOTOS, "photos", photosApp,
             ),
-            tile(
-                "tile_settings", "PC settings", windows, TileSize.SMALL, WindowsColors.SettingsPurple,
-                TileType.SETTINGS, "settings", settingsApp,
-            ),
-            tile(
-                "tile_camera", "Camera", windows, TileSize.SMALL, WindowsColors.CameraPink,
-                TileType.APP, "camera", cameraApp,
-            ),
-            tile(
-                "tile_clock", "Alarms & Clock", windows, TileSize.SMALL, WindowsColors.SportsPurple,
-                TileType.CLOCK, "clock", clockApp,
-            ),
 
-            // Cluster 3 — browse / media / information, like the separate right-hand cluster in
-            // period Windows 8.1 screenshots.
+            // Cluster 3 — information/discovery. At the common six-row phone layout this fills a
+            // single band rather than leaving a mostly empty continuation column.
             tile(
                 "tile_news", "News", explore, TileSize.WIDE, WindowsColors.NewsRed,
                 TileType.APP, "news", newsApp,
             ),
             tile(
-                "tile_money", "Money", explore, TileSize.WIDE, WindowsColors.MoneyGreen,
+                "tile_money", "Money", explore, TileSize.MEDIUM, WindowsColors.MoneyGreen,
                 TileType.MONEY, "money",
             ),
             tile(
@@ -467,16 +477,8 @@ class AppsRepository(private val context: Context) {
                 WindowsColors.ReadingListCrimson, TileType.READING_LIST, "reading_list",
             ),
             tile(
-                "tile_music", "Music", explore, TileSize.SMALL, WindowsColors.MusicOrange,
-                TileType.APP, "music", musicApp,
-            ),
-            tile(
-                "tile_video", "Video", explore, TileSize.SMALL, WindowsColors.NewsRed,
-                TileType.APP, "video", videoApp,
-            ),
-            tile(
-                "tile_games", "Games", explore, TileSize.SMALL, WindowsColors.StoreGreen,
-                TileType.APP, "games", gamesApp,
+                "tile_store", "Store", explore, TileSize.MEDIUM, WindowsColors.StoreGreen,
+                TileType.STORE, "store", storeApp,
             ),
         ).mapIndexed { index, tile -> tile.copy(order = index) }
     }
