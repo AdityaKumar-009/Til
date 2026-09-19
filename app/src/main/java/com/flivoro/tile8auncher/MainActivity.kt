@@ -460,6 +460,10 @@ fun Tile8LauncherApp(
     val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
     val startScroll = rememberLazyListState()
     val appsScroll = rememberLazyListState()
+    // Start's bands have different physical widths because group gutters are real layout items.
+    // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
+    // it from firstVisibleItemIndex * currentItemWidth (which jumps when the first item changes).
+    var startWallpaperScrollPx by remember { mutableFloatStateOf(0f) }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
@@ -633,14 +637,17 @@ fun Tile8LauncherApp(
             wallpaperStyle = wallpaperStyle,
             enabled = wallpaperParallaxEnabled || wallpaperEntrance.value < 0.9999f,
             scrollOffsetPx = {
-                fun offset(state: androidx.compose.foundation.lazy.LazyListState): Float {
+                fun appsOffset(state: androidx.compose.foundation.lazy.LazyListState): Float {
                     val info = state.layoutInfo
                     val itemWidth = info.visibleItemsInfo.firstOrNull()?.size ?: 0
-                    return (state.firstVisibleItemIndex.toFloat() * (itemWidth + info.mainAxisItemSpacing) +
-                        state.firstVisibleItemScrollOffset).coerceAtLeast(0f)
+                    return (
+                        state.firstVisibleItemIndex.toFloat() * (itemWidth + info.mainAxisItemSpacing) +
+                            state.firstVisibleItemScrollOffset
+                        ).coerceAtLeast(0f)
                 }
                 val p = drawerProgress.floatValue
-                val userScroll = offset(startScroll) * (1f - p) + offset(appsScroll) * p
+                val userScroll =
+                    startWallpaperScrollPx * (1f - p) + appsOffset(appsScroll) * p
                 val displayMetrics = context.resources.displayMetrics
                 val viewportWidthPx = displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
                 val viewportHeightPx = displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
@@ -719,6 +726,7 @@ fun Tile8LauncherApp(
                                 appsRepository.savePinnedTiles(updatedTiles)
                             }
                         },
+                        onWallpaperScrollOffsetChanged = { startWallpaperScrollPx = it },
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
                         onCharmsClick = { if (entranceReady) showCharms = true },
@@ -939,15 +947,7 @@ fun Tile8LauncherApp(
                     WindowsWallpaper(
                         wallpaperStyle = wallpaperStyle,
                         enabled = wallpaperParallaxEnabled,
-                        scrollOffsetPx = {
-                            val info = startScroll.layoutInfo
-                            val itemWidth = info.visibleItemsInfo.firstOrNull()?.size ?: 0
-                            (
-                                startScroll.firstVisibleItemIndex.toFloat() *
-                                    (itemWidth + info.mainAxisItemSpacing) +
-                                    startScroll.firstVisibleItemScrollOffset
-                                ).coerceAtLeast(0f)
-                        },
+                        scrollOffsetPx = { startWallpaperScrollPx },
                     )
                 },
             )
