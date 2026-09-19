@@ -589,8 +589,8 @@ fun StartScreen(
     // anchored while LazyRow reveals the next/previous band.
     LaunchedEffect(draggingTileId) {
         if (draggingTileId == null) return@LaunchedEffect
-        val edgePx = with(dragDensity) { 72.dp.toPx() }
-        val maxStepPx = with(dragDensity) { 20.dp.toPx() }
+        val edgePx = with(dragDensity) { 88.dp.toPx() }
+        val maxStepPx = with(dragDensity) { 12.dp.toPx() }
         while (draggingTileId != null) {
             val viewport = tileViewportBounds
             if (viewport.width > 0f) {
@@ -598,8 +598,8 @@ fun StartScreen(
                 val leftStrength = ((viewport.left + edgePx - centerX) / edgePx).coerceIn(0f, 1f)
                 val rightStrength = ((centerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
                 val step = when {
-                    rightStrength > 0f -> maxStepPx * rightStrength
-                    leftStrength > 0f -> -maxStepPx * leftStrength
+                    rightStrength > 0f -> maxStepPx * rightStrength * rightStrength
+                    leftStrength > 0f -> -maxStepPx * leftStrength * leftStrength
                     else -> 0f
                 }
                 if (step != 0f) {
