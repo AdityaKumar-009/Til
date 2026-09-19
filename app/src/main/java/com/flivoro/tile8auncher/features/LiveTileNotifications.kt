@@ -204,7 +204,7 @@ class MosaicNotificationListenerService : NotificationListenerService() {
         val projected = active
             .groupBy(StatusBarNotification::getPackageName)
             .mapValues { (_, notifications) -> projectPackage(notifications) }
-            .filterValues(List<LiveTileNotification>::isNotEmpty)
+            .filterValues { it.isNotEmpty() }
 
         LiveTileNotificationStore.replaceAll(this, projected)
     }
@@ -239,7 +239,7 @@ class MosaicNotificationListenerService : NotificationListenerService() {
 
         // Android group summaries frequently duplicate their child messages. Prefer the real child
         // notifications, but retain a summary when it is the only meaningful payload available.
-        val contentItems = projected.filterNot(ProjectedNotification::isGroupSummary)
+        val contentItems = projected.filterNot { it.isGroupSummary }
             .ifEmpty { projected }
 
         val badgeCount = maxOf(
