@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 class StartTilePackingTest {
 
@@ -259,7 +258,11 @@ class StartTilePackingTest {
         assertTrue(layout.tiles.all { it.columns > 0 && it.rows > 0 })
         assertTrue(layout.bands.zipWithNext().all { (first, second) ->
             first.key != second.key &&
-                abs(first.continuationIndex - second.continuationIndex) <= 1
+                if (first.groupId == second.groupId) {
+                    second.continuationIndex == first.continuationIndex + 1
+                } else {
+                    second.continuationIndex == 0
+                }
         })
     }
 
