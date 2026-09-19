@@ -773,6 +773,7 @@ fun StartScreen(
                             val trailingEndPx = with(density) { trailingEndDp.dp.toPx() }
                             val labelHeightPx = with(density) { START_GROUP_LABEL_HEIGHT_DP.dp.toPx() }
                             val gutterKey = "start-group-gutter:${band.groupId}:before"
+                            val startGutterKey = "start-group-gutter:start"
                             val endGutterKey = "start-group-gutter:end"
                             val visibleGroupName = band.groupName.takeIf {
                                 it.isNotBlank() &&
@@ -783,6 +784,7 @@ fun StartScreen(
                                 onDispose {
                                     bandDropTargets.remove(band.key)
                                     if (startsNewGroup) gutterDropTargets.remove(gutterKey)
+                                    if (bandIndex == 0) gutterDropTargets.remove(startGutterKey)
                                     if (trailingEndDp > 0f) gutterDropTargets.remove(endGutterKey)
                                 }
                             }
@@ -811,6 +813,23 @@ fun StartScreen(
                                                 gapPx = gapPx,
                                                 bounds = bandBounds,
                                             )
+                                            if (bandIndex == 0) {
+                                                val viewportLeft = tileViewportBounds.left
+                                                val desiredWidth = with(density) {
+                                                    START_END_GROUP_DROP_ZONE_DP.dp.toPx()
+                                                }
+                                                gutterDropTargets[startGutterKey] =
+                                                    StartGroupGutterDropTarget(
+                                                        key = startGutterKey,
+                                                        beforeGroupId = band.groupId,
+                                                        bounds = Rect(
+                                                            left = maxOf(viewportLeft, whole.left - desiredWidth),
+                                                            top = whole.top + labelHeightPx,
+                                                            right = whole.left,
+                                                            bottom = whole.bottom,
+                                                        ),
+                                                    )
+                                            }
                                             if (startsNewGroup) {
                                                 gutterDropTargets[gutterKey] = StartGroupGutterDropTarget(
                                                     key = gutterKey,
@@ -875,6 +894,16 @@ fun StartScreen(
                                     )
                                 }
 
+                                if (bandIndex == 0 && activeGutterKey == startGutterKey) {
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = (-6).dp)
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(top = START_GROUP_LABEL_HEIGHT_DP.dp + 6.dp, bottom = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
                                 if (startsNewGroup && activeGutterKey == gutterKey) {
                                     Box(
                                         modifier = Modifier
