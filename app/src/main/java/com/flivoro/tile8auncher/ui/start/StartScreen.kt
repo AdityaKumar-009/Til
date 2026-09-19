@@ -192,6 +192,9 @@ fun StartScreen(
     var selectedTileIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dragTiles by remember { mutableStateOf<List<TileModel>?>(null) }
     var draggingTileId by remember { mutableStateOf<String?>(null) }
+    // Real pointer motion stays separate from inverse layout compensation. This keeps the drop
+    // coordinate under the user's finger while the LazyRow or neighboring tiles move.
+    var dragPointerOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var dragOriginBounds by remember { mutableStateOf(Rect.Zero) }
     var lastGridDrop by remember { mutableStateOf<StartGridDropKey?>(null) }
@@ -370,6 +373,7 @@ fun StartScreen(
             dragTiles = tiles.toList()
             draggingTileId = tile.id
             dragOriginBounds = bounds
+            dragPointerOffset = Offset.Zero
             dragOffset = Offset.Zero
             lastGridDrop = null
             activeGutterKey = null
@@ -389,8 +393,9 @@ fun StartScreen(
 
     fun moveDraggedTile(delta: Offset) {
         val draggedId = draggingTileId ?: return
+        dragPointerOffset += delta
         dragOffset += delta
-        val visualCenter = dragOriginBounds.center + dragOffset
+        val visualCenter = dragOriginBounds.center + dragPointerOffset
         val current = dragTiles ?: tiles.toList()
         val dragged = current.firstOrNull { it.id == draggedId } ?: return
 
@@ -492,10 +497,16 @@ fun StartScreen(
         lastGridDrop = dropKey
     }
 
+    fun compensateDraggedTileForLayout(delta: Offset) {
+        if (draggingTileId == null) return
+        dragOffset += delta
+    }
+
     fun finishTileDrag(commit: Boolean) {
         if (draggingTileId == null) return
         val result = dragTiles
         draggingTileId = null
+        dragPointerOffset = Offset.Zero
         dragOffset = Offset.Zero
         lastGridDrop = null
         activeGutterKey = null
@@ -545,7 +556,7 @@ fun StartScreen(
         while (draggingTileId != null) {
             val viewport = tileViewportBounds
             if (viewport.width > 0f) {
-                val centerX = (dragOriginBounds.center + dragOffset).x
+                val centerX = (dragOriginBounds.center + dragPointerOffset).x
                 val leftStrength = ((viewport.left + edgePx - centerX) / edgePx).coerceIn(0f, 1f)
                 val rightStrength = ((centerX - (viewport.right - edgePx)) / edgePx).coerceIn(0f, 1f)
                 val step = when {
@@ -937,6 +948,7 @@ fun StartScreen(
                                                     dragEnabled = interactionEnabled && launchingTileId == null,
                                                     onDragStart = { bounds -> beginTileDrag(tile, bounds) },
                                                     onDrag = ::moveDraggedTile,
+                                                    onDragLayoutShift = ::compensateDraggedTileForLayout,
                                                     onDragEnd = { finishTileDrag(commit = true) },
                                                     onDragCancel = { finishTileDrag(commit = false) },
                                                 )
