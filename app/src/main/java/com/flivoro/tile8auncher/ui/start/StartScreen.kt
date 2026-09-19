@@ -136,6 +136,7 @@ fun StartScreen(
     listState: LazyListState = rememberLazyListState(),
 ) {
     val context = LocalContext.current
+    val dragDensity = LocalDensity.current
     val entrance = remember { Animatable(0f) }
     var playingKind by remember { mutableStateOf(entranceKind) }
     val scope = rememberCoroutineScope()
@@ -423,12 +424,8 @@ fun StartScreen(
     // anchored while LazyRow reveals the next/previous band.
     LaunchedEffect(draggingTileId) {
         if (draggingTileId == null) return@LaunchedEffect
-        val edgePx = with(density = androidx.compose.ui.unit.Density(context.resources.displayMetrics.density)) {
-            72.dp.toPx()
-        }
-        val maxStepPx = with(density = androidx.compose.ui.unit.Density(context.resources.displayMetrics.density)) {
-            20.dp.toPx()
-        }
+        val edgePx = with(dragDensity) { 72.dp.toPx() }
+        val maxStepPx = with(dragDensity) { 20.dp.toPx() }
         while (draggingTileId != null) {
             val viewport = tileViewportBounds
             if (viewport.width > 0f) {
