@@ -161,6 +161,12 @@ fun Modifier.metroTilePress(
                         dragging = true
                         latestDragStart(bounds)
 
+                        // awaitLongPressOrCancellation allows a small amount of movement while the
+                        // user is holding. Apply it once so the proxy begins exactly under the
+                        // current finger rather than a few pixels behind the contact point.
+                        val heldDelta = longPress.position - down.position
+                        if (heldDelta != Offset.Zero) latestDrag(heldDelta)
+
                         val completed = drag(longPress.id) { change ->
                             val delta = change.positionChange()
                             if (delta != Offset.Zero) {
