@@ -246,6 +246,9 @@ fun StartScreen(
     var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
+    var dragStartGridPositions by remember {
+        mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
+    }
     var dragNewGroupId by remember { mutableStateOf<String?>(null) }
     var activeGutterKey by remember { mutableStateOf<String?>(null) }
     var tileViewportBounds by remember { mutableStateOf(Rect.Zero) }
@@ -417,9 +420,16 @@ fun StartScreen(
         }
     }
 
-    fun beginTileDrag(tile: TileModel, bounds: Rect) {
+    fun beginTileDrag(
+        tile: TileModel,
+        bounds: Rect,
+        pointerWindow: Offset,
+    ) {
         if (!latestInteractionEnabled.value) return
+
         fun enterCustomization() {
+            previewJob?.cancel()
+            previewJob = null
             showBandOverview = false
             openFolderTile = null
             selectedTileIds = setOf(tile.id)
@@ -427,15 +437,21 @@ fun StartScreen(
             dragTiles = tiles.toList()
             draggingTileId = tile.id
             dragOriginBounds = bounds
-            dragPointerWindow = Offset.Zero
-            dragContactOffset = Offset.Zero
+            dragPointerWindow = pointerWindow
+            dragContactOffset = Offset(
+                x = (pointerWindow.x - bounds.left).coerceIn(0f, bounds.width),
+                y = (pointerWindow.y - bounds.top).coerceIn(0f, bounds.height),
+            )
+            dragStartGridPositions = tileGridPositions.toMap()
+            pendingDropProposal = null
+            appliedDropProposal = null
             lastGridDrop = null
             activeGutterKey = null
             dragNewGroupId = "group:${System.currentTimeMillis()}:${tile.id}"
         }
-        // The drag must become active synchronously on the long-press frame. Waiting for
-        // the entrance Animatable coroutine to stop used to drop the first pointer deltas and made
-        // the held tile appear to lag/jump if the user grabbed it during Start's entrance.
+
+        // Activate synchronously on the long-press frame. Entrance animation cleanup can finish
+        // independently; the pointer must never wait for an Animatable coroutine.
         if (entranceRunning) {
             entranceRunning = false
             scope.launch {
@@ -446,44 +462,157 @@ fun StartScreen(
         enterCustomization()
     }
 
-    fun updateDraggedTilePlacement(visualCenter: Offset) {
-        val draggedId = draggingTileId ?: return
-        val current = dragTiles ?: tiles.toList()
-        val dragged = current.firstOrNull { it.id == draggedId } ?: return
+    fun dragVisualTopLeft(): Offset =
+        Offset(
+            x = dragPointerWindow.x - dragContactOffset.x,
+            y = dragPointerWindow.y - dragContactOffset.y,
+        )
 
-        // Windows treats the wide inter-group gutter as a stable new-group target. Do not keep
-        // rebuilding the same group every pointer frame while the finger remains inside it.
-        val gutter = gutterDropTargets.values
-            .firstOrNull { target -> target.bounds.contains(visualCenter) }
-        if (gutter != null) {
-            val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
-            dragNewGroupId = newGroupId
-            if (
-                activeGutterKey != gutter.key ||
-                dragged.effectiveStartGroupId() != newGroupId
-            ) {
+    fun dragVisualCenter(): Offset {
+        val topLeft = dragVisualTopLeft()
+        return Offset(
+            x = topLeft.x + dragOriginBounds.width / 2f,
+            y = topLeft.y + dragOriginBounds.height / 2f,
+        )
+    }
+
+    fun applyDropProposal(
+        proposal: StartDropProposal,
+        finalDrop: Boolean,
+    ) {
+        val draggedId = draggingTileId ?: return
+        val base = tiles.toList()
+        val dragged = base.firstOrNull { it.id == draggedId } ?: return
+
+        when (proposal) {
+            is StartDropProposal.NewGroup -> {
+                activeGutterKey = proposal.gutterKey
+
+                // Windows shows the separator while hovering the gutter, but it does not rip the
+                // source tile into a new group before release. Commit the group only on drop.
+                if (!finalDrop) return
+
+                val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
+                dragNewGroupId = newGroupId
                 dragTiles = moveDraggedTileToNewGroup(
-                    tiles = current,
+                    tiles = base,
                     draggedId = draggedId,
                     newGroupId = newGroupId,
-                    insertBeforeGroupId = gutter.beforeGroupId,
+                    insertBeforeGroupId = proposal.beforeGroupId,
                 )
+                appliedDropProposal = proposal
+                lastGridDrop = null
             }
-            activeGutterKey = gutter.key
-            lastGridDrop = null
+
+            is StartDropProposal.Grid -> {
+                activeGutterKey = null
+                val key = proposal.key
+                val targetBand = bandDropTargets.values.firstOrNull {
+                    it.groupId == key.groupId &&
+                        it.continuationIndex == key.continuationIndex
+                } ?: return
+
+                val span = dragged.size.startTileSpan()
+                val conflictIds = dragStartGridPositions
+                    .filter { (id, position) ->
+                        id != draggedId &&
+                            position.groupId == key.groupId &&
+                            position.continuationIndex == key.continuationIndex &&
+                            gridRectanglesOverlap(
+                                columnA = key.column,
+                                rowA = key.row,
+                                columnsA = span.columns,
+                                rowsA = span.rows,
+                                columnB = position.column,
+                                rowB = position.row,
+                                columnsB = position.columns,
+                                rowsB = position.rows,
+                            )
+                    }
+                    .keys
+
+                var working = moveDraggedTileToExistingGroup(
+                    tiles = base,
+                    draggedId = draggedId,
+                    targetGroupId = key.groupId,
+                    targetGroupName = targetBand.groupName,
+                )
+
+                working = working.map { tile ->
+                    when {
+                        tile.id == draggedId -> tile.copy(
+                            groupId = key.groupId,
+                            groupName = targetBand.groupName,
+                            startBand = key.continuationIndex,
+                            startColumn = key.column,
+                            startRow = key.row,
+                        )
+                        tile.id in conflictIds -> tile.copy(
+                            startBand = null,
+                            startColumn = null,
+                            startRow = null,
+                        )
+                        else -> tile
+                    }
+                }
+
+                dragTiles = normalizeStartTileOrder(working)
+                appliedDropProposal = proposal
+                lastGridDrop = key
+            }
+        }
+    }
+
+    fun scheduleDropProposal(proposal: StartDropProposal?) {
+        if (draggingTileId == null) return
+        if (proposal == pendingDropProposal) return
+
+        pendingDropProposal = proposal
+        previewJob?.cancel()
+        previewJob = null
+
+        if (proposal == null) {
+            activeGutterKey = null
             return
         }
+
+        if (proposal is StartDropProposal.NewGroup) {
+            // Immediate visual separator, delayed/no structural reflow.
+            activeGutterKey = proposal.gutterKey
+            return
+        }
+
         activeGutterKey = null
+        previewJob = scope.launch {
+            delay(TILE_REORDER_DWELL_MS)
+            if (draggingTileId != null && pendingDropProposal == proposal) {
+                applyDropProposal(proposal, finalDrop = false)
+            }
+        }
+    }
+
+    fun proposalAt(visualCenter: Offset): StartDropProposal? {
+        val draggedId = draggingTileId ?: return null
+        val dragged = tiles.firstOrNull { it.id == draggedId } ?: return null
+
+        gutterDropTargets.values
+            .firstOrNull { target -> target.bounds.contains(visualCenter) }
+            ?.let { gutter ->
+                return StartDropProposal.NewGroup(
+                    gutterKey = gutter.key,
+                    beforeGroupId = gutter.beforeGroupId,
+                )
+            }
 
         val viewport = tileViewportBounds
         val candidates = bandDropTargets.values
             .filter { target -> viewport == Rect.Zero || target.bounds.overlaps(viewport) }
         val targetBand = candidates.firstOrNull { it.bounds.contains(visualCenter) }
             ?: candidates.minByOrNull { distanceSquaredToRect(visualCenter, it.bounds) }
-            ?: return
+            ?: return null
 
         val span = dragged.size.startTileSpan()
-        if (span.columns > targetBand.columns || span.rows > targetBand.rows) return
+        if (span.columns > targetBand.columns || span.rows > targetBand.rows) return null
 
         val stepPx = (targetBand.cellPx + targetBand.gapPx).coerceAtLeast(1f)
         val tileWidthPx =
@@ -495,92 +624,66 @@ fun StartScreen(
         val rawColumn = (visualLeft - targetBand.bounds.left) / stepPx
         val rawRow = (visualTop - targetBand.bounds.top) / stepPx
 
-        val previous = lastGridDrop?.takeIf {
+        val previousKey = when (val pending = pendingDropProposal) {
+            is StartDropProposal.Grid -> pending.key
+            else -> (appliedDropProposal as? StartDropProposal.Grid)?.key
+        }?.takeIf {
             it.groupId == targetBand.groupId &&
                 it.continuationIndex == targetBand.continuationIndex
         }
+
         val column = snapStartCell(
             rawCell = rawColumn,
-            previousCell = previous?.column,
+            previousCell = previousKey?.column,
             maxStart = targetBand.columns - span.columns,
         )
         val row = snapStartCell(
             rawCell = rawRow,
-            previousCell = previous?.row,
+            previousCell = previousKey?.row,
             maxStart = targetBand.rows - span.rows,
         )
 
-        val dropKey = StartGridDropKey(
-            groupId = targetBand.groupId,
-            groupName = targetBand.groupName,
-            continuationIndex = targetBand.continuationIndex,
-            column = column,
-            row = row,
+        return StartDropProposal.Grid(
+            StartGridDropKey(
+                groupId = targetBand.groupId,
+                groupName = targetBand.groupName,
+                continuationIndex = targetBand.continuationIndex,
+                column = column,
+                row = row,
+            ),
         )
-        if (dropKey == lastGridDrop) return
-
-        val conflictIds = tileGridPositions
-            .filter { (id, position) ->
-                id != draggedId &&
-                    position.groupId == targetBand.groupId &&
-                    position.continuationIndex == targetBand.continuationIndex &&
-                    gridRectanglesOverlap(
-                        columnA = column,
-                        rowA = row,
-                        columnsA = span.columns,
-                        rowsA = span.rows,
-                        columnB = position.column,
-                        rowB = position.row,
-                        columnsB = position.columns,
-                        rowsB = position.rows,
-                    )
-            }
-            .keys
-
-        var working = moveDraggedTileToExistingGroup(
-            tiles = current,
-            draggedId = draggedId,
-            targetGroupId = targetBand.groupId,
-            targetGroupName = targetBand.groupName,
-        )
-
-        working = working.map { tile ->
-            when {
-                tile.id == draggedId -> tile.copy(
-                    groupId = targetBand.groupId,
-                    groupName = targetBand.groupName,
-                    startBand = targetBand.continuationIndex,
-                    startColumn = column,
-                    startRow = row,
-                )
-                tile.id in conflictIds -> tile.copy(
-                    startBand = null,
-                    startColumn = null,
-                    startRow = null,
-                )
-                else -> tile
-            }
-        }
-        dragTiles = normalizeStartTileOrder(working)
-        lastGridDrop = dropKey
     }
 
-    fun moveDraggedTile(delta: Offset) {
+    fun moveDraggedPointer(pointerWindow: Offset) {
         if (draggingTileId == null) return
-        dragPointerOffset += delta
-        updateDraggedTilePlacement(dragOriginBounds.center + dragPointerOffset)
+        dragPointerWindow = pointerWindow
+        scheduleDropProposal(proposalAt(dragVisualCenter()))
     }
 
     fun finishTileDrag(commit: Boolean) {
         if (draggingTileId == null) return
+
+        previewJob?.cancel()
+        previewJob = null
+
+        if (commit) {
+            pendingDropProposal?.let { proposal ->
+                applyDropProposal(proposal, finalDrop = true)
+            }
+        }
+
         val result = dragTiles
         draggingTileId = null
         dragPointerWindow = Offset.Zero
-            dragContactOffset = Offset.Zero
+        dragContactOffset = Offset.Zero
+        dragStartGridPositions = emptyMap()
+        pendingDropProposal = null
+        appliedDropProposal = null
         lastGridDrop = null
         activeGutterKey = null
         dragNewGroupId = null
         dragTiles = null
+
         if (commit && result != null && result != tiles) {
             latestOnTilesChanged.value(result)
         }
