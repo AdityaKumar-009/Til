@@ -509,6 +509,17 @@ class AppsRepository(private val context: Context) {
         prefs.edit { putBoolean(WALLPAPER_PARALLAX_ENABLED, enabled) }
     }
 
+    fun getStartWallpaperScrollPx(): Float =
+        prefs.getFloat(START_WALLPAPER_SCROLL_PX, 0f)
+            .takeIf(Float::isFinite)
+            ?.coerceAtLeast(0f)
+            ?: 0f
+
+    fun setStartWallpaperScrollPx(value: Float) {
+        val safe = value.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: 0f
+        prefs.edit { putFloat(START_WALLPAPER_SCROLL_PX, safe) }
+    }
+
     fun getLaunchTiming(allApps: Boolean = false): LaunchTiming {
         fun key(name: String) = if (allApps) "all_apps_$name" else name
         val defaults = LaunchTiming()
@@ -580,6 +591,7 @@ class AppsRepository(private val context: Context) {
         const val LAUNCH_TIMING_STRENGTH = "launch_timing_strength"
         const val LAUNCH_TIMING_STEPS = "launch_timing_steps"
         const val WALLPAPER_PARALLAX_ENABLED = "wallpaper_parallax_enabled"
+        const val START_WALLPAPER_SCROLL_PX = "start_wallpaper_scroll_px"
         const val DEFAULT_LAYOUT_GENERATION_KEY = "default_start_layout_generation"
         const val DEFAULT_LAYOUT_GENERATION = 2
 
