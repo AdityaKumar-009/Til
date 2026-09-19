@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -463,7 +464,7 @@ fun Tile8LauncherApp(
     // Start's bands have different physical widths because group gutters are real layout items.
     // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
     // it from firstVisibleItemIndex * currentItemWidth (which jumps when the first item changes).
-    var startWallpaperScrollPx by remember { mutableFloatStateOf(0f) }
+    var startWallpaperScrollPx by rememberSaveable { mutableFloatStateOf(0f) }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
