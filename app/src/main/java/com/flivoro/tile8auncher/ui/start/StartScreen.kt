@@ -159,13 +159,6 @@ private data class StartGroupGutterDropTarget(
     val bounds: Rect,
 )
 
-private data class StartWallpaperScrollFrame(
-    val isScrolling: Boolean,
-    val firstIndex: Int,
-    val firstOffsetPx: Int,
-    val visibleOffsets: List<Pair<Any, Int>>,
-)
-
 internal fun absoluteStartScrollPx(
     itemWidthsPx: List<Float>,
     firstVisibleItemIndex: Int,
@@ -796,52 +789,18 @@ fun StartScreen(
 
                 LaunchedEffect(listState, bandItemWidthsPx) {
                     if (bandItemWidthsPx.isEmpty()) return@LaunchedEffect
-                    var previousOffsets = emptyMap<Any, Int>()
+
                     snapshotFlow {
-                        StartWallpaperScrollFrame(
-                            isScrolling = listState.isScrollInProgress,
-                            firstIndex = listState.firstVisibleItemIndex,
-                            firstOffsetPx = listState.firstVisibleItemScrollOffset,
-                            visibleOffsets = listState.layoutInfo.visibleItemsInfo.map { info ->
-                                info.key to info.offset
-                            },
+                        listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+                    }.collect { (firstIndex, firstOffsetPx) ->
+                        // This is the exact LazyRow world X. Unlike index * currentItemWidth, the
+                        // prefix sum remains continuous when a 24dp group gutter makes one band
+                        // wider than the next.
+                        trackedWallpaperScrollPx = absoluteStartScrollPx(
+                            itemWidthsPx = bandItemWidthsPx,
+                            firstVisibleItemIndex = firstIndex,
+                            firstVisibleItemScrollOffset = firstOffsetPx,
                         )
-                    }.collect { frame ->
-                        if (!trackedWallpaperScrollPx.isFinite()) {
-                            trackedWallpaperScrollPx = absoluteStartScrollPx(
-                                itemWidthsPx = bandItemWidthsPx,
-                                firstVisibleItemIndex = frame.firstIndex,
-                                firstVisibleItemScrollOffset = frame.firstOffsetPx,
-                            )
-                        } else {
-                            val currentMap = frame.visibleOffsets.toMap()
-                            val commonDelta = frame.visibleOffsets.firstNotNullOfOrNull { (key, currentOffset) ->
-                                previousOffsets[key]?.let { previousOffset ->
-                                    previousOffset - currentOffset
-                                }
-                            }
-
-                            if (frame.isScrolling && commonDelta != null) {
-                                trackedWallpaperScrollPx =
-                                    (trackedWallpaperScrollPx + commonDelta).coerceAtLeast(0f)
-                            } else if (
-                                previousOffsets.isNotEmpty() &&
-                                currentMap.keys.none { it in previousOffsets }
-                            ) {
-                                // scrollToItem / a large programmatic jump can replace every
-                                // visible key in one frame; recover from exact item widths.
-                                trackedWallpaperScrollPx = absoluteStartScrollPx(
-                                    itemWidthsPx = bandItemWidthsPx,
-                                    firstVisibleItemIndex = frame.firstIndex,
-                                    firstVisibleItemScrollOffset = frame.firstOffsetPx,
-                                )
-                            }
-                            previousOffsets = currentMap
-                        }
-
-                        if (previousOffsets.isEmpty()) {
-                            previousOffsets = frame.visibleOffsets.toMap()
-                        }
                         latestOnWallpaperScrollOffsetChanged.value(trackedWallpaperScrollPx)
                     }
                 }
