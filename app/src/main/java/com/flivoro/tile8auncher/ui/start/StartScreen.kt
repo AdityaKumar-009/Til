@@ -20,7 +20,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -296,6 +295,7 @@ fun StartScreen(
             selectedTileIds = emptySet()
             previewJob?.cancel()
             previewJob = null
+            dragAutoScrollActive = false
             dragTiles = null
             draggingTileId = null
             dragPointerWindow = Offset.Zero
@@ -357,6 +357,7 @@ fun StartScreen(
             selectedTileIds = emptySet()
             previewJob?.cancel()
             previewJob = null
+            dragAutoScrollActive = false
             dragTiles = null
             draggingTileId = null
             dragPointerWindow = Offset.Zero
@@ -378,6 +379,7 @@ fun StartScreen(
         if (draggingTileId !in validIds) {
             previewJob?.cancel()
             previewJob = null
+            dragAutoScrollActive = false
             dragTiles = null
             draggingTileId = null
             dragPointerWindow = Offset.Zero
@@ -404,6 +406,7 @@ fun StartScreen(
                 showResizeChoices = false
                 previewJob?.cancel()
                 previewJob = null
+                dragAutoScrollActive = false
                 dragTiles = null
                 draggingTileId = null
                 dragPointerWindow = Offset.Zero
