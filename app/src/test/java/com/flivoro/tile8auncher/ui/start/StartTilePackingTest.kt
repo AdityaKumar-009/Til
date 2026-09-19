@@ -188,6 +188,25 @@ class StartTilePackingTest {
     }
 
     @Test
+    fun variableWidthBandsProduceContinuousWallpaperOffset() {
+        val widths = listOf(280f, 304f, 288f)
+
+        assertEquals(0f, absoluteStartScrollPx(widths, 0, 0), 0.001f)
+        assertEquals(120f, absoluteStartScrollPx(widths, 0, 120), 0.001f)
+        assertEquals(280f, absoluteStartScrollPx(widths, 1, 0), 0.001f)
+        assertEquals(634f, absoluteStartScrollPx(widths, 2, 50), 0.001f)
+    }
+
+    @Test
+    fun dragSnapKeepsPreviousCellNearBoundaryButMovesAfterClearCrossing() {
+        assertEquals(1, snapStartCell(rawCell = 1.49f, previousCell = 1, maxStart = 3))
+        assertEquals(1, snapStartCell(rawCell = 1.60f, previousCell = 1, maxStart = 3))
+        assertEquals(2, snapStartCell(rawCell = 1.70f, previousCell = 1, maxStart = 3))
+        assertEquals(0, snapStartCell(rawCell = -2f, previousCell = null, maxStart = 3))
+        assertEquals(3, snapStartCell(rawCell = 9f, previousCell = null, maxStart = 3))
+    }
+
+    @Test
     fun emptyInputProducesNoLazyItems() {
         val packed = packStartTiles(emptyList(), maxRows = 4)
 

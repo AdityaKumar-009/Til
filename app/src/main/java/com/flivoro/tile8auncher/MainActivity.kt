@@ -18,7 +18,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -37,6 +36,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -62,7 +62,6 @@ import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
-import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
@@ -460,6 +459,10 @@ fun Tile8LauncherApp(
     val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
     val startScroll = rememberLazyListState()
     val appsScroll = rememberLazyListState()
+    // Start's bands have different physical widths because group gutters are real layout items.
+    // Keep the wallpaper on a continuous scroll track reported by StartScreen instead of deriving
+    // it from firstVisibleItemIndex * currentItemWidth (which jumps when the first item changes).
+    var startWallpaperScrollPx by rememberSaveable { mutableStateOf(0f) }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
@@ -472,7 +475,6 @@ fun Tile8LauncherApp(
         mutableStateOf(false)
     }
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
-    val wallpaperEntrance = remember { Animatable(if (entranceReady) 1f else 0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
     var showCharms by remember { mutableStateOf(false) }
@@ -481,25 +483,6 @@ fun Tile8LauncherApp(
     val context = LocalContext.current
 
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
-
-    LaunchedEffect(startEntranceRequest, entranceReady, startEntranceKind) {
-        wallpaperEntrance.stop()
-        if (!entranceReady) {
-            wallpaperEntrance.snapTo(0f)
-        } else {
-            wallpaperEntrance.snapTo(0f)
-            wallpaperEntrance.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = StartEntranceMotion.durationMillis(startEntranceKind),
-                    easing = LinearEasing,
-                ),
-            )
-        }
-    }
-    LaunchedEffect(flipState.isRunning) {
-        if (flipState.isRunning) wallpaperEntrance.stop()
-    }
 
     // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
     // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
@@ -631,30 +614,18 @@ fun Tile8LauncherApp(
         }) {
         WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
-            enabled = wallpaperParallaxEnabled || wallpaperEntrance.value < 0.9999f,
+            enabled = wallpaperParallaxEnabled,
             scrollOffsetPx = {
-                fun offset(state: androidx.compose.foundation.lazy.LazyListState): Float {
+                fun appsOffset(state: androidx.compose.foundation.lazy.LazyListState): Float {
                     val info = state.layoutInfo
                     val itemWidth = info.visibleItemsInfo.firstOrNull()?.size ?: 0
-                    return (state.firstVisibleItemIndex.toFloat() * (itemWidth + info.mainAxisItemSpacing) +
-                        state.firstVisibleItemScrollOffset).coerceAtLeast(0f)
+                    return (
+                        state.firstVisibleItemIndex.toFloat() * (itemWidth + info.mainAxisItemSpacing) +
+                            state.firstVisibleItemScrollOffset
+                        ).coerceAtLeast(0f)
                 }
                 val p = drawerProgress.floatValue
-                val userScroll = offset(startScroll) * (1f - p) + offset(appsScroll) * p
-                val displayMetrics = context.resources.displayMetrics
-                val viewportWidthPx = displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
-                val viewportHeightPx = displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
-                val entranceOffsetPx = if (currentScreen == LauncherScreen.START && activeInAppTile == null) {
-                    StartEntranceMotion.backgroundEntranceOffsetPx(
-                        progress = wallpaperEntrance.value,
-                        kind = startEntranceKind,
-                        viewportWidthPx = viewportWidthPx,
-                        viewportHeightPx = viewportHeightPx,
-                    )
-                } else {
-                    0f
-                }
-                userScroll - entranceOffsetPx
+                startWallpaperScrollPx * (1f - p) + appsOffset(appsScroll) * p
             },
         )
 
@@ -719,6 +690,7 @@ fun Tile8LauncherApp(
                                 appsRepository.savePinnedTiles(updatedTiles)
                             }
                         },
+                        onWallpaperScrollOffsetChanged = { startWallpaperScrollPx = it },
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
                         onCharmsClick = { if (entranceReady) showCharms = true },
@@ -939,15 +911,7 @@ fun Tile8LauncherApp(
                     WindowsWallpaper(
                         wallpaperStyle = wallpaperStyle,
                         enabled = wallpaperParallaxEnabled,
-                        scrollOffsetPx = {
-                            val info = startScroll.layoutInfo
-                            val itemWidth = info.visibleItemsInfo.firstOrNull()?.size ?: 0
-                            (
-                                startScroll.firstVisibleItemIndex.toFloat() *
-                                    (itemWidth + info.mainAxisItemSpacing) +
-                                    startScroll.firstVisibleItemScrollOffset
-                                ).coerceAtLeast(0f)
-                        },
+                        scrollOffsetPx = { startWallpaperScrollPx },
                     )
                 },
             )
