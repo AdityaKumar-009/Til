@@ -950,6 +950,38 @@ fun StartScreen(
                                 }
                             }
                         }
+
+                        item(key = "start-group-gutter:end") {
+                            val gutterKey = "start-group-gutter:end"
+                            DisposableEffect(gutterKey) {
+                                onDispose { gutterDropTargets.remove(gutterKey) }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(START_END_GROUP_DROP_ZONE_DP.dp)
+                                    .height(metrics.bandHeightDp.dp)
+                                    .onGloballyPositioned { coordinates ->
+                                        if (coordinates.isAttached) {
+                                            gutterDropTargets[gutterKey] = StartGroupGutterDropTarget(
+                                                key = gutterKey,
+                                                beforeGroupId = null,
+                                                bounds = coordinates.boundsInWindow(),
+                                            )
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (activeGutterKey == gutterKey) {
+                                    Box(
+                                        Modifier
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .padding(vertical = 6.dp)
+                                            .background(Color.White.copy(alpha = 0.92f)),
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     AnimatedVisibility(
