@@ -1264,7 +1264,7 @@ fun StartScreen(
                         tile.copy(
                             groupId = newGroupId,
                             groupName = "",
-                            startBand = 0,
+                            startBand = if (index == 0) 0 else null,
                             startColumn = if (index == 0) 0 else null,
                             startRow = if (index == 0) 0 else null,
                         )
