@@ -477,7 +477,6 @@ fun Tile8LauncherApp(
         mutableStateOf(false)
     }
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
-    val wallpaperEntrance = remember { Animatable(if (entranceReady) 1f else 0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
     var showCharms by remember { mutableStateOf(false) }
@@ -486,25 +485,6 @@ fun Tile8LauncherApp(
     val context = LocalContext.current
 
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
-
-    LaunchedEffect(startEntranceRequest, entranceReady, startEntranceKind) {
-        wallpaperEntrance.stop()
-        if (!entranceReady) {
-            wallpaperEntrance.snapTo(0f)
-        } else {
-            wallpaperEntrance.snapTo(0f)
-            wallpaperEntrance.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = StartEntranceMotion.durationMillis(startEntranceKind),
-                    easing = LinearEasing,
-                ),
-            )
-        }
-    }
-    LaunchedEffect(flipState.isRunning) {
-        if (flipState.isRunning) wallpaperEntrance.stop()
-    }
 
     // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
     // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
@@ -636,7 +616,7 @@ fun Tile8LauncherApp(
         }) {
         WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
-            enabled = wallpaperParallaxEnabled || wallpaperEntrance.value < 0.9999f,
+            enabled = wallpaperParallaxEnabled,
             scrollOffsetPx = {
                 fun appsOffset(state: androidx.compose.foundation.lazy.LazyListState): Float {
                     val info = state.layoutInfo
@@ -647,22 +627,7 @@ fun Tile8LauncherApp(
                         ).coerceAtLeast(0f)
                 }
                 val p = drawerProgress.floatValue
-                val userScroll =
-                    startWallpaperScrollPx * (1f - p) + appsOffset(appsScroll) * p
-                val displayMetrics = context.resources.displayMetrics
-                val viewportWidthPx = displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
-                val viewportHeightPx = displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
-                val entranceOffsetPx = if (currentScreen == LauncherScreen.START && activeInAppTile == null) {
-                    StartEntranceMotion.backgroundEntranceOffsetPx(
-                        progress = wallpaperEntrance.value,
-                        kind = startEntranceKind,
-                        viewportWidthPx = viewportWidthPx,
-                        viewportHeightPx = viewportHeightPx,
-                    )
-                } else {
-                    0f
-                }
-                userScroll - entranceOffsetPx
+                startWallpaperScrollPx * (1f - p) + appsOffset(appsScroll) * p
             },
         )
 
