@@ -1621,10 +1621,15 @@ fun StartScreen(
 
                     }
 
-                    // Immediate drop-location hint. The structural reorder deliberately
-                    // waits for a stable hover, but the user should never have to guess which
-                    // cell will receive the tile. Launcher3 uses a drag outline for the same
-                    // reason; Tile8 uses a translucent copy of the Windows tile itself.
+                    // Immediate drop-location hint for the HELD tile only.
+                    //
+                    // Important: keep this preview *behind* ordinary/reflowing tiles. In the
+                    // recording, the translucent dragged-tile preview was drawn above neighbors
+                    // while they were animating through the destination cell, which visually
+                    // looked like those old tiles had their own "ghost" copies. They did not;
+                    // it was the dragged-tile ghost composited over them. Windows/launcher-style
+                    // direct manipulation keeps the insertion preview underneath the real items.
+                    // The floating held tile itself remains the top-most object below.
                     draggingTileId?.let { draggedId ->
                         val draggedTile = tiles.firstOrNull { it.id == draggedId }
                         val gridProposal = pendingDropProposal as? StartDropProposal.Grid
@@ -1671,9 +1676,13 @@ fun StartScreen(
                                         )
                                     }
                                     .size(ghostWidth, ghostHeight)
-                                    .zIndex(40f)
+                                    // Below every ordinary tile (z=0) so a moving neighbor always
+                                    // stays fully opaque above the preview. The ghost is therefore
+                                    // visible only in the actual opening being made for draggedId.
+                                    .zIndex(-0.5f)
                                     .graphicsLayer {
                                         alpha = TILE_DROP_GHOST_ALPHA
+                                        clip = true
                                     }
                                     .border(
                                         1.dp,
