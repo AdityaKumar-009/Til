@@ -1567,6 +1567,74 @@ fun StartScreen(
 
                     }
 
+                    // Immediate drop-location hint. The structural reorder deliberately
+                    // waits for a stable hover, but the user should never have to guess which
+                    // cell will receive the tile. Launcher3 uses a drag outline for the same
+                    // reason; Tile8 uses a translucent copy of the Windows tile itself.
+                    draggingTileId?.let { draggedId ->
+                        val draggedTile = tiles.firstOrNull { it.id == draggedId }
+                        val gridProposal = pendingDropProposal as? StartDropProposal.Grid
+                        val key = gridProposal?.key
+                        val targetBand = key?.let { proposalKey ->
+                            bandDropTargets.values.firstOrNull {
+                                it.groupId == proposalKey.groupId &&
+                                    it.continuationIndex == proposalKey.continuationIndex
+                            }
+                        }
+
+                        if (
+                            draggedTile != null &&
+                            key != null &&
+                            targetBand != null &&
+                            tileViewportBounds != Rect.Zero
+                        ) {
+                            val span = draggedTile.size.startTileSpan()
+                            val stepPx = targetBand.cellPx + targetBand.gapPx
+                            val ghostLeftWindow =
+                                targetBand.bounds.left + key.column * stepPx
+                            val ghostTopWindow =
+                                targetBand.bounds.top + key.row * stepPx
+                            val ghostLeft = ghostLeftWindow - tileViewportBounds.left
+                            val ghostTop = ghostTopWindow - tileViewportBounds.top
+                            val ghostWidth = (
+                                span.columns * metrics.cellDp +
+                                    (span.columns - 1) * metrics.gapDp
+                                ).dp
+                            val ghostHeight = (
+                                span.rows * metrics.cellDp +
+                                    (span.rows - 1) * metrics.gapDp
+                                ).dp
+                            val ghostIcon = draggedTile.packageName?.let {
+                                rememberAppIcon(appsRepository, it)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        androidx.compose.ui.unit.IntOffset(
+                                            ghostLeft.roundToInt(),
+                                            ghostTop.roundToInt(),
+                                        )
+                                    }
+                                    .size(ghostWidth, ghostHeight)
+                                    .zIndex(40f)
+                                    .graphicsLayer {
+                                        alpha = TILE_DROP_GHOST_ALPHA
+                                    }
+                                    .border(
+                                        1.dp,
+                                        Color.White.copy(alpha = 0.45f),
+                                    ),
+                            ) {
+                                WindowsTileFace(
+                                    tile = draggedTile,
+                                    appIcon = ghostIcon,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    }
+
                     draggingTileId?.let { draggedId ->
                         val draggedTile = tiles.firstOrNull { it.id == draggedId }
                         if (draggedTile != null && tileViewportBounds != Rect.Zero) {
