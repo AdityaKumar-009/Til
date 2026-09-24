@@ -490,6 +490,7 @@ fun StartScreen(
                 y = (pointerWindow.y - bounds.top).coerceIn(0f, bounds.height),
             )
             dragStartGridPositions = packedGridPositions.ifEmpty { tileGridPositions.toMap() }
+            dragPreviewRevision++
             pendingDropProposal = null
             appliedDropProposal = null
             lastGridDrop = null
@@ -558,12 +559,16 @@ fun StartScreen(
 
                 val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
                 dragNewGroupId = newGroupId
-                dragTiles = moveDraggedTileToNewGroup(
+                val nextTiles = moveDraggedTileToNewGroup(
                     tiles = anchoredBase,
                     draggedId = draggedId,
                     newGroupId = newGroupId,
                     insertBeforeGroupId = proposal.beforeGroupId,
                 )
+                if (nextTiles != dragTiles) {
+                    dragTiles = nextTiles
+                    dragPreviewRevision++
+                }
                 appliedDropProposal = proposal
                 lastGridDrop = null
             }
@@ -620,7 +625,11 @@ fun StartScreen(
                     }
                 }
 
-                dragTiles = normalizeStartTileOrder(working)
+                val nextTiles = normalizeStartTileOrder(working)
+                if (nextTiles != dragTiles) {
+                    dragTiles = nextTiles
+                    dragPreviewRevision++
+                }
                 appliedDropProposal = proposal
                 lastGridDrop = key
             }
@@ -639,7 +648,11 @@ fun StartScreen(
             activeGutterKey = null
             // If the pointer leaves a valid target, let neighbors glide back to their committed
             // positions while the held tile remains under the finger.
-            dragTiles = tiles.toList()
+            val originalTiles = tiles.toList()
+            if (dragTiles != originalTiles) {
+                dragTiles = originalTiles
+                dragPreviewRevision++
+            }
             appliedDropProposal = null
             lastGridDrop = null
             return
@@ -649,7 +662,11 @@ fun StartScreen(
             // Immediate separator only. Windows does not tear the source group apart merely by
             // hovering over a group gutter; the new group is committed on release.
             activeGutterKey = proposal.gutterKey
-            dragTiles = tiles.toList()
+            val originalTiles = tiles.toList()
+            if (dragTiles != originalTiles) {
+                dragTiles = originalTiles
+                dragPreviewRevision++
+            }
             appliedDropProposal = null
             lastGridDrop = null
             return
