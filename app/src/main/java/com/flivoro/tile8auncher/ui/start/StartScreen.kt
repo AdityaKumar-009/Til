@@ -12,7 +12,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -103,6 +102,7 @@ import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -391,6 +391,10 @@ fun StartScreen(
 
     LaunchedEffect(tiles.map { it.id }) {
         val validIds = tiles.mapTo(mutableSetOf()) { it.id }
+        reorderMotionJobs.keys.filterNot { it in validIds }.forEach { id ->
+            reorderMotionJobs.remove(id)?.cancel()
+            reorderMotionStates.remove(id)
+        }
         selectedTileIds = selectedTileIds.filterTo(mutableSetOf()) { it in validIds }
         if (draggingTileId !in validIds) {
             previewJob?.cancel()
@@ -1406,16 +1410,12 @@ fun StartScreen(
                                             groupLabelHeightDp +
                                                 placed.row * (metrics.cellDp + metrics.gapDp)
                                             ).dp
-                                        val animatedX by animateDpAsState(
-                                            targetValue = targetX,
-                                            animationSpec = tween(TILE_REORDER_DURATION_MS, easing = FastOutSlowInEasing),
-                                            label = "StartTileX:${tile.id}",
-                                        )
-                                        val animatedY by animateDpAsState(
-                                            targetValue = targetY,
-                                            animationSpec = tween(TILE_REORDER_DURATION_MS, easing = FastOutSlowInEasing),
-                                            label = "StartTileY:${tile.id}",
-                                        )
+                                        val motionState = remember(tile.id) {
+                                            reorderMotionStates.getOrPut(tile.id) {
+                                                StartTileMotionState()
+                                            }
+                                        }
+                                        val reorderTranslation = motionState.translation.value
                                         val isDragging = tile.id == draggingTileId
                                         val isSelected = tile.id in selectedTileIds
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
@@ -1429,12 +1429,16 @@ fun StartScreen(
 
                                         Box(
                                             modifier = Modifier
-                                                .offset(x = animatedX, y = animatedY)
+                                                .offset(x = targetX, y = targetY)
                                                 .size(tileWidth, tileHeight)
                                                 .zIndex(if (isSelected && !isDragging) 1f else 0f)
                                                 .onGloballyPositioned { coordinates ->
                                                     if (coordinates.isAttached) {
-                                                        tileBounds[tile.id] = coordinates.boundsInWindow()
+                                                        val naturalBounds = coordinates.boundsInWindow()
+                                                        val naturalTopLeft = naturalBounds.topLeft
+                                                        val previousTopLeft = motionState.naturalTopLeft
+
+                                                        tileBounds[tile.id] = naturalBounds
                                                         tileGridPositions[tile.id] = StartTileGridPosition(
                                                             groupId = band.groupId,
                                                             groupName = band.groupName,
@@ -1444,7 +1448,59 @@ fun StartScreen(
                                                             columns = placed.columns,
                                                             rows = placed.rows,
                                                         )
+
+                                                        val revisionChanged =
+                                                            motionState.lastPreviewRevision != dragPreviewRevision
+                                                        if (
+                                                            revisionChanged &&
+                                                            previousTopLeft != null &&
+                                                            !isDragging
+                                                        ) {
+                                                            val currentVisual =
+                                                                previousTopLeft + motionState.translation.value
+                                                            val startDelta = currentVisual - naturalTopLeft
+                                                            motionState.naturalTopLeft = naturalTopLeft
+                                                            motionState.lastPreviewRevision = dragPreviewRevision
+
+                                                            reorderMotionJobs.remove(tile.id)?.cancel()
+                                                            if (
+                                                                kotlin.math.abs(startDelta.x) > 0.5f ||
+                                                                kotlin.math.abs(startDelta.y) > 0.5f
+                                                            ) {
+                                                                reorderMotionJobs[tile.id] = scope.launch(
+                                                                    start = CoroutineStart.UNDISPATCHED,
+                                                                ) {
+                                                                    motionState.translation.snapTo(startDelta)
+                                                                    motionState.translation.animateTo(
+                                                                        Offset.Zero,
+                                                                        animationSpec = tween(
+                                                                            TILE_REORDER_DURATION_MS,
+                                                                            easing = FastOutSlowInEasing,
+                                                                        ),
+                                                                    )
+                                                                    reorderMotionJobs.remove(tile.id)
+                                                                }
+                                                            } else {
+                                                                reorderMotionJobs[tile.id] = scope.launch(
+                                                                    start = CoroutineStart.UNDISPATCHED,
+                                                                ) {
+                                                                    motionState.translation.snapTo(Offset.Zero)
+                                                                    reorderMotionJobs.remove(tile.id)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            motionState.naturalTopLeft = naturalTopLeft
+                                                            if (
+                                                                motionState.lastPreviewRevision == Int.MIN_VALUE
+                                                            ) {
+                                                                motionState.lastPreviewRevision = dragPreviewRevision
+                                                            }
+                                                        }
                                                     }
+                                                }
+                                                .graphicsLayer {
+                                                    translationX = reorderTranslation.x
+                                                    translationY = reorderTranslation.y
                                                 }
                                                 // During a drag the grid copy is only the live
                                                 // placeholder. A separate absolute proxy follows
