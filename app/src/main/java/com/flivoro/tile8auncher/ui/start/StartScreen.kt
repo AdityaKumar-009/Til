@@ -120,7 +120,7 @@ private const val START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP = 4f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
 private const val TILE_REORDER_DWELL_MS = 260L
-private const val TILE_REORDER_RESTORE_DWELL_MS = 360L
+private const val TILE_REORDER_RESTORE_DWELL_MS = 180L
 private const val TILE_DROP_GHOST_ALPHA = 0.30f
 
 private data class EntranceViewportSnapshot(
@@ -186,6 +186,7 @@ private sealed interface StartDropProposal {
 private class StartTileMotionState {
     val translation = Animatable(Offset.Zero, Offset.VectorConverter)
     var naturalTopLeft: Offset? = null
+    var lastPreviewRevision: Int = Int.MIN_VALUE
 }
 
 private data class StartWallpaperScrollFrame(
@@ -256,6 +257,7 @@ fun StartScreen(
     var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
+    var dragPreviewRevision by remember { mutableIntStateOf(0) }
     var dragAutoScrollActive by remember { mutableStateOf(false) }
     var dragStartGridPositions by remember {
         mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
@@ -289,15 +291,6 @@ fun StartScreen(
     val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val doubleTapAction = LauncherFeatureStore.doubleTapAction(context)
-
-    // A committed drag stays locally latched until the parent state catches up. This prevents
-    // the preview from flashing back to the pre-drag arrangement for one Compose frame.
-    LaunchedEffect(tiles, draggingTileId, dragTiles) {
-        val local = dragTiles
-        if (draggingTileId == null && local != null && local == tiles) {
-            dragTiles = null
-        }
-    }
 
     // Widget picker / backup restore run outside MainActivity by design. A tiny process-local revision
     // refreshes only the persisted tile list; it does not touch navigation or entrance requests.
@@ -504,6 +497,7 @@ fun StartScreen(
                 y = (pointerWindow.y - bounds.top).coerceIn(0f, bounds.height),
             )
             dragStartGridPositions = packedGridPositions.ifEmpty { tileGridPositions.toMap() }
+            dragPreviewRevision++
             pendingDropProposal = null
             appliedDropProposal = null
             lastGridDrop = null
@@ -580,6 +574,7 @@ fun StartScreen(
                 )
                 if (nextTiles != dragTiles) {
                     dragTiles = nextTiles
+                    dragPreviewRevision++
                 }
                 appliedDropProposal = proposal
                 lastGridDrop = null
@@ -640,6 +635,7 @@ fun StartScreen(
                 val nextTiles = normalizeStartTileOrder(working)
                 if (nextTiles != dragTiles) {
                     dragTiles = nextTiles
+                    dragPreviewRevision++
                 }
                 appliedDropProposal = proposal
                 lastGridDrop = key
@@ -655,50 +651,53 @@ fun StartScreen(
         previewJob?.cancel()
         previewJob = null
 
-        when (proposal) {
-            null -> {
-                activeGutterKey = null
-                // Keep the last valid preview latched briefly. The recording showed that an
-                // instant restore here creates the exact "move away -> come back -> move away"
-                // loop when hit-testing flickers for a frame between cells/bands.
-                previewJob = scope.launch {
-                    delay(TILE_REORDER_RESTORE_DWELL_MS)
-                    if (draggingTileId != null && pendingDropProposal == null) {
-                        val originalTiles = tiles.toList()
-                        if (dragTiles != originalTiles) dragTiles = originalTiles
-                        appliedDropProposal = null
-                        lastGridDrop = null
+        if (proposal == null) {
+            activeGutterKey = null
+            // Narrow anti-bounce fix: a pointer can briefly fall between two hit rectangles while
+            // crossing a cell/band boundary. Do not immediately send displaced neighbours back to
+            // their old slots and then forward again one frame later. Keep the existing preview
+            // for a short grace period; if the pointer really left the grid, the normal existing
+            // FLIP animation restores the original layout once.
+            previewJob = scope.launch {
+                delay(TILE_REORDER_RESTORE_DWELL_MS)
+                if (draggingTileId != null && pendingDropProposal == null) {
+                    val originalTiles = tiles.toList()
+                    if (dragTiles != originalTiles) {
+                        dragTiles = originalTiles
+                        dragPreviewRevision++
                     }
+                    appliedDropProposal = null
+                    lastGridDrop = null
                 }
             }
+            return
+        }
 
-            is StartDropProposal.NewGroup -> {
-                // The Windows separator appears immediately, but preserve the last grid preview
-                // until the pointer has genuinely settled in the gutter. This avoids a transient
-                // gutter crossing collapsing neighbors and then expanding them again.
-                activeGutterKey = proposal.gutterKey
-                previewJob = scope.launch {
-                    delay(TILE_REORDER_RESTORE_DWELL_MS)
-                    if (draggingTileId != null && pendingDropProposal == proposal) {
-                        val originalTiles = tiles.toList()
-                        if (dragTiles != originalTiles) dragTiles = originalTiles
-                        appliedDropProposal = null
-                        lastGridDrop = null
+        if (proposal is StartDropProposal.NewGroup) {
+            // Keep the Windows separator immediate, but give the previous grid preview the same
+            // tiny grace period. This removes only the repeated neighbour back-and-forth; the
+            // dragged-tile, ghost, entrance, press and all other animations remain untouched.
+            activeGutterKey = proposal.gutterKey
+            previewJob = scope.launch {
+                delay(TILE_REORDER_RESTORE_DWELL_MS)
+                if (draggingTileId != null && pendingDropProposal == proposal) {
+                    val originalTiles = tiles.toList()
+                    if (dragTiles != originalTiles) {
+                        dragTiles = originalTiles
+                        dragPreviewRevision++
                     }
+                    appliedDropProposal = null
+                    lastGridDrop = null
                 }
             }
+            return
+        }
 
-            is StartDropProposal.Grid -> {
-                activeGutterKey = null
-                // Launcher-style behavior: retain the currently previewed solution while the new
-                // candidate proves stable, then animate directly old-solution -> new-solution.
-                // Never route through the committed/original layout between two valid targets.
-                previewJob = scope.launch {
-                    delay(TILE_REORDER_DWELL_MS)
-                    if (draggingTileId != null && pendingDropProposal == proposal) {
-                        applyDropProposal(proposal, finalDrop = false)
-                    }
-                }
+        activeGutterKey = null
+        previewJob = scope.launch {
+            delay(TILE_REORDER_DWELL_MS)
+            if (draggingTileId != null && pendingDropProposal == proposal) {
+                applyDropProposal(proposal, finalDrop = false)
             }
         }
     }
@@ -784,14 +783,19 @@ fun StartScreen(
             pendingDropProposal?.let { proposal ->
                 applyDropProposal(proposal, finalDrop = true)
             }
+        } else if (dragTiles != null && dragTiles != tiles) {
+            // Cancel/rejected drop: neighbors should glide back instead of snapping home.
+            dragPreviewRevision++
         }
 
-        val result = if (commit) dragTiles ?: tiles.toList() else tiles.toList()
+        // Seed the dragged tile's FLIP state from the actual finger position so release animates
+        // into the ghost/source cell instead of teleporting when the floating proxy disappears.
+        reorderMotionStates[draggedId]?.let { motion ->
+            motion.naturalTopLeft = heldTopLeft
+            motion.lastPreviewRevision = dragPreviewRevision - 1
+        }
 
-        // Seed the dragged tile's persistent FLIP state from the actual finger position. The next
-        // natural layout coordinate will animate from here to the committed/source cell.
-        reorderMotionStates[draggedId]?.naturalTopLeft = heldTopLeft
-
+        val result = dragTiles
         draggingTileId = null
         dragPointerWindow = Offset.Zero
         dragContactOffset = Offset.Zero
@@ -801,15 +805,10 @@ fun StartScreen(
         lastGridDrop = null
         activeGutterKey = null
         dragNewGroupId = null
+        dragTiles = null
 
-        if (commit && result != tiles) {
-            // CRITICAL: keep the final local preview visible until MainActivity publishes the same
-            // committed list back through [tiles]. Clearing dragTiles first produced one frame of
-            // the old layout, making neighbors visibly go new -> old -> new in the recording.
-            dragTiles = result
+        if (commit && result != null && result != tiles) {
             latestOnTilesChanged.value(result)
-        } else {
-            dragTiles = null
         }
     }
 
@@ -1504,45 +1503,52 @@ fun StartScreen(
                                                             rows = placed.rows,
                                                         )
 
-                                                        val naturalMoved =
+                                                        val revisionChanged =
+                                                            motionState.lastPreviewRevision != dragPreviewRevision
+                                                        if (
+                                                            revisionChanged &&
                                                             previousTopLeft != null &&
-                                                                (
-                                                                    kotlin.math.abs(
-                                                                        previousTopLeft.x - naturalTopLeft.x,
-                                                                    ) > 0.5f ||
-                                                                        kotlin.math.abs(
-                                                                            previousTopLeft.y - naturalTopLeft.y,
-                                                                        ) > 0.5f
-                                                                    )
-
-                                                        if (naturalMoved && !isDragging) {
-                                                            // Animate only when THIS tile's natural
-                                                            // destination actually changed. The old
-                                                            // global preview revision restarted
-                                                            // unrelated in-flight animations, which
-                                                            // made icons appear to go, come back and
-                                                            // then go again.
+                                                            !isDragging
+                                                        ) {
                                                             val currentVisual =
-                                                                previousTopLeft!! + motionState.translation.value
+                                                                previousTopLeft + motionState.translation.value
                                                             val startDelta = currentVisual - naturalTopLeft
                                                             motionState.naturalTopLeft = naturalTopLeft
+                                                            motionState.lastPreviewRevision = dragPreviewRevision
 
                                                             reorderMotionJobs.remove(tile.id)?.cancel()
-                                                            reorderMotionJobs[tile.id] = scope.launch(
-                                                                start = CoroutineStart.UNDISPATCHED,
+                                                            if (
+                                                                kotlin.math.abs(startDelta.x) > 0.5f ||
+                                                                kotlin.math.abs(startDelta.y) > 0.5f
                                                             ) {
-                                                                motionState.translation.snapTo(startDelta)
-                                                                motionState.translation.animateTo(
-                                                                    Offset.Zero,
-                                                                    animationSpec = tween(
-                                                                        TILE_REORDER_DURATION_MS,
-                                                                        easing = FastOutSlowInEasing,
-                                                                    ),
-                                                                )
-                                                                reorderMotionJobs.remove(tile.id)
+                                                                reorderMotionJobs[tile.id] = scope.launch(
+                                                                    start = CoroutineStart.UNDISPATCHED,
+                                                                ) {
+                                                                    motionState.translation.snapTo(startDelta)
+                                                                    motionState.translation.animateTo(
+                                                                        Offset.Zero,
+                                                                        animationSpec = tween(
+                                                                            TILE_REORDER_DURATION_MS,
+                                                                            easing = FastOutSlowInEasing,
+                                                                        ),
+                                                                    )
+                                                                    reorderMotionJobs.remove(tile.id)
+                                                                }
+                                                            } else {
+                                                                reorderMotionJobs[tile.id] = scope.launch(
+                                                                    start = CoroutineStart.UNDISPATCHED,
+                                                                ) {
+                                                                    motionState.translation.snapTo(Offset.Zero)
+                                                                    reorderMotionJobs.remove(tile.id)
+                                                                }
                                                             }
                                                         } else {
                                                             motionState.naturalTopLeft = naturalTopLeft
+                                                            if (
+                                                                motionState.lastPreviewRevision == Int.MIN_VALUE
+                                                            ) {
+                                                                motionState.lastPreviewRevision = dragPreviewRevision
+                                                            }
                                                         }
                                                     }
                                                 }
