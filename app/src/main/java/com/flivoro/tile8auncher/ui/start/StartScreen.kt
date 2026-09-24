@@ -115,6 +115,8 @@ import kotlin.math.roundToInt
 private const val START_WITHIN_GROUP_SPACING_DP = 8f
 private const val START_GROUP_GUTTER_DP = 24f
 private const val START_END_GROUP_DROP_ZONE_DP = 32f
+private const val START_NEW_GROUP_SEPARATOR_WIDTH_DP = 7f
+private const val START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP = 4f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
 private const val TILE_REORDER_DWELL_MS = 260L
@@ -1369,21 +1371,41 @@ fun StartScreen(
                                 if (bandIndex == 0 && activeGutterKey == startGutterKey) {
                                     Box(
                                         modifier = Modifier
-                                            .offset(x = (-6).dp)
-                                            .width(4.dp)
+                                            // Windows 8.1 uses a deliberately thick, light-gray
+                                            // insertion band centered in the blank group gutter.
+                                            .offset(
+                                                x = (
+                                                    -START_END_GROUP_DROP_ZONE_DP / 2f -
+                                                        START_NEW_GROUP_SEPARATOR_WIDTH_DP / 2f
+                                                    ).dp,
+                                            )
+                                            .width(START_NEW_GROUP_SEPARATOR_WIDTH_DP.dp)
                                             .fillMaxHeight()
-                                            .padding(top = groupLabelHeightDp.dp + 6.dp, bottom = 6.dp)
-                                            .background(Color.White.copy(alpha = 0.92f)),
+                                            .padding(
+                                                top = groupLabelHeightDp.dp +
+                                                    START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP.dp,
+                                                bottom = START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP.dp,
+                                            )
+                                            .background(Color(0xFFD8D8D8).copy(alpha = 0.96f)),
                                     )
                                 }
                                 if (startsNewGroup && activeGutterKey == gutterKey) {
                                     Box(
                                         modifier = Modifier
-                                            .offset(x = ((leadingSpacingDp / 2f) - 2f).dp)
-                                            .width(4.dp)
+                                            .offset(
+                                                x = (
+                                                    leadingSpacingDp / 2f -
+                                                        START_NEW_GROUP_SEPARATOR_WIDTH_DP / 2f
+                                                    ).dp,
+                                            )
+                                            .width(START_NEW_GROUP_SEPARATOR_WIDTH_DP.dp)
                                             .fillMaxHeight()
-                                            .padding(top = groupLabelHeightDp.dp + 6.dp, bottom = 6.dp)
-                                            .background(Color.White.copy(alpha = 0.92f)),
+                                            .padding(
+                                                top = groupLabelHeightDp.dp +
+                                                    START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP.dp,
+                                                bottom = START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP.dp,
+                                            )
+                                            .background(Color(0xFFD8D8D8).copy(alpha = 0.96f)),
                                     )
                                 }
                                 if (trailingEndDp > 0f && activeGutterKey == endGutterKey) {
@@ -1394,13 +1416,17 @@ fun StartScreen(
                                                     leadingSpacingDp +
                                                         metrics.bandWidthDp +
                                                         trailingEndDp / 2f -
-                                                        2f
+                                                        START_NEW_GROUP_SEPARATOR_WIDTH_DP / 2f
                                                     ).dp,
                                             )
-                                            .width(4.dp)
+                                            .width(START_NEW_GROUP_SEPARATOR_WIDTH_DP.dp)
                                             .fillMaxHeight()
-                                            .padding(top = groupLabelHeightDp.dp + 6.dp, bottom = 6.dp)
-                                            .background(Color.White.copy(alpha = 0.92f)),
+                                            .padding(
+                                                top = groupLabelHeightDp.dp +
+                                                    START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP.dp,
+                                                bottom = START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP.dp,
+                                            )
+                                            .background(Color(0xFFD8D8D8).copy(alpha = 0.96f)),
                                     )
                                 }
 
