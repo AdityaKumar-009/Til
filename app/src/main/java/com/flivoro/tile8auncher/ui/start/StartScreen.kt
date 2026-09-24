@@ -11,6 +11,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -115,8 +116,9 @@ private const val START_WITHIN_GROUP_SPACING_DP = 8f
 private const val START_GROUP_GUTTER_DP = 24f
 private const val START_END_GROUP_DROP_ZONE_DP = 32f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
-private const val TILE_REORDER_DURATION_MS = 170
-private const val TILE_REORDER_DWELL_MS = 140L
+private const val TILE_REORDER_DURATION_MS = 180
+private const val TILE_REORDER_DWELL_MS = 260L
+private const val TILE_DROP_GHOST_ALPHA = 0.30f
 
 private data class EntranceViewportSnapshot(
     val startBand: Int,
@@ -176,6 +178,12 @@ private sealed interface StartDropProposal {
         val gutterKey: String,
         val beforeGroupId: String?,
     ) : StartDropProposal
+}
+
+private class StartTileMotionState {
+    val translation = Animatable(Offset.Zero, Offset.VectorConverter)
+    var naturalTopLeft: Offset? = null
+    var lastPreviewRevision: Int = Int.MIN_VALUE
 }
 
 private data class StartWallpaperScrollFrame(
@@ -246,6 +254,7 @@ fun StartScreen(
     var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
+    var dragPreviewRevision by remember { mutableIntStateOf(0) }
     var dragAutoScrollActive by remember { mutableStateOf(false) }
     var dragStartGridPositions by remember {
         mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
@@ -265,6 +274,8 @@ fun StartScreen(
         )
     }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
+    val reorderMotionStates = remember { mutableMapOf<String, StartTileMotionState>() }
+    val reorderMotionJobs = remember { mutableMapOf<String, Job>() }
     val bandDropTargets = remember { mutableMapOf<String, StartBandDropTarget>() }
     val gutterDropTargets = remember { mutableMapOf<String, StartGroupGutterDropTarget>() }
     val tileGridPositions = remember { mutableMapOf<String, StartTileGridPosition>() }
