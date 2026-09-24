@@ -755,7 +755,8 @@ fun StartScreen(
     }
 
     fun finishTileDrag(commit: Boolean) {
-        if (draggingTileId == null) return
+        val draggedId = draggingTileId ?: return
+        val heldTopLeft = dragVisualTopLeft()
 
         previewJob?.cancel()
         previewJob = null
@@ -765,6 +766,16 @@ fun StartScreen(
             pendingDropProposal?.let { proposal ->
                 applyDropProposal(proposal, finalDrop = true)
             }
+        } else if (dragTiles != null && dragTiles != tiles) {
+            // Cancel/rejected drop: neighbors should glide back instead of snapping home.
+            dragPreviewRevision++
+        }
+
+        // Seed the dragged tile's FLIP state from the actual finger position so release animates
+        // into the ghost/source cell instead of teleporting when the floating proxy disappears.
+        reorderMotionStates[draggedId]?.let { motion ->
+            motion.naturalTopLeft = heldTopLeft
+            motion.lastPreviewRevision = dragPreviewRevision - 1
         }
 
         val result = dragTiles
@@ -1163,14 +1174,16 @@ fun StartScreen(
                                 val currentViewport = tileViewportBounds
                                 if (currentViewport == Rect.Zero) return@awaitEachGesture
 
+                                val heldPointerWindow = Offset(
+                                    x = currentViewport.left + longPress.position.x,
+                                    y = currentViewport.top + longPress.position.y,
+                                )
                                 beginTileDrag(
                                     tile = hitTile,
                                     bounds = bounds,
-                                    pointerWindow = Offset(
-                                        x = currentViewport.left + longPress.position.x,
-                                        y = currentViewport.top + longPress.position.y,
-                                    ),
+                                    pointerWindow = heldPointerWindow,
                                 )
+                                moveDraggedPointer(heldPointerWindow)
 
                                 // After long-press, the stable viewport owns the stream at Initial
                                 // pass. We use the absolute pointer coordinate, not accumulated
