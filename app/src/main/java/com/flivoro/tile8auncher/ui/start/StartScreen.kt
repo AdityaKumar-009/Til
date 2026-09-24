@@ -120,6 +120,7 @@ private const val START_NEW_GROUP_SEPARATOR_VERTICAL_INSET_DP = 4f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
 private const val TILE_REORDER_DURATION_MS = 180
 private const val TILE_REORDER_DWELL_MS = 260L
+private const val TILE_REORDER_RESTORE_DWELL_MS = 360L
 private const val TILE_DROP_GHOST_ALPHA = 0.30f
 
 private data class EntranceViewportSnapshot(
@@ -185,7 +186,6 @@ private sealed interface StartDropProposal {
 private class StartTileMotionState {
     val translation = Animatable(Offset.Zero, Offset.VectorConverter)
     var naturalTopLeft: Offset? = null
-    var lastPreviewRevision: Int = Int.MIN_VALUE
 }
 
 private data class StartWallpaperScrollFrame(
@@ -256,7 +256,6 @@ fun StartScreen(
     var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
-    var dragPreviewRevision by remember { mutableIntStateOf(0) }
     var dragAutoScrollActive by remember { mutableStateOf(false) }
     var dragStartGridPositions by remember {
         mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
@@ -290,6 +289,15 @@ fun StartScreen(
     val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val doubleTapAction = LauncherFeatureStore.doubleTapAction(context)
+
+    // A committed drag stays locally latched until the parent state catches up. This prevents
+    // the preview from flashing back to the pre-drag arrangement for one Compose frame.
+    LaunchedEffect(tiles, draggingTileId, dragTiles) {
+        val local = dragTiles
+        if (draggingTileId == null && local != null && local == tiles) {
+            dragTiles = null
+        }
+    }
 
     // Widget picker / backup restore run outside MainActivity by design. A tiny process-local revision
     // refreshes only the persisted tile list; it does not touch navigation or entrance requests.
@@ -496,7 +504,6 @@ fun StartScreen(
                 y = (pointerWindow.y - bounds.top).coerceIn(0f, bounds.height),
             )
             dragStartGridPositions = packedGridPositions.ifEmpty { tileGridPositions.toMap() }
-            dragPreviewRevision++
             pendingDropProposal = null
             appliedDropProposal = null
             lastGridDrop = null
@@ -573,7 +580,6 @@ fun StartScreen(
                 )
                 if (nextTiles != dragTiles) {
                     dragTiles = nextTiles
-                    dragPreviewRevision++
                 }
                 appliedDropProposal = proposal
                 lastGridDrop = null
@@ -634,7 +640,6 @@ fun StartScreen(
                 val nextTiles = normalizeStartTileOrder(working)
                 if (nextTiles != dragTiles) {
                     dragTiles = nextTiles
-                    dragPreviewRevision++
                 }
                 appliedDropProposal = proposal
                 lastGridDrop = key
@@ -650,39 +655,50 @@ fun StartScreen(
         previewJob?.cancel()
         previewJob = null
 
-        if (proposal == null) {
-            activeGutterKey = null
-            // If the pointer leaves a valid target, let neighbors glide back to their committed
-            // positions while the held tile remains under the finger.
-            val originalTiles = tiles.toList()
-            if (dragTiles != originalTiles) {
-                dragTiles = originalTiles
-                dragPreviewRevision++
+        when (proposal) {
+            null -> {
+                activeGutterKey = null
+                // Keep the last valid preview latched briefly. The recording showed that an
+                // instant restore here creates the exact "move away -> come back -> move away"
+                // loop when hit-testing flickers for a frame between cells/bands.
+                previewJob = scope.launch {
+                    delay(TILE_REORDER_RESTORE_DWELL_MS)
+                    if (draggingTileId != null && pendingDropProposal == null) {
+                        val originalTiles = tiles.toList()
+                        if (dragTiles != originalTiles) dragTiles = originalTiles
+                        appliedDropProposal = null
+                        lastGridDrop = null
+                    }
+                }
             }
-            appliedDropProposal = null
-            lastGridDrop = null
-            return
-        }
 
-        if (proposal is StartDropProposal.NewGroup) {
-            // Immediate separator only. Windows does not tear the source group apart merely by
-            // hovering over a group gutter; the new group is committed on release.
-            activeGutterKey = proposal.gutterKey
-            val originalTiles = tiles.toList()
-            if (dragTiles != originalTiles) {
-                dragTiles = originalTiles
-                dragPreviewRevision++
+            is StartDropProposal.NewGroup -> {
+                // The Windows separator appears immediately, but preserve the last grid preview
+                // until the pointer has genuinely settled in the gutter. This avoids a transient
+                // gutter crossing collapsing neighbors and then expanding them again.
+                activeGutterKey = proposal.gutterKey
+                previewJob = scope.launch {
+                    delay(TILE_REORDER_RESTORE_DWELL_MS)
+                    if (draggingTileId != null && pendingDropProposal == proposal) {
+                        val originalTiles = tiles.toList()
+                        if (dragTiles != originalTiles) dragTiles = originalTiles
+                        appliedDropProposal = null
+                        lastGridDrop = null
+                    }
+                }
             }
-            appliedDropProposal = null
-            lastGridDrop = null
-            return
-        }
 
-        activeGutterKey = null
-        previewJob = scope.launch {
-            delay(TILE_REORDER_DWELL_MS)
-            if (draggingTileId != null && pendingDropProposal == proposal) {
-                applyDropProposal(proposal, finalDrop = false)
+            is StartDropProposal.Grid -> {
+                activeGutterKey = null
+                // Launcher-style behavior: retain the currently previewed solution while the new
+                // candidate proves stable, then animate directly old-solution -> new-solution.
+                // Never route through the committed/original layout between two valid targets.
+                previewJob = scope.launch {
+                    delay(TILE_REORDER_DWELL_MS)
+                    if (draggingTileId != null && pendingDropProposal == proposal) {
+                        applyDropProposal(proposal, finalDrop = false)
+                    }
+                }
             }
         }
     }
@@ -768,19 +784,14 @@ fun StartScreen(
             pendingDropProposal?.let { proposal ->
                 applyDropProposal(proposal, finalDrop = true)
             }
-        } else if (dragTiles != null && dragTiles != tiles) {
-            // Cancel/rejected drop: neighbors should glide back instead of snapping home.
-            dragPreviewRevision++
         }
 
-        // Seed the dragged tile's FLIP state from the actual finger position so release animates
-        // into the ghost/source cell instead of teleporting when the floating proxy disappears.
-        reorderMotionStates[draggedId]?.let { motion ->
-            motion.naturalTopLeft = heldTopLeft
-            motion.lastPreviewRevision = dragPreviewRevision - 1
-        }
+        val result = if (commit) dragTiles ?: tiles.toList() else tiles.toList()
 
-        val result = dragTiles
+        // Seed the dragged tile's persistent FLIP state from the actual finger position. The next
+        // natural layout coordinate will animate from here to the committed/source cell.
+        reorderMotionStates[draggedId]?.naturalTopLeft = heldTopLeft
+
         draggingTileId = null
         dragPointerWindow = Offset.Zero
         dragContactOffset = Offset.Zero
@@ -790,10 +801,15 @@ fun StartScreen(
         lastGridDrop = null
         activeGutterKey = null
         dragNewGroupId = null
-        dragTiles = null
 
-        if (commit && result != null && result != tiles) {
+        if (commit && result != tiles) {
+            // CRITICAL: keep the final local preview visible until MainActivity publishes the same
+            // committed list back through [tiles]. Clearing dragTiles first produced one frame of
+            // the old layout, making neighbors visibly go new -> old -> new in the recording.
+            dragTiles = result
             latestOnTilesChanged.value(result)
+        } else {
+            dragTiles = null
         }
     }
 
