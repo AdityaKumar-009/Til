@@ -11,7 +11,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -102,6 +102,7 @@ import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -115,8 +116,9 @@ private const val START_WITHIN_GROUP_SPACING_DP = 8f
 private const val START_GROUP_GUTTER_DP = 24f
 private const val START_END_GROUP_DROP_ZONE_DP = 32f
 private const val START_GROUP_LABEL_HEIGHT_DP = 24f
-private const val TILE_REORDER_DURATION_MS = 170
-private const val TILE_REORDER_DWELL_MS = 140L
+private const val TILE_REORDER_DURATION_MS = 180
+private const val TILE_REORDER_DWELL_MS = 260L
+private const val TILE_DROP_GHOST_ALPHA = 0.30f
 
 private data class EntranceViewportSnapshot(
     val startBand: Int,
@@ -176,6 +178,12 @@ private sealed interface StartDropProposal {
         val gutterKey: String,
         val beforeGroupId: String?,
     ) : StartDropProposal
+}
+
+private class StartTileMotionState {
+    val translation = Animatable(Offset.Zero, Offset.VectorConverter)
+    var naturalTopLeft: Offset? = null
+    var lastPreviewRevision: Int = Int.MIN_VALUE
 }
 
 private data class StartWallpaperScrollFrame(
@@ -246,6 +254,7 @@ fun StartScreen(
     var pendingDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var appliedDropProposal by remember { mutableStateOf<StartDropProposal?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
+    var dragPreviewRevision by remember { mutableIntStateOf(0) }
     var dragAutoScrollActive by remember { mutableStateOf(false) }
     var dragStartGridPositions by remember {
         mutableStateOf<Map<String, StartTileGridPosition>>(emptyMap())
@@ -265,6 +274,8 @@ fun StartScreen(
         )
     }
     val tileBounds = remember { mutableMapOf<String, Rect>() }
+    val reorderMotionStates = remember { mutableMapOf<String, StartTileMotionState>() }
+    val reorderMotionJobs = remember { mutableMapOf<String, Job>() }
     val bandDropTargets = remember { mutableMapOf<String, StartBandDropTarget>() }
     val gutterDropTargets = remember { mutableMapOf<String, StartGroupGutterDropTarget>() }
     val tileGridPositions = remember { mutableMapOf<String, StartTileGridPosition>() }
@@ -380,6 +391,10 @@ fun StartScreen(
 
     LaunchedEffect(tiles.map { it.id }) {
         val validIds = tiles.mapTo(mutableSetOf()) { it.id }
+        reorderMotionJobs.keys.filterNot { it in validIds }.forEach { id ->
+            reorderMotionJobs.remove(id)?.cancel()
+            reorderMotionStates.remove(id)
+        }
         selectedTileIds = selectedTileIds.filterTo(mutableSetOf()) { it in validIds }
         if (draggingTileId !in validIds) {
             previewJob?.cancel()
@@ -479,6 +494,7 @@ fun StartScreen(
                 y = (pointerWindow.y - bounds.top).coerceIn(0f, bounds.height),
             )
             dragStartGridPositions = packedGridPositions.ifEmpty { tileGridPositions.toMap() }
+            dragPreviewRevision++
             pendingDropProposal = null
             appliedDropProposal = null
             lastGridDrop = null
@@ -547,12 +563,16 @@ fun StartScreen(
 
                 val newGroupId = dragNewGroupId ?: "group:${System.currentTimeMillis()}:$draggedId"
                 dragNewGroupId = newGroupId
-                dragTiles = moveDraggedTileToNewGroup(
+                val nextTiles = moveDraggedTileToNewGroup(
                     tiles = anchoredBase,
                     draggedId = draggedId,
                     newGroupId = newGroupId,
                     insertBeforeGroupId = proposal.beforeGroupId,
                 )
+                if (nextTiles != dragTiles) {
+                    dragTiles = nextTiles
+                    dragPreviewRevision++
+                }
                 appliedDropProposal = proposal
                 lastGridDrop = null
             }
@@ -609,7 +629,11 @@ fun StartScreen(
                     }
                 }
 
-                dragTiles = normalizeStartTileOrder(working)
+                val nextTiles = normalizeStartTileOrder(working)
+                if (nextTiles != dragTiles) {
+                    dragTiles = nextTiles
+                    dragPreviewRevision++
+                }
                 appliedDropProposal = proposal
                 lastGridDrop = key
             }
@@ -628,7 +652,11 @@ fun StartScreen(
             activeGutterKey = null
             // If the pointer leaves a valid target, let neighbors glide back to their committed
             // positions while the held tile remains under the finger.
-            dragTiles = tiles.toList()
+            val originalTiles = tiles.toList()
+            if (dragTiles != originalTiles) {
+                dragTiles = originalTiles
+                dragPreviewRevision++
+            }
             appliedDropProposal = null
             lastGridDrop = null
             return
@@ -638,7 +666,11 @@ fun StartScreen(
             // Immediate separator only. Windows does not tear the source group apart merely by
             // hovering over a group gutter; the new group is committed on release.
             activeGutterKey = proposal.gutterKey
-            dragTiles = tiles.toList()
+            val originalTiles = tiles.toList()
+            if (dragTiles != originalTiles) {
+                dragTiles = originalTiles
+                dragPreviewRevision++
+            }
             appliedDropProposal = null
             lastGridDrop = null
             return
@@ -723,7 +755,8 @@ fun StartScreen(
     }
 
     fun finishTileDrag(commit: Boolean) {
-        if (draggingTileId == null) return
+        val draggedId = draggingTileId ?: return
+        val heldTopLeft = dragVisualTopLeft()
 
         previewJob?.cancel()
         previewJob = null
@@ -733,6 +766,16 @@ fun StartScreen(
             pendingDropProposal?.let { proposal ->
                 applyDropProposal(proposal, finalDrop = true)
             }
+        } else if (dragTiles != null && dragTiles != tiles) {
+            // Cancel/rejected drop: neighbors should glide back instead of snapping home.
+            dragPreviewRevision++
+        }
+
+        // Seed the dragged tile's FLIP state from the actual finger position so release animates
+        // into the ghost/source cell instead of teleporting when the floating proxy disappears.
+        reorderMotionStates[draggedId]?.let { motion ->
+            motion.naturalTopLeft = heldTopLeft
+            motion.lastPreviewRevision = dragPreviewRevision - 1
         }
 
         val result = dragTiles
@@ -1131,14 +1174,16 @@ fun StartScreen(
                                 val currentViewport = tileViewportBounds
                                 if (currentViewport == Rect.Zero) return@awaitEachGesture
 
+                                val heldPointerWindow = Offset(
+                                    x = currentViewport.left + longPress.position.x,
+                                    y = currentViewport.top + longPress.position.y,
+                                )
                                 beginTileDrag(
                                     tile = hitTile,
                                     bounds = bounds,
-                                    pointerWindow = Offset(
-                                        x = currentViewport.left + longPress.position.x,
-                                        y = currentViewport.top + longPress.position.y,
-                                    ),
+                                    pointerWindow = heldPointerWindow,
                                 )
+                                moveDraggedPointer(heldPointerWindow)
 
                                 // After long-press, the stable viewport owns the stream at Initial
                                 // pass. We use the absolute pointer coordinate, not accumulated
@@ -1378,16 +1423,12 @@ fun StartScreen(
                                             groupLabelHeightDp +
                                                 placed.row * (metrics.cellDp + metrics.gapDp)
                                             ).dp
-                                        val animatedX by animateDpAsState(
-                                            targetValue = targetX,
-                                            animationSpec = tween(TILE_REORDER_DURATION_MS, easing = FastOutSlowInEasing),
-                                            label = "StartTileX:${tile.id}",
-                                        )
-                                        val animatedY by animateDpAsState(
-                                            targetValue = targetY,
-                                            animationSpec = tween(TILE_REORDER_DURATION_MS, easing = FastOutSlowInEasing),
-                                            label = "StartTileY:${tile.id}",
-                                        )
+                                        val motionState = remember(tile.id) {
+                                            reorderMotionStates.getOrPut(tile.id) {
+                                                StartTileMotionState()
+                                            }
+                                        }
+                                        val reorderTranslation = motionState.translation.value
                                         val isDragging = tile.id == draggingTileId
                                         val isSelected = tile.id in selectedTileIds
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
@@ -1401,12 +1442,16 @@ fun StartScreen(
 
                                         Box(
                                             modifier = Modifier
-                                                .offset(x = animatedX, y = animatedY)
+                                                .offset(x = targetX, y = targetY)
                                                 .size(tileWidth, tileHeight)
                                                 .zIndex(if (isSelected && !isDragging) 1f else 0f)
                                                 .onGloballyPositioned { coordinates ->
                                                     if (coordinates.isAttached) {
-                                                        tileBounds[tile.id] = coordinates.boundsInWindow()
+                                                        val naturalBounds = coordinates.boundsInWindow()
+                                                        val naturalTopLeft = naturalBounds.topLeft
+                                                        val previousTopLeft = motionState.naturalTopLeft
+
+                                                        tileBounds[tile.id] = naturalBounds
                                                         tileGridPositions[tile.id] = StartTileGridPosition(
                                                             groupId = band.groupId,
                                                             groupName = band.groupName,
@@ -1416,7 +1461,59 @@ fun StartScreen(
                                                             columns = placed.columns,
                                                             rows = placed.rows,
                                                         )
+
+                                                        val revisionChanged =
+                                                            motionState.lastPreviewRevision != dragPreviewRevision
+                                                        if (
+                                                            revisionChanged &&
+                                                            previousTopLeft != null &&
+                                                            !isDragging
+                                                        ) {
+                                                            val currentVisual =
+                                                                previousTopLeft + motionState.translation.value
+                                                            val startDelta = currentVisual - naturalTopLeft
+                                                            motionState.naturalTopLeft = naturalTopLeft
+                                                            motionState.lastPreviewRevision = dragPreviewRevision
+
+                                                            reorderMotionJobs.remove(tile.id)?.cancel()
+                                                            if (
+                                                                kotlin.math.abs(startDelta.x) > 0.5f ||
+                                                                kotlin.math.abs(startDelta.y) > 0.5f
+                                                            ) {
+                                                                reorderMotionJobs[tile.id] = scope.launch(
+                                                                    start = CoroutineStart.UNDISPATCHED,
+                                                                ) {
+                                                                    motionState.translation.snapTo(startDelta)
+                                                                    motionState.translation.animateTo(
+                                                                        Offset.Zero,
+                                                                        animationSpec = tween(
+                                                                            TILE_REORDER_DURATION_MS,
+                                                                            easing = FastOutSlowInEasing,
+                                                                        ),
+                                                                    )
+                                                                    reorderMotionJobs.remove(tile.id)
+                                                                }
+                                                            } else {
+                                                                reorderMotionJobs[tile.id] = scope.launch(
+                                                                    start = CoroutineStart.UNDISPATCHED,
+                                                                ) {
+                                                                    motionState.translation.snapTo(Offset.Zero)
+                                                                    reorderMotionJobs.remove(tile.id)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            motionState.naturalTopLeft = naturalTopLeft
+                                                            if (
+                                                                motionState.lastPreviewRevision == Int.MIN_VALUE
+                                                            ) {
+                                                                motionState.lastPreviewRevision = dragPreviewRevision
+                                                            }
+                                                        }
                                                     }
+                                                }
+                                                .graphicsLayer {
+                                                    translationX = reorderTranslation.x
+                                                    translationY = reorderTranslation.y
                                                 }
                                                 // During a drag the grid copy is only the live
                                                 // placeholder. A separate absolute proxy follows
@@ -1481,6 +1578,74 @@ fun StartScreen(
                             }
                         }
 
+                    }
+
+                    // Immediate drop-location hint. The structural reorder deliberately
+                    // waits for a stable hover, but the user should never have to guess which
+                    // cell will receive the tile. Launcher3 uses a drag outline for the same
+                    // reason; Tile8 uses a translucent copy of the Windows tile itself.
+                    draggingTileId?.let { draggedId ->
+                        val draggedTile = tiles.firstOrNull { it.id == draggedId }
+                        val gridProposal = pendingDropProposal as? StartDropProposal.Grid
+                        val key = gridProposal?.key
+                        val targetBand = key?.let { proposalKey ->
+                            bandDropTargets.values.firstOrNull {
+                                it.groupId == proposalKey.groupId &&
+                                    it.continuationIndex == proposalKey.continuationIndex
+                            }
+                        }
+
+                        if (
+                            draggedTile != null &&
+                            key != null &&
+                            targetBand != null &&
+                            tileViewportBounds != Rect.Zero
+                        ) {
+                            val span = draggedTile.size.startTileSpan()
+                            val stepPx = targetBand.cellPx + targetBand.gapPx
+                            val ghostLeftWindow =
+                                targetBand.bounds.left + key.column * stepPx
+                            val ghostTopWindow =
+                                targetBand.bounds.top + key.row * stepPx
+                            val ghostLeft = ghostLeftWindow - tileViewportBounds.left
+                            val ghostTop = ghostTopWindow - tileViewportBounds.top
+                            val ghostWidth = (
+                                span.columns * metrics.cellDp +
+                                    (span.columns - 1) * metrics.gapDp
+                                ).dp
+                            val ghostHeight = (
+                                span.rows * metrics.cellDp +
+                                    (span.rows - 1) * metrics.gapDp
+                                ).dp
+                            val ghostIcon = draggedTile.packageName?.let {
+                                rememberAppIcon(appsRepository, it)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        androidx.compose.ui.unit.IntOffset(
+                                            ghostLeft.roundToInt(),
+                                            ghostTop.roundToInt(),
+                                        )
+                                    }
+                                    .size(ghostWidth, ghostHeight)
+                                    .zIndex(40f)
+                                    .graphicsLayer {
+                                        alpha = TILE_DROP_GHOST_ALPHA
+                                    }
+                                    .border(
+                                        1.dp,
+                                        Color.White.copy(alpha = 0.45f),
+                                    ),
+                            ) {
+                                WindowsTileFace(
+                                    tile = draggedTile,
+                                    appIcon = ghostIcon,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
                     }
 
                     draggingTileId?.let { draggedId ->
