@@ -1504,52 +1504,45 @@ fun StartScreen(
                                                             rows = placed.rows,
                                                         )
 
-                                                        val revisionChanged =
-                                                            motionState.lastPreviewRevision != dragPreviewRevision
-                                                        if (
-                                                            revisionChanged &&
+                                                        val naturalMoved =
                                                             previousTopLeft != null &&
-                                                            !isDragging
-                                                        ) {
+                                                                (
+                                                                    kotlin.math.abs(
+                                                                        previousTopLeft.x - naturalTopLeft.x,
+                                                                    ) > 0.5f ||
+                                                                        kotlin.math.abs(
+                                                                            previousTopLeft.y - naturalTopLeft.y,
+                                                                        ) > 0.5f
+                                                                    )
+
+                                                        if (naturalMoved && !isDragging) {
+                                                            // Animate only when THIS tile's natural
+                                                            // destination actually changed. The old
+                                                            // global preview revision restarted
+                                                            // unrelated in-flight animations, which
+                                                            // made icons appear to go, come back and
+                                                            // then go again.
                                                             val currentVisual =
-                                                                previousTopLeft + motionState.translation.value
+                                                                previousTopLeft!! + motionState.translation.value
                                                             val startDelta = currentVisual - naturalTopLeft
                                                             motionState.naturalTopLeft = naturalTopLeft
-                                                            motionState.lastPreviewRevision = dragPreviewRevision
 
                                                             reorderMotionJobs.remove(tile.id)?.cancel()
-                                                            if (
-                                                                kotlin.math.abs(startDelta.x) > 0.5f ||
-                                                                kotlin.math.abs(startDelta.y) > 0.5f
+                                                            reorderMotionJobs[tile.id] = scope.launch(
+                                                                start = CoroutineStart.UNDISPATCHED,
                                                             ) {
-                                                                reorderMotionJobs[tile.id] = scope.launch(
-                                                                    start = CoroutineStart.UNDISPATCHED,
-                                                                ) {
-                                                                    motionState.translation.snapTo(startDelta)
-                                                                    motionState.translation.animateTo(
-                                                                        Offset.Zero,
-                                                                        animationSpec = tween(
-                                                                            TILE_REORDER_DURATION_MS,
-                                                                            easing = FastOutSlowInEasing,
-                                                                        ),
-                                                                    )
-                                                                    reorderMotionJobs.remove(tile.id)
-                                                                }
-                                                            } else {
-                                                                reorderMotionJobs[tile.id] = scope.launch(
-                                                                    start = CoroutineStart.UNDISPATCHED,
-                                                                ) {
-                                                                    motionState.translation.snapTo(Offset.Zero)
-                                                                    reorderMotionJobs.remove(tile.id)
-                                                                }
+                                                                motionState.translation.snapTo(startDelta)
+                                                                motionState.translation.animateTo(
+                                                                    Offset.Zero,
+                                                                    animationSpec = tween(
+                                                                        TILE_REORDER_DURATION_MS,
+                                                                        easing = FastOutSlowInEasing,
+                                                                    ),
+                                                                )
+                                                                reorderMotionJobs.remove(tile.id)
                                                             }
                                                         } else {
                                                             motionState.naturalTopLeft = naturalTopLeft
-                                                            if (
-                                                                motionState.lastPreviewRevision == Int.MIN_VALUE
-                                                            ) {
-                                                                motionState.lastPreviewRevision = dragPreviewRevision
-                                                            }
                                                         }
                                                     }
                                                 }
