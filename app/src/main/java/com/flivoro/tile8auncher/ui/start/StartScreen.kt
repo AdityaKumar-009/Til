@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -245,6 +246,9 @@ fun StartScreen(
     var entranceRunning by remember { mutableStateOf(false) }
     var showBandOverview by remember { mutableStateOf(false) }
     var viewportSnapshot by remember {
+        mutableStateOf(EntranceViewportSnapshot(startBand = 0, startOffsetPx = 0))
+    }
+    var semanticOriginSnapshot by remember {
         mutableStateOf(EntranceViewportSnapshot(startBand = 0, startOffsetPx = 0))
     }
 
@@ -835,6 +839,10 @@ fun StartScreen(
 
     fun openBandOverview() {
         if (!interactionEnabled) return
+        semanticOriginSnapshot = EntranceViewportSnapshot(
+            startBand = listState.firstVisibleItemIndex,
+            startOffsetPx = listState.firstVisibleItemScrollOffset,
+        )
         selectedTileIds = emptySet()
         showResizeChoices = false
         if (entranceRunning) {
@@ -846,6 +854,20 @@ fun StartScreen(
             }
         } else {
             showBandOverview = true
+        }
+    }
+
+    fun zoomBackToSemanticOrigin() {
+        if (!interactionEnabled) return
+        scope.launch {
+            // At p==1 the source geometry is visually irrelevant, so restore the detailed
+            // LazyRow underneath first. The same semantic proxies then expand back into the
+            // exact scroll position that was visible before the minus button was pressed.
+            listState.scrollToItem(
+                semanticOriginSnapshot.startBand,
+                semanticOriginSnapshot.startOffsetPx,
+            )
+            showBandOverview = false
         }
     }
 
@@ -1843,6 +1865,7 @@ fun StartScreen(
                             listState = listState,
                             progress = overviewProgress,
                             onBandClick = ::zoomToBand,
+                            onOutsideClick = ::zoomBackToSemanticOrigin,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .zIndex(80f),
@@ -2322,6 +2345,7 @@ private fun StartSpatialSemanticZoom(
     listState: LazyListState,
     progress: Float,
     onBandClick: (Int) -> Unit,
+    onOutsideClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val groupedBands = remember(bands) {
@@ -2361,6 +2385,20 @@ private fun StartSpatialSemanticZoom(
         val withinGroupPx = with(density) { START_WITHIN_GROUP_SPACING_DP.dp.toPx() }
         val desiredGroupGapPx = with(density) { 24.dp.toPx() }
         val stepPx = cellPx + gapPx
+
+        // Empty semantic-zoom space is a cancel target. Keep it behind the actual group hitboxes
+        // so tapping a miniature group still selects that group, while tapping anywhere else
+        // returns to the exact detailed Start scroll position captured before zoom-out.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(-1f)
+                .pointerInput(p >= 0.985f) {
+                    if (p >= 0.985f) {
+                        detectTapGestures(onTap = { onOutsideClick() })
+                    }
+                },
+        )
 
         // Keep gaps visible but never allow a large number of groups to force the overview
         // wider than the viewport. At most ~18% of the viewport is reserved for all gaps.
@@ -2538,6 +2576,7 @@ private fun StartSpatialSemanticZoom(
                         with(density) { targetGroupWidthPx.toDp() },
                         with(density) { targetGroupHeightPx.toDp() },
                     )
+                    .zIndex(2f)
                     .clickable(
                         enabled = p >= 0.985f,
                         onClick = { onBandClick(group.firstBandIndex) },
