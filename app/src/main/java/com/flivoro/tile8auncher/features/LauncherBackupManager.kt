@@ -93,5 +93,6 @@ object LauncherBackupManager {
         IconPackManager.clearCaches()
         LauncherFeatureRuntime.notifyIconsChanged()
         LauncherFeatureRuntime.notifyPinnedTilesChanged()
+        LauncherFeatureRuntime.notifyStartAppearanceChanged()
     }
 }
