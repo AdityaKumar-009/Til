@@ -2,9 +2,6 @@ name: Android build
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/spatial-semantic-zoom
 
 permissions:
   contents: read
@@ -27,7 +24,6 @@ jobs:
       - name: Make wrapper executable
         run: chmod +x gradlew
       - name: Unit tests
-        continue-on-error: true # existing packing-order assertion is unrelated to semantic zoom
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Build optimized installable APK
         run: ./gradlew assemblePerformance --stacktrace
