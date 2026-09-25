@@ -56,6 +56,9 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var appPickerMode by remember { mutableStateOf<AppPickerMode?>(null) }
     var showIconPacks by remember { mutableStateOf(false) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
+    var showStartGroupHeadings by remember {
+        mutableStateOf(LauncherFeatureStore.showStartGroupHeadings(context))
+    }
 
     LaunchedEffect(Unit) {
         LiveTileRuntime.requestReconnect(context)
@@ -176,6 +179,16 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         description = "Action: ${LauncherFeatureStore.doubleTapAction(context).displayName()}",
         glyph = "app",
     ) { showDoubleTapActions = true }
+
+    SettingsToggleRow(
+        title = "Start group headings",
+        description = "Show group names above tile groups on the normal Start screen. Off by default.",
+        checked = showStartGroupHeadings,
+        onCheckedChange = { enabled ->
+            showStartGroupHeadings = enabled
+            LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
+        },
+    )
 
     SettingsActionRow(
         title = "Hidden apps",
@@ -314,6 +327,36 @@ private fun SettingsActionRow(
             Spacer(Modifier.height(3.dp))
             Text(description, color = Color(0xFF666666), fontSize = 11.sp, lineHeight = 15.sp)
         }
+    }
+    Spacer(Modifier.height(9.dp))
+}
+
+@Composable
+private fun SettingsToggleRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFD0D0D0))
+            .background(Color.White)
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 15.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color(0xFF222222), fontSize = 15.sp)
+            Spacer(Modifier.height(3.dp))
+            Text(description, color = Color(0xFF666666), fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
     Spacer(Modifier.height(9.dp))
 }
