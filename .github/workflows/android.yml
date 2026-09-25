@@ -2,9 +2,6 @@ name: Android build
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - fix/semantic-hitboxes-group-headings
 
 permissions:
   contents: read
@@ -27,7 +24,6 @@ jobs:
       - name: Make wrapper executable
         run: chmod +x gradlew
       - name: Unit tests
-        continue-on-error: true # existing packing-order assertion is unrelated to this UI fix
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Build optimized installable APK
         run: ./gradlew assemblePerformance --stacktrace
