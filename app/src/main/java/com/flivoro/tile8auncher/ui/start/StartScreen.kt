@@ -392,6 +392,18 @@ fun StartScreen(
         }
     }
 
+    // A horizontal Start pan is direct manipulation, not another entrance animation.
+    // If the user starts swiping while STARTUP/RETURN is still settling, finish that
+    // motion immediately. Otherwise later bands entering from the right keep their
+    // staggered scale and appear to rise vertically as they come into view.
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress && entranceRunning) {
+            entrance.stop()
+            entranceRunning = false
+            entrance.snapTo(1f)
+        }
+    }
+
     LaunchedEffect(tiles.map { it.id }) {
         val validIds = tiles.mapTo(mutableSetOf()) { it.id }
         reorderMotionJobs.keys.filterNot { it in validIds }.forEach { id ->
@@ -1166,9 +1178,10 @@ fun StartScreen(
                 val normalStartScale = 1f - (overviewProgress * 0.68f)
                 val rowModifier = Modifier
                     .fillMaxSize()
-                    // Normal Start panning is direct manipulation only. The former elastic
-                    // modifier translated the whole row and sprung it back at the edges,
-                    // which looked like the tiles themselves were animating while scrolling.
+                    // Keep Windows-style edge resistance. This modifier only translates the row
+                    // for unconsumed pixels at the two real scroll limits; it is not the cause of
+                    // the in-range vertical rise seen in the recording.
+                    .then(if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier)
                     .graphicsLayer {
                         transformOrigin = TransformOrigin.Center
                         scaleX = normalStartScale
@@ -1364,26 +1377,42 @@ fun StartScreen(
                                         }
                                     }
                                     .graphicsLayer {
-                                        val position = StartEntranceMotion.viewportBandPosition(
-                                            bandIndex,
-                                            viewportSnapshot.startBand,
-                                            viewportSnapshot.startOffsetPx,
-                                            bandExtentPx,
-                                        )
-                                        val frame = StartEntranceMotion.frame(entranceProgress, position, playingKind)
-                                        translationX = StartEntranceMotion.translationX(
-                                            frame = frame,
-                                            kind = playingKind,
-                                            viewportWidthPx = viewportWidthPx,
-                                            bandWidthPx = bandWidthPx,
-                                        )
-                                        transformOrigin = TransformOrigin(
-                                            .5f,
-                                            viewportHeightPx / (2f * size.height.coerceAtLeast(1f)),
-                                        )
-                                        scaleX = frame.scale
-                                        scaleY = frame.scale
-                                        alpha = frame.alpha
+                                        if (listState.isScrollInProgress) {
+                                            // While the user is horizontally panning, every band is
+                                            // fully settled. Keeping the staggered STARTUP/RETURN
+                                            // scale here made bands entering from the right grow
+                                            // around a low pivot and therefore appear to move up.
+                                            translationX = 0f
+                                            transformOrigin = TransformOrigin.Center
+                                            scaleX = 1f
+                                            scaleY = 1f
+                                            alpha = 1f
+                                        } else {
+                                            val position = StartEntranceMotion.viewportBandPosition(
+                                                bandIndex,
+                                                viewportSnapshot.startBand,
+                                                viewportSnapshot.startOffsetPx,
+                                                bandExtentPx,
+                                            )
+                                            val frame = StartEntranceMotion.frame(
+                                                entranceProgress,
+                                                position,
+                                                playingKind,
+                                            )
+                                            translationX = StartEntranceMotion.translationX(
+                                                frame = frame,
+                                                kind = playingKind,
+                                                viewportWidthPx = viewportWidthPx,
+                                                bandWidthPx = bandWidthPx,
+                                            )
+                                            transformOrigin = TransformOrigin(
+                                                .5f,
+                                                viewportHeightPx / (2f * size.height.coerceAtLeast(1f)),
+                                            )
+                                            scaleX = frame.scale
+                                            scaleY = frame.scale
+                                            alpha = frame.alpha
+                                        }
                                     },
                             ) {
                                 if (band.continuationIndex == 0 && visibleGroupName != null) {
