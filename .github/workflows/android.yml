@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - fix/windows81-semantic-zoom
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
