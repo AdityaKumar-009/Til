@@ -172,6 +172,11 @@ private data class StartGroupGutterDropTarget(
     val bounds: Rect,
 )
 
+private data class SemanticStartGroup(
+    val firstBandIndex: Int,
+    val bands: List<StartTileBand>,
+)
+
 private sealed interface StartDropProposal {
     data class Grid(
         val key: StartGridDropKey,
@@ -898,8 +903,9 @@ fun StartScreen(
     val entranceProgress = if (prehideForEntrance) 0f else entrance.value
     val overviewProgress by animateFloatAsState(
         targetValue = if (showBandOverview && interactionEnabled) 1f else 0f,
-        animationSpec = tween(230, easing = FastOutSlowInEasing),
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
     )
+    val semanticZoomActive = showBandOverview || overviewProgress > 0.001f
     val visibleTiles = dragTiles ?: tiles
 
     Box(
@@ -1174,19 +1180,15 @@ fun StartScreen(
                 }
 
                 val canScrollTiles =
-                    interactionEnabled && draggingTileId == null && !showBandOverview
-                val normalStartScale = 1f - (overviewProgress * 0.68f)
+                    interactionEnabled && draggingTileId == null && !semanticZoomActive
                 val rowModifier = Modifier
                     .fillMaxSize()
-                    // Keep Windows-style edge resistance. This modifier only translates the row
-                    // for unconsumed pixels at the two real scroll limits; it is not the cause of
-                    // the in-range vertical rise seen in the recording.
+                    // Keep the detailed Start surface geometrically fixed while the semantic
+                    // layer reuses its exact tile coordinates. This avoids a second independent
+                    // scale/fade animation fighting the shared-position morph.
                     .then(if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier)
                     .graphicsLayer {
-                        transformOrigin = TransformOrigin.Center
-                        scaleX = normalStartScale
-                        scaleY = normalStartScale
-                        alpha = (1f - overviewProgress).coerceIn(0f, 1f)
+                        alpha = if (semanticZoomActive) 0f else 1f
                     }
 
                 Box(
@@ -1195,8 +1197,8 @@ fun StartScreen(
                         .onGloballyPositioned { coordinates ->
                             if (coordinates.isAttached) tileViewportBounds = coordinates.boundsInWindow()
                         }
-                        .pointerInput(interactionEnabled, launchingTileId, showBandOverview) {
-                            if (!interactionEnabled || launchingTileId != null || showBandOverview) {
+                        .pointerInput(interactionEnabled, launchingTileId, semanticZoomActive) {
+                            if (!interactionEnabled || launchingTileId != null || semanticZoomActive) {
                                 return@pointerInput
                             }
 
@@ -1804,29 +1806,27 @@ fun StartScreen(
                         }
                     }
 
-                    if (showBandOverview || overviewProgress > 0.001f) {
-                        // Windows 8.1 semantic zoom is a view change rather than a modal panel:
-                        // keep the Start background and transition between item- and group-level
-                        // representations in the same viewport.
-                        StartBandOverview(
+                    if (semanticZoomActive) {
+                        // True semantic zoom: every overview tile is the same logical tile as the
+                        // detailed Start tile. Its position is interpolated from the current
+                        // scroll-world coordinate into the group overview coordinate. Off-screen
+                        // groups therefore travel in from their real left/right positions instead
+                        // of appearing as a second cross-faded surface.
+                        StartSpatialSemanticZoom(
                             bands = packed.bands,
+                            appsRepository = appsRepository,
                             cellDp = metrics.cellDp,
                             gridGapDp = metrics.gapDp,
                             bandWidthDp = metrics.bandWidthDp,
                             bandHeightDp = metrics.bandHeightDp,
+                            groupLabelHeightDp = groupLabelHeightDp,
+                            bandItemWidthsPx = bandItemWidthsPx,
+                            listState = listState,
+                            progress = overviewProgress,
                             onBandClick = ::zoomToBand,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .zIndex(80f)
-                                .graphicsLayer {
-                                    val startScale = 2.85f
-                                    val semanticScale =
-                                        startScale - (startScale - 1f) * overviewProgress
-                                    transformOrigin = TransformOrigin.Center
-                                    scaleX = semanticScale
-                                    scaleY = semanticScale
-                                    alpha = overviewProgress.coerceIn(0f, 1f)
-                                },
+                                .zIndex(80f),
                         )
                     }
                 }
@@ -2291,138 +2291,249 @@ private fun StartCommandButton(
 }
 
 @Composable
-private fun StartBandOverview(
+private fun StartSpatialSemanticZoom(
     bands: List<StartTileBand>,
+    appsRepository: AppsRepository,
     cellDp: Float,
     gridGapDp: Float,
     bandWidthDp: Float,
     bandHeightDp: Float,
+    groupLabelHeightDp: Float,
+    bandItemWidthsPx: List<Float>,
+    listState: LazyListState,
+    progress: Float,
     onBandClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // A Windows Start group can span several packing bands. Semantic zoom must collapse
-    // those continuation bands into one group-level target instead of inventing fake gaps.
     val groupedBands = remember(bands) {
-        val groups = mutableListOf<MutableList<StartTileBand>>()
-        bands.forEach { band ->
-            val current = groups.lastOrNull()
-            if (current != null && current.first().groupId == band.groupId) {
-                current += band
-            } else {
-                groups += mutableListOf(band)
+        val groups = mutableListOf<SemanticStartGroup>()
+        var index = 0
+        while (index < bands.size) {
+            val first = index
+            val groupId = bands[index].groupId
+            val group = mutableListOf<StartTileBand>()
+            while (index < bands.size && bands[index].groupId == groupId) {
+                group += bands[index]
+                index++
             }
+            groups += SemanticStartGroup(firstBandIndex = first, bands = group)
         }
-        groups.map { it.toList() }
+        groups
     }
 
     BoxWithConstraints(modifier) {
-        if (groupedBands.isEmpty()) return@BoxWithConstraints
-
-        val groupGapDp = 24f
-        val horizontalPaddingDp = 20f
-        val verticalPaddingDp = 18f
-        val labelHeightDp = 24f
-
-        val sourceGroupWidths = groupedBands.map { group ->
-            group.size * bandWidthDp +
-                (group.size - 1).coerceAtLeast(0) * START_WITHIN_GROUP_SPACING_DP
+        if (groupedBands.isEmpty() || bandItemWidthsPx.size != bands.size) {
+            return@BoxWithConstraints
         }
-        val availableWidthForGroups = (
-            maxWidth.value -
-                horizontalPaddingDp * 2f -
-                groupGapDp * (groupedBands.size - 1).coerceAtLeast(0)
+
+        val density = LocalDensity.current
+        val p = progress.coerceIn(0f, 1f)
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
+        val contentPaddingPx = with(density) { 24.dp.toPx() }
+        val horizontalPaddingPx = with(density) { 20.dp.toPx() }
+        val verticalPaddingPx = with(density) { 18.dp.toPx() }
+        val labelHeightPx = with(density) { 24.dp.toPx() }
+        val sourceLabelHeightPx = with(density) { groupLabelHeightDp.dp.toPx() }
+        val cellPx = with(density) { cellDp.dp.toPx() }
+        val gapPx = with(density) { gridGapDp.dp.toPx() }
+        val bandWidthPx = with(density) { bandWidthDp.dp.toPx() }
+        val bandHeightPx = with(density) { bandHeightDp.dp.toPx() }
+        val withinGroupPx = with(density) { START_WITHIN_GROUP_SPACING_DP.dp.toPx() }
+        val desiredGroupGapPx = with(density) { 24.dp.toPx() }
+        val stepPx = cellPx + gapPx
+
+        // Keep gaps visible but never allow a large number of groups to force the overview
+        // wider than the viewport. At most ~18% of the viewport is reserved for all gaps.
+        val groupGapPx = if (groupedBands.size <= 1) {
+            0f
+        } else {
+            minOf(
+                desiredGroupGapPx,
+                viewportWidthPx * 0.18f / (groupedBands.size - 1),
+            )
+        }
+
+        val sourceGroupWidthsPx = groupedBands.map { group ->
+            group.bands.size * bandWidthPx +
+                (group.bands.size - 1).coerceAtLeast(0) * withinGroupPx
+        }
+        val sumSourceGroupWidthsPx = sourceGroupWidthsPx.sum().coerceAtLeast(1f)
+        val availableGroupWidthPx = (
+            viewportWidthPx -
+                horizontalPaddingPx * 2f -
+                groupGapPx * (groupedBands.size - 1).coerceAtLeast(0)
             ).coerceAtLeast(1f)
-        val availableHeightForTiles = (
-            maxHeight.value - verticalPaddingDp * 2f - labelHeightDp
+        val availableTileHeightPx = (
+            viewportHeightPx - verticalPaddingPx * 2f - labelHeightPx
             ).coerceAtLeast(1f)
-        val widthScale =
-            availableWidthForGroups / sourceGroupWidths.sum().coerceAtLeast(1f)
-        val heightScale =
-            availableHeightForTiles / bandHeightDp.coerceAtLeast(1f)
-        val semanticScale = minOf(widthScale, heightScale, 0.62f).coerceAtLeast(0.13f)
-        val thumbnailHeight = (bandHeightDp * semanticScale).dp
+        val semanticScale = minOf(
+            availableGroupWidthPx / sumSourceGroupWidthsPx,
+            availableTileHeightPx / bandHeightPx.coerceAtLeast(1f),
+            0.62f,
+        ).coerceAtLeast(0.02f)
 
-        LazyRow(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                horizontal = horizontalPaddingDp.dp,
-                vertical = verticalPaddingDp.dp,
-            ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(groupGapDp.dp),
-        ) {
-            itemsIndexed(
-                items = groupedBands,
-                key = { _, group -> "semantic-group:${group.first().groupId}" },
-            ) { groupIndex, group ->
-                val groupName = group.first().groupName.trim()
-                val firstBandIndex =
-                    bands.indexOfFirst { it.key == group.first().key }.coerceAtLeast(0)
-                val sourceGroupWidth = sourceGroupWidths[groupIndex]
-                val thumbnailWidth = (sourceGroupWidth * semanticScale).dp
+        val targetGroupWidthsPx = sourceGroupWidthsPx.map { it * semanticScale }
+        val targetTotalWidthPx =
+            targetGroupWidthsPx.sum() +
+                groupGapPx * (groupedBands.size - 1).coerceAtLeast(0)
+        val targetStartXPx = maxOf(
+            horizontalPaddingPx,
+            (viewportWidthPx - targetTotalWidthPx) / 2f,
+        )
+        val targetGroupHeightPx = labelHeightPx + bandHeightPx * semanticScale
+        val targetGroupTopPx = maxOf(
+            verticalPaddingPx,
+            (viewportHeightPx - targetGroupHeightPx) / 2f,
+        )
+        val targetTileTopPx = targetGroupTopPx + labelHeightPx
 
-                Column(
-                    modifier = Modifier
-                        .width(thumbnailWidth)
-                        .clickable { onBandClick(firstBandIndex) }
-                        .semantics {
-                            contentDescription = if (groupName.isNotBlank()) {
-                                "Open $groupName group"
-                            } else {
-                                "Open Start group ${groupIndex + 1}"
-                            }
-                        },
-                ) {
-                    Text(
-                        text = groupName,
-                        color = Color.White.copy(alpha = 0.96f),
-                        style = WindowsTypography.bodyMedium.copy(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal,
-                        ),
-                        maxLines = 1,
-                        modifier = Modifier.height(labelHeightDp.dp),
-                    )
+        val scrollPx = absoluteStartScrollPx(
+            itemWidthsPx = bandItemWidthsPx,
+            firstVisibleItemIndex = listState.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
+        )
 
-                    Canvas(
-                        Modifier
-                            .width(thumbnailWidth)
-                            .height(thumbnailHeight),
-                    ) {
-                        val sourceHeight = bandHeightDp.coerceAtLeast(1f)
-                        val pxPerSourceDp = size.height / sourceHeight
-                        val stepSourceDp = cellDp + gridGapDp
+        val bandWorldStartsPx = remember(bandItemWidthsPx) {
+            val starts = FloatArray(bandItemWidthsPx.size)
+            var cumulative = 0f
+            bandItemWidthsPx.forEachIndexed { index, width ->
+                starts[index] = cumulative
+                cumulative += width
+            }
+            starts
+        }
 
-                        group.forEachIndexed { continuationIndex, band ->
-                            val bandLeft = continuationIndex *
-                                (bandWidthDp + START_WITHIN_GROUP_SPACING_DP) *
-                                pxPerSourceDp
+        var targetGroupLeftPx = targetStartXPx
+        groupedBands.forEachIndexed { groupIndex, group ->
+            val targetGroupWidthPx = targetGroupWidthsPx[groupIndex]
+            val groupName = group.bands.first().groupName.trim()
+            val groupTargetLeftSnapshot = targetGroupLeftPx
 
-                            band.tiles.forEach { placed ->
-                                val tileWidthSource =
-                                    placed.columns * cellDp +
-                                        (placed.columns - 1).coerceAtLeast(0) * gridGapDp
-                                val tileHeightSource =
-                                    placed.rows * cellDp +
-                                        (placed.rows - 1).coerceAtLeast(0) * gridGapDp
+            group.bands.forEachIndexed { localBandIndex, band ->
+                val bandIndex = group.firstBandIndex + localBandIndex
+                val previousBand = bands.getOrNull(bandIndex - 1)
+                val startsNewGroup =
+                    previousBand != null && previousBand.groupId != band.groupId
+                val leadingDp = when {
+                    bandIndex == 0 -> 0f
+                    startsNewGroup -> START_GROUP_GUTTER_DP
+                    else -> START_WITHIN_GROUP_SPACING_DP
+                }
+                val leadingPx = with(density) { leadingDp.dp.toPx() }
 
-                                drawRect(
-                                    color = placed.tile.colorValue.toTileColor(),
-                                    topLeft = Offset(
-                                        x = bandLeft +
-                                            placed.column * stepSourceDp * pxPerSourceDp,
-                                        y = placed.row * stepSourceDp * pxPerSourceDp,
-                                    ),
-                                    size = Size(
-                                        width = tileWidthSource * pxPerSourceDp,
-                                        height = tileHeightSource * pxPerSourceDp,
-                                    ),
+                val sourceBandLeftPx =
+                    contentPaddingPx + bandWorldStartsPx[bandIndex] + leadingPx - scrollPx
+                val targetBandLeftPx =
+                    groupTargetLeftSnapshot +
+                        localBandIndex * (bandWidthPx + withinGroupPx) * semanticScale
+
+                band.tiles.forEach { placed ->
+                    key("semantic:${placed.tile.id}") {
+                        val tile = placed.tile
+                        val sourceLeftPx =
+                            sourceBandLeftPx + placed.column * stepPx
+                        val sourceTopPx =
+                            sourceLabelHeightPx + placed.row * stepPx
+                        val sourceWidthPx =
+                            placed.columns * cellPx +
+                                (placed.columns - 1).coerceAtLeast(0) * gapPx
+                        val sourceHeightPx =
+                            placed.rows * cellPx +
+                                (placed.rows - 1).coerceAtLeast(0) * gapPx
+
+                        val targetLeftPx =
+                            targetBandLeftPx +
+                                placed.column * stepPx * semanticScale
+                        val targetTopPx =
+                            targetTileTopPx +
+                                placed.row * stepPx * semanticScale
+
+                        val leftPx = sourceLeftPx + (targetLeftPx - sourceLeftPx) * p
+                        val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
+                        val scale = 1f + (semanticScale - 1f) * p
+                        val appIcon = tile.packageName?.let {
+                            rememberAppIcon(appsRepository, it)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .offset {
+                                    androidx.compose.ui.unit.IntOffset(
+                                        leftPx.roundToInt(),
+                                        topPx.roundToInt(),
+                                    )
+                                }
+                                .size(
+                                    with(density) { sourceWidthPx.toDp() },
+                                    with(density) { sourceHeightPx.toDp() },
                                 )
-                            }
+                                .graphicsLayer {
+                                    transformOrigin = TransformOrigin(0f, 0f)
+                                    scaleX = scale
+                                    scaleY = scale
+                                    clip = true
+                                },
+                        ) {
+                            WindowsTileFace(
+                                tile = tile,
+                                appIcon = appIcon,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }
             }
+
+            if (groupName.isNotBlank()) {
+                Text(
+                    text = groupName,
+                    color = Color.White.copy(alpha = p),
+                    style = WindowsTypography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal,
+                    ),
+                    maxLines = 1,
+                    modifier = Modifier
+                        .offset {
+                            androidx.compose.ui.unit.IntOffset(
+                                groupTargetLeftSnapshot.roundToInt(),
+                                targetGroupTopPx.roundToInt(),
+                            )
+                        }
+                        .width(with(density) { targetGroupWidthPx.toDp() })
+                        .height(with(density) { labelHeightPx.toDp() })
+                        .graphicsLayer { alpha = p },
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            groupTargetLeftSnapshot.roundToInt(),
+                            targetGroupTopPx.roundToInt(),
+                        )
+                    }
+                    .size(
+                        with(density) { targetGroupWidthPx.toDp() },
+                        with(density) { targetGroupHeightPx.toDp() },
+                    )
+                    .clickable(
+                        enabled = p >= 0.985f,
+                        onClick = { onBandClick(group.firstBandIndex) },
+                    )
+                    .semantics {
+                        contentDescription = if (groupName.isNotBlank()) {
+                            "Open $groupName group"
+                        } else {
+                            "Open Start group ${groupIndex + 1}"
+                        }
+                    },
+            )
+
+            targetGroupLeftPx += targetGroupWidthPx + groupGapPx
         }
     }
 }
+
