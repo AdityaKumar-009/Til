@@ -295,6 +295,10 @@ fun StartScreen(
     val latestOnWallpaperScrollOffsetChanged = rememberUpdatedState(onWallpaperScrollOffsetChanged)
     val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
+    val startAppearanceRevision = LauncherFeatureRuntime.startAppearanceRevision
+    val showStartGroupHeadings = remember(startAppearanceRevision) {
+        LauncherFeatureStore.showStartGroupHeadings(context)
+    }
     val doubleTapAction = LauncherFeatureStore.doubleTapAction(context)
 
     // Widget picker / backup restore run outside MainActivity by design. A tiny process-local revision
@@ -1036,8 +1040,8 @@ fun StartScreen(
 
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val layoutWidth = maxWidth - 48.dp
-                val hasVisibleGroupLabels = remember(visibleTiles) {
-                    visibleTiles.any { tile ->
+                val hasVisibleGroupLabels = remember(visibleTiles, showStartGroupHeadings) {
+                    showStartGroupHeadings && visibleTiles.any { tile ->
                         tile.groupName.isNotBlank() &&
                             !(tile.effectiveStartGroupId() == "legacy:Start" && tile.groupName == "Start")
                     }
@@ -1298,7 +1302,8 @@ fun StartScreen(
                             val startGutterKey = "start-group-gutter:start"
                             val endGutterKey = "start-group-gutter:end"
                             val visibleGroupName = band.groupName.takeIf {
-                                it.isNotBlank() &&
+                                showStartGroupHeadings &&
+                                    it.isNotBlank() &&
                                     !(band.groupId == "legacy:Start" && it == "Start")
                             }
 
@@ -1615,7 +1620,12 @@ fun StartScreen(
                                             // Android widget views are mounted only when the fitted Start entrance is
                                             // settled. During its short/long entrance the ordinary tile face stays in
                                             // the exact existing graphics transform, avoiding AndroidView frame jitter.
-                                            if (widgetIds.isNotEmpty() && !entranceRunning && interactionEnabled) {
+                                            if (
+                                                widgetIds.isNotEmpty() &&
+                                                !entranceRunning &&
+                                                interactionEnabled &&
+                                                !semanticZoomActive
+                                            ) {
                                                 HostedWidgetTile(widgetIds = widgetIds, modifier = Modifier.fillMaxSize())
                                                 Box(
                                                     modifier = Modifier
@@ -1624,6 +1634,7 @@ fun StartScreen(
                                                         .size(28.dp)
                                                         .background(Color(0xAA180424))
                                                         .combinedClickable(
+                                                            enabled = !semanticZoomActive,
                                                             onClick = {
                                                                 selectedTileIds = if (tile.id in selectedTileIds) {
                                                                     selectedTileIds - tile.id
@@ -1644,8 +1655,16 @@ fun StartScreen(
                                                     tile = tile,
                                                     appIcon = appIcon,
                                                     modifier = Modifier.fillMaxSize(),
-                                                    onClick = { bounds -> handleTileClick(tile, bounds) },
-                                                    onLongClick = { selectedTileIds = setOf(tile.id) },
+                                                    onClick = { bounds ->
+                                                        if (!semanticZoomActive) {
+                                                            handleTileClick(tile, bounds)
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        if (!semanticZoomActive) {
+                                                            selectedTileIds = setOf(tile.id)
+                                                        }
+                                                    },
                                                     dragEnabled = false,
                                                 )
                                             }
