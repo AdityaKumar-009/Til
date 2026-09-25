@@ -830,14 +830,16 @@ fun StartScreen(
 
     fun zoomToBand(index: Int) {
         if (!interactionEnabled) return
-        showBandOverview = false
         scope.launch {
             if (entranceRunning) {
                 entrance.stop()
                 entranceRunning = false
             }
             entrance.snapTo(1f)
+
+            // Synchronize semantic views before revealing the detailed Start surface.
             listState.scrollToItem(index)
+            showBandOverview = false
         }
     }
 
@@ -882,6 +884,10 @@ fun StartScreen(
     }
 
     val entranceProgress = if (prehideForEntrance) 0f else entrance.value
+    val overviewProgress by animateFloatAsState(
+        targetValue = if (showBandOverview && interactionEnabled) 1f else 0f,
+        animationSpec = tween(230, easing = FastOutSlowInEasing),
+    )
     val visibleTiles = dragTiles ?: tiles
 
     Box(
@@ -1155,10 +1161,20 @@ fun StartScreen(
                     }
                 }
 
-                val canScrollTiles = interactionEnabled && draggingTileId == null
+                val canScrollTiles =
+                    interactionEnabled && draggingTileId == null && !showBandOverview
+                val normalStartScale = 1f - (overviewProgress * 0.68f)
                 val rowModifier = Modifier
                     .fillMaxSize()
-                    .then(if (canScrollTiles) Modifier.elasticHorizontalScroll() else Modifier)
+                    // Normal Start panning is direct manipulation only. The former elastic
+                    // modifier translated the whole row and sprung it back at the edges,
+                    // which looked like the tiles themselves were animating while scrolling.
+                    .graphicsLayer {
+                        transformOrigin = TransformOrigin.Center
+                        scaleX = normalStartScale
+                        scaleY = normalStartScale
+                        alpha = (1f - overviewProgress).coerceIn(0f, 1f)
+                    }
 
                 Box(
                     Modifier
@@ -1166,8 +1182,10 @@ fun StartScreen(
                         .onGloballyPositioned { coordinates ->
                             if (coordinates.isAttached) tileViewportBounds = coordinates.boundsInWindow()
                         }
-                        .pointerInput(interactionEnabled, launchingTileId) {
-                            if (!interactionEnabled || launchingTileId != null) return@pointerInput
+                        .pointerInput(interactionEnabled, launchingTileId, showBandOverview) {
+                            if (!interactionEnabled || launchingTileId != null || showBandOverview) {
+                                return@pointerInput
+                            }
 
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -1757,15 +1775,29 @@ fun StartScreen(
                         }
                     }
 
-                    AnimatedVisibility(
-                        visible = showBandOverview && interactionEnabled,
-                        enter = fadeIn(tween(180)) + scaleIn(tween(220), initialScale = 1.12f),
-                        exit = fadeOut(tween(140)) + scaleOut(tween(180), targetScale = 1.12f),
-                    ) {
+                    if (showBandOverview || overviewProgress > 0.001f) {
+                        // Windows 8.1 semantic zoom is a view change rather than a modal panel:
+                        // keep the Start background and transition between item- and group-level
+                        // representations in the same viewport.
                         StartBandOverview(
                             bands = packed.bands,
+                            cellDp = metrics.cellDp,
+                            gridGapDp = metrics.gapDp,
+                            bandWidthDp = metrics.bandWidthDp,
+                            bandHeightDp = metrics.bandHeightDp,
                             onBandClick = ::zoomToBand,
-                            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(80f)
+                                .graphicsLayer {
+                                    val startScale = 2.85f
+                                    val semanticScale =
+                                        startScale - (startScale - 1f) * overviewProgress
+                                    transformOrigin = TransformOrigin.Center
+                                    scaleX = semanticScale
+                                    scaleY = semanticScale
+                                    alpha = overviewProgress.coerceIn(0f, 1f)
+                                },
                         )
                     }
                 }
@@ -1800,9 +1832,18 @@ fun StartScreen(
                         .size(48.dp)
                         .clickable(
                             enabled = interactionEnabled && selectedTileIds.isEmpty(),
-                            onClick = ::openBandOverview,
+                            onClick = {
+                                if (showBandOverview) {
+                                    showBandOverview = false
+                                } else {
+                                    openBandOverview()
+                                }
+                            },
                         )
-                        .semantics { contentDescription = "Open Start overview" },
+                        .semantics {
+                            contentDescription =
+                                if (showBandOverview) "Zoom in to Start" else "Zoom out Start"
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
@@ -1810,6 +1851,9 @@ fun StartScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(Modifier.width(10.dp).height(2.dp).background(Color(0xFF303030)))
+                        if (showBandOverview) {
+                            Box(Modifier.width(2.dp).height(10.dp).background(Color(0xFF303030)))
+                        }
                     }
                 }
             }
@@ -2220,40 +2264,132 @@ private fun StartCommandButton(
 @Composable
 private fun StartBandOverview(
     bands: List<StartTileBand>,
+    cellDp: Float,
+    gridGapDp: Float,
+    bandWidthDp: Float,
+    bandHeightDp: Float,
     onBandClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(modifier.background(Color(0xFF180052))) {
-        val thumbnailHeight = minOf(220.dp, maxHeight - 40.dp).coerceAtLeast(48.dp)
+    // A Windows Start group can span several packing bands. Semantic zoom must collapse
+    // those continuation bands into one group-level target instead of inventing fake gaps.
+    val groupedBands = remember(bands) {
+        val groups = mutableListOf<MutableList<StartTileBand>>()
+        bands.forEach { band ->
+            val current = groups.lastOrNull()
+            if (current != null && current.first().groupId == band.groupId) {
+                current += band
+            } else {
+                groups += mutableListOf(band)
+            }
+        }
+        groups.map { it.toList() }
+    }
+
+    BoxWithConstraints(modifier) {
+        if (groupedBands.isEmpty()) return@BoxWithConstraints
+
+        val groupGapDp = 24f
+        val horizontalPaddingDp = 20f
+        val verticalPaddingDp = 18f
+        val labelHeightDp = 24f
+
+        val sourceGroupWidths = groupedBands.map { group ->
+            group.size * bandWidthDp +
+                (group.size - 1).coerceAtLeast(0) * START_WITHIN_GROUP_SPACING_DP
+        }
+        val availableWidthForGroups = (
+            maxWidth.value -
+                horizontalPaddingDp * 2f -
+                groupGapDp * (groupedBands.size - 1).coerceAtLeast(0)
+            ).coerceAtLeast(1f)
+        val availableHeightForTiles = (
+            maxHeight.value - verticalPaddingDp * 2f - labelHeightDp
+            ).coerceAtLeast(1f)
+        val widthScale =
+            availableWidthForGroups / sourceGroupWidths.sum().coerceAtLeast(1f)
+        val heightScale =
+            availableHeightForTiles / bandHeightDp.coerceAtLeast(1f)
+        val semanticScale = minOf(widthScale, heightScale, 0.62f).coerceAtLeast(0.13f)
+        val thumbnailHeight = (bandHeightDp * semanticScale).dp
+
         LazyRow(
-            Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                horizontal = horizontalPaddingDp.dp,
+                vertical = verticalPaddingDp.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(groupGapDp.dp),
         ) {
-            itemsIndexed(bands, key = { _, band -> band.key }) { index, band ->
-                val aspect = band.columns.toFloat() / band.rows.coerceAtLeast(1)
+            itemsIndexed(
+                items = groupedBands,
+                key = { _, group -> "semantic-group:${group.first().groupId}" },
+            ) { groupIndex, group ->
+                val groupName = group.first().groupName.trim()
+                val firstBandIndex =
+                    bands.indexOfFirst { it.key == group.first().key }.coerceAtLeast(0)
+                val sourceGroupWidth = sourceGroupWidths[groupIndex]
+                val thumbnailWidth = (sourceGroupWidth * semanticScale).dp
+
                 Column(
-                    Modifier
-                        .width((thumbnailHeight * aspect).coerceAtLeast(64.dp))
-                        .clickable { onBandClick(index) }
-                        .semantics { contentDescription = "Open ${band.groupName} group ${index + 1}" },
+                    modifier = Modifier
+                        .width(thumbnailWidth)
+                        .clickable { onBandClick(firstBandIndex) }
+                        .semantics {
+                            contentDescription = if (groupName.isNotBlank()) {
+                                "Open $groupName group"
+                            } else {
+                                "Open Start group ${groupIndex + 1}"
+                            }
+                        },
                 ) {
                     Text(
-                        band.groupName,
-                        color = Color.White,
-                        fontSize = 14.sp,
+                        text = groupName,
+                        color = Color.White.copy(alpha = 0.96f),
+                        style = WindowsTypography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Normal,
+                        ),
                         maxLines = 1,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.height(labelHeightDp.dp),
                     )
-                    Canvas(Modifier.fillMaxWidth().height(thumbnailHeight)) {
-                        val cell = minOf(size.width / band.columns, size.height / band.rows)
-                        val gap = cell * .08f
-                        band.tiles.forEach { placed ->
-                            drawRect(
-                                placed.tile.colorValue.toTileColor(),
-                                topLeft = Offset(placed.column * cell, placed.row * cell),
-                                size = Size(placed.columns * cell - gap, placed.rows * cell - gap),
-                            )
+
+                    Canvas(
+                        Modifier
+                            .width(thumbnailWidth)
+                            .height(thumbnailHeight),
+                    ) {
+                        val sourceHeight = bandHeightDp.coerceAtLeast(1f)
+                        val pxPerSourceDp = size.height / sourceHeight
+                        val stepSourceDp = cellDp + gridGapDp
+
+                        group.forEachIndexed { continuationIndex, band ->
+                            val bandLeft = continuationIndex *
+                                (bandWidthDp + START_WITHIN_GROUP_SPACING_DP) *
+                                pxPerSourceDp
+
+                            band.tiles.forEach { placed ->
+                                val tileWidthSource =
+                                    placed.columns * cellDp +
+                                        (placed.columns - 1).coerceAtLeast(0) * gridGapDp
+                                val tileHeightSource =
+                                    placed.rows * cellDp +
+                                        (placed.rows - 1).coerceAtLeast(0) * gridGapDp
+
+                                drawRect(
+                                    color = placed.tile.colorValue.toTileColor(),
+                                    topLeft = Offset(
+                                        x = bandLeft +
+                                            placed.column * stepSourceDp * pxPerSourceDp,
+                                        y = placed.row * stepSourceDp * pxPerSourceDp,
+                                    ),
+                                    size = Size(
+                                        width = tileWidthSource * pxPerSourceDp,
+                                        height = tileHeightSource * pxPerSourceDp,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
