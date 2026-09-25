@@ -25,6 +25,8 @@ object LauncherFeatureRuntime {
         private set
     var liveTilesRevision by mutableIntStateOf(0)
         private set
+    var startAppearanceRevision by mutableIntStateOf(0)
+        private set
 
     fun notifyPinnedTilesChanged() {
         pinnedTilesRevision++
@@ -36,6 +38,10 @@ object LauncherFeatureRuntime {
 
     fun notifyLiveTilesChanged() {
         liveTilesRevision++
+    }
+
+    fun notifyStartAppearanceChanged() {
+        startAppearanceRevision++
     }
 }
 
@@ -54,6 +60,7 @@ object LauncherFeatureStore {
     private const val ICON_PACK_PACKAGE = "feature_icon_pack_package"
     private const val CUSTOM_ICON_PREFIX = "feature_custom_icon_uri_"
     private const val DOUBLE_TAP_ACTION = "feature_start_double_tap_action"
+    private const val START_GROUP_HEADINGS = "feature_start_group_headings"
     private const val FOLDERS_JSON = "feature_folders_json"
     private const val WIDGET_STACKS_JSON = "feature_widget_stacks_json"
     private const val LOCK_SLIDESHOW_URIS = "feature_lock_slideshow_uris"
@@ -121,6 +128,14 @@ object LauncherFeatureStore {
 
     fun setDoubleTapAction(context: Context, action: StartDoubleTapAction) {
         prefs(context).edit { putString(DOUBLE_TAP_ACTION, action.name) }
+    }
+
+    fun showStartGroupHeadings(context: Context): Boolean =
+        prefs(context).getBoolean(START_GROUP_HEADINGS, false)
+
+    fun setShowStartGroupHeadings(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(START_GROUP_HEADINGS, enabled) }
+        LauncherFeatureRuntime.notifyStartAppearanceChanged()
     }
 
     fun folderPackages(context: Context, tileId: String): List<String> =
