@@ -22,6 +22,7 @@ internal object StartPersonalization {
     private val customWallpaperOverlayState = mutableStateOf(0.24f)
 
     val accentColor: Color get() = accentState.value
+    val accentArgb: Long get() = accentState.value.toArgbLong()
     val customWallpaperUri: String? get() = customWallpaperUriState.value
     val customWallpaperOverlay: Float get() = customWallpaperOverlayState.value
 
