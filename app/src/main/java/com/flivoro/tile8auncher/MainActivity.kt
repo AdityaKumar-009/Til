@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
@@ -80,6 +82,7 @@ import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class LauncherScreen {
@@ -490,6 +493,36 @@ fun Tile8LauncherApp(
     var searchFocusRequest by remember { mutableIntStateOf(0) }
     var drawerResetRequest by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    fun pinAppWithAccent(app: AppInfo) {
+        val cachedAccent = appsRepository.getCachedAppAccentColor(app.packageName)
+        val tileId = "app_${app.packageName}_${System.currentTimeMillis()}"
+        val newTile = TileModel(
+            id = tileId,
+            title = app.label,
+            packageName = app.packageName,
+            activityName = app.activityName,
+            colorValue = cachedAccent ?: WindowsColors.Purple,
+            size = TileSize.MEDIUM,
+            order = tiles.size,
+        )
+        tiles.add(newTile)
+        appsRepository.savePinnedTiles(tiles.toList())
+
+        if (cachedAccent == null) {
+            scope.launch {
+                val accent = withContext(Dispatchers.IO) {
+                    appsRepository.loadAppAccentColor(app.packageName)
+                }
+                val index = tiles.indexOfFirst { it.id == tileId }
+                if (index >= 0 && tiles[index].colorValue != accent) {
+                    tiles[index] = tiles[index].copy(colorValue = accent)
+                    appsRepository.savePinnedTiles(tiles.toList())
+                }
+            }
+        }
+    }
 
     val startEntranceRequest = entranceRequest + localStartEntranceRequest
 
@@ -747,7 +780,7 @@ fun Tile8LauncherApp(
                                     title = app.label,
                                     packageName = app.packageName,
                                     activityName = app.activityName,
-                                    colorValue = WindowsColors.Purple,
+                                    colorValue = StartPersonalization.accentArgb,
                                     size = TileSize.MEDIUM,
                                 )
                                 onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
@@ -756,17 +789,7 @@ fun Tile8LauncherApp(
                         isAppPinned = { pkg -> tiles.any { it.packageName == pkg } },
                         onPinApp = { app ->
                             if (entranceReady) {
-                                val newTile = TileModel(
-                                    id = "app_${app.packageName}_${System.currentTimeMillis()}",
-                                    title = app.label,
-                                    packageName = app.packageName,
-                                    activityName = app.activityName,
-                                    colorValue = WindowsColors.ColorOptions.random(),
-                                    size = TileSize.MEDIUM,
-                                    order = tiles.size,
-                                )
-                                tiles.add(newTile)
-                                appsRepository.savePinnedTiles(tiles.toList())
+                                pinAppWithAccent(app)
                             }
                         },
                         onUnpinApp = { pkg ->
@@ -904,19 +927,10 @@ fun Tile8LauncherApp(
                 onTogglePin = { app, isPinned ->
                     if (isPinned) {
                         tiles.removeAll { it.packageName == app.packageName }
+                        appsRepository.savePinnedTiles(tiles.toList())
                     } else {
-                        val newTile = TileModel(
-                            id = "app_${app.packageName}_${System.currentTimeMillis()}",
-                            title = app.label,
-                            packageName = app.packageName,
-                            activityName = app.activityName,
-                            colorValue = WindowsColors.ColorOptions.random(),
-                            size = TileSize.MEDIUM,
-                            order = tiles.size
-                        )
-                        tiles.add(newTile)
+                        pinAppWithAccent(app)
                     }
-                    appsRepository.savePinnedTiles(tiles.toList())
                 }
             )
         }
