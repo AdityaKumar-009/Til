@@ -86,6 +86,7 @@ import com.flivoro.tile8auncher.features.universalNonAppResults
 import com.flivoro.tile8auncher.features.usageAccessSettingsIntent
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
@@ -121,6 +122,7 @@ fun AllAppsScreen(
     var showSortChoices by remember { mutableStateOf(false) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val appTileAccent = StartPersonalization.accentColor
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var handledSearchRequest by remember { mutableIntStateOf(0) }
@@ -338,6 +340,7 @@ fun AllAppsScreen(
                         onAppClick = { app, bounds -> onAppClick(app, bounds) },
                         onAppLongClick = { selectedAppForAction = it },
                         onUniversalClick = { launchUniversalResult(context, it) },
+                        appTileAccent = appTileAccent,
                     )
                 } else {
                     val metrics = calculateAllAppsColumnMetrics(
@@ -367,6 +370,7 @@ fun AllAppsScreen(
                                 columnWidth = metrics.columnWidthDp.dp,
                                 rowHeight = metrics.rowHeightDp.dp,
                                 isNewByPackage = isNewByPackage,
+                                appTileAccent = appTileAccent,
                                 onAppClick = { app, bounds ->
                                     if (selectedAppForAction != null) selectedAppForAction = null
                                     else onAppClick(app, bounds)
@@ -422,7 +426,7 @@ fun AllAppsScreen(
                             modifier = Modifier.weight(1f, fill = false),
                         ) {
                             Box(
-                                modifier = Modifier.size(40.dp).background(WindowsColors.Purple.toTileColor()),
+                                modifier = Modifier.size(40.dp).background(appTileAccent),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (icon != null) Image(icon, currentApp.label, Modifier.size(28.dp))
@@ -490,6 +494,7 @@ private fun UniversalSearchPanel(
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
     onUniversalClick: (UniversalSearchResult) -> Unit,
+    appTileAccent: Color,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -510,6 +515,7 @@ private fun UniversalSearchPanel(
                     appsRepository = appsRepository,
                     rowHeight = 52.dp,
                     isNew = isNewByPackage[app.packageName] == true,
+                    appTileAccent = appTileAccent,
                     onClick = { onAppClick(app, it) },
                     onLongClick = { onAppLongClick(app) },
                 )
@@ -609,6 +615,7 @@ private fun AllAppsColumn(
     columnWidth: Dp,
     rowHeight: Dp,
     isNewByPackage: Map<String, Boolean>,
+    appTileAccent: Color,
     onAppClick: (app: AppInfo, bounds: Rect) -> Unit,
     onLongClick: (app: AppInfo) -> Unit,
 ) {
@@ -625,6 +632,7 @@ private fun AllAppsColumn(
                         appsRepository = appsRepository,
                         rowHeight = rowHeight,
                         isNew = isNewByPackage[item.app.packageName] == true,
+                        appTileAccent = appTileAccent,
                         onClick = { onAppClick(item.app, it) },
                         onLongClick = { onLongClick(item.app) },
                     )
@@ -657,6 +665,7 @@ private fun AppListItem(
     appsRepository: AppsRepository,
     rowHeight: Dp,
     isNew: Boolean,
+    appTileAccent: Color,
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -680,7 +689,7 @@ private fun AppListItem(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
                 .onGloballyPositioned { iconCoordinates.coordinates = it }
-                .background(WindowsColors.Purple.toTileColor()),
+                .background(appTileAccent),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) Image(icon, app.label, Modifier.size(ALL_APPS_ICON_DP.dp))

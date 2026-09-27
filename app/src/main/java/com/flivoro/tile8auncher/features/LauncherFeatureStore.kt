@@ -17,6 +17,12 @@ enum class StartDoubleTapAction {
     LOCK_DEVICE,
 }
 
+enum class AppIconStyle {
+    DEFAULT,
+    ANDROID_ADAPTIVE,
+    WHITE_MONOCHROME,
+}
+
 /** Process-local signals for feature changes that visible launcher surfaces should re-read. */
 object LauncherFeatureRuntime {
     var pinnedTilesRevision by mutableIntStateOf(0)
@@ -58,6 +64,7 @@ object LauncherFeatureStore {
     private const val PRIVATE_PACKAGES = "feature_private_packages"
     private const val LIVE_TILE_DISABLED_PACKAGES = "feature_live_tile_disabled_packages"
     private const val ICON_PACK_PACKAGE = "feature_icon_pack_package"
+    private const val APP_ICON_STYLE = "feature_app_icon_style"
     private const val CUSTOM_ICON_PREFIX = "feature_custom_icon_uri_"
     private const val DOUBLE_TAP_ACTION = "feature_start_double_tap_action"
     private const val START_GROUP_HEADINGS = "feature_start_group_headings"
@@ -100,6 +107,16 @@ object LauncherFeatureStore {
 
     fun selectedIconPack(context: Context): String? =
         prefs(context).getString(ICON_PACK_PACKAGE, null)?.takeIf(String::isNotBlank)
+
+    fun appIconStyle(context: Context): AppIconStyle {
+        val stored = prefs(context).getString(APP_ICON_STYLE, AppIconStyle.DEFAULT.name)
+        return AppIconStyle.entries.firstOrNull { it.name == stored } ?: AppIconStyle.DEFAULT
+    }
+
+    fun setAppIconStyle(context: Context, style: AppIconStyle) {
+        prefs(context).edit { putString(APP_ICON_STYLE, style.name) }
+        LauncherFeatureRuntime.notifyIconsChanged()
+    }
 
     fun setSelectedIconPack(context: Context, packageName: String?) {
         prefs(context).edit {

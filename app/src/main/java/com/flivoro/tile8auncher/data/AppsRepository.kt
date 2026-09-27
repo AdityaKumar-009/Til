@@ -6,8 +6,11 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -46,9 +49,18 @@ class AppsRepository(private val context: Context) {
         }
     }
     private val iconCacheLock = Any()
+    private val monochromeIconCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int {
+            val bytes = value.width.toLong() * value.height.toLong() * BYTES_PER_PIXEL
+            return bytes.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+        }
+    }
+    private val monochromeIconCacheLock = Any()
+    private val appAccentCache = ConcurrentHashMap<String, Long>()
     private val failedIcons = ConcurrentHashMap.newKeySet<String>()
     private val iconLoadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlightIconLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val inFlightMonochromeLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
 
     // PackageManager and bitmap decoding are both CPU/Binder-heavy. A screenful of Compose
     // icon requests should not fan out into dozens of simultaneous decodes on low-end phones.
@@ -180,13 +192,46 @@ class AppsRepository(private val context: Context) {
      */
     fun getAppIcon(packageName: String): ImageBitmap? = getCachedAppIcon(packageName)
 
+    fun getCachedMonochromeAppIcon(packageName: String): ImageBitmap? {
+        synchronized(monochromeIconCacheLock) {
+            return monochromeIconCache.get(packageName)
+        }
+    }
+
+    suspend fun loadMonochromeAppIcon(packageName: String): ImageBitmap? {
+        getCachedMonochromeAppIcon(packageName)?.let { return it }
+
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                iconDecodePermits.withPermit {
+                    decodeAndCacheMonochromeAppIcon(packageName)
+                }
+            } finally {
+                inFlightMonochromeLoads.remove(packageName)
+            }
+        }
+        val active = inFlightMonochromeLoads.putIfAbsent(packageName, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
+    fun getCachedAppAccentColor(packageName: String): Long? = appAccentCache[packageName]
+
+    suspend fun loadAppAccentColor(packageName: String): Long {
+        appAccentCache[packageName]?.let { return it }
+        loadAppIcon(packageName)
+        return appAccentCache[packageName] ?: WindowsColors.Purple
+    }
+
     private fun decodeAndCacheAppIcon(packageName: String): ImageBitmap? {
         getCachedAppIcon(packageName)?.let { return it }
         if (failedIcons.contains(packageName)) return null
 
         val bitmap = try {
             val drawable = packageManager.getApplicationIcon(packageName)
-            drawableToBitmap(drawable).asImageBitmap()
+            val androidBitmap = drawableToBitmap(drawable)
+            appAccentCache[packageName] = extractAppAccentColor(androidBitmap)
+            androidBitmap.asImageBitmap()
         } catch (e: Exception) {
             failedIcons.add(packageName)
             null
@@ -199,6 +244,107 @@ class AppsRepository(private val context: Context) {
             failedIcons.add(packageName)
         }
         return bitmap
+    }
+
+    private fun decodeAndCacheMonochromeAppIcon(packageName: String): ImageBitmap? {
+        getCachedMonochromeAppIcon(packageName)?.let { return it }
+        return try {
+            val drawable = packageManager.getApplicationIcon(packageName)
+            val bitmap = drawableToMonochromeBitmap(drawable).asImageBitmap()
+            synchronized(monochromeIconCacheLock) {
+                monochromeIconCache.put(packageName, bitmap)
+            }
+            bitmap
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun drawableToMonochromeBitmap(drawable: Drawable): Bitmap {
+        val source: Drawable = if (drawable is AdaptiveIconDrawable) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                drawable.monochrome ?: drawable.foreground
+            } else {
+                drawable.foreground
+            }
+        } else {
+            drawable
+        }
+
+        val intrinsicWidth = if (source.intrinsicWidth > 0) source.intrinsicWidth else maxCachedIconPx
+        val intrinsicHeight = if (source.intrinsicHeight > 0) source.intrinsicHeight else maxCachedIconPx
+        val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
+        val scale = minOf(1f, maxCachedIconPx.toFloat() / longestSide.toFloat())
+        val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
+        val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
+
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val tinted = source.mutate()
+        tinted.setTint(Color.WHITE)
+        tinted.setBounds(0, 0, width, height)
+        tinted.draw(canvas)
+        return bitmap
+    }
+
+    private fun extractAppAccentColor(bitmap: Bitmap): Long {
+        if (bitmap.width <= 0 || bitmap.height <= 0) return WindowsColors.Purple
+
+        val step = maxOf(1, minOf(bitmap.width, bitmap.height) / 32)
+        var satR = 0.0
+        var satG = 0.0
+        var satB = 0.0
+        var satWeight = 0.0
+        var allR = 0.0
+        var allG = 0.0
+        var allB = 0.0
+        var allWeight = 0.0
+
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                val alpha = Color.alpha(pixel)
+                if (alpha >= 96) {
+                    val r = Color.red(pixel)
+                    val g = Color.green(pixel)
+                    val b = Color.blue(pixel)
+                    val max = maxOf(r, g, b)
+                    val min = minOf(r, g, b)
+                    val chroma = max - min
+                    val baseWeight = alpha / 255.0
+                    allR += r * baseWeight
+                    allG += g * baseWeight
+                    allB += b * baseWeight
+                    allWeight += baseWeight
+
+                    if (chroma >= 24 && max >= 48) {
+                        val weight = baseWeight * (chroma / 255.0) * (0.55 + max / 510.0)
+                        satR += r * weight
+                        satG += g * weight
+                        satB += b * weight
+                        satWeight += weight
+                    }
+                }
+                x += step
+            }
+            y += step
+        }
+
+        val useSaturated = satWeight >= 0.75
+        val weight = if (useSaturated) satWeight else allWeight
+        if (weight <= 0.0) return WindowsColors.Purple
+
+        val r = ((if (useSaturated) satR else allR) / weight).roundToInt().coerceIn(0, 255)
+        val g = ((if (useSaturated) satG else allG) / weight).roundToInt().coerceIn(0, 255)
+        val b = ((if (useSaturated) satB else allB) / weight).roundToInt().coerceIn(0, 255)
+
+        val hsv = FloatArray(3)
+        Color.RGBToHSV(r, g, b, hsv)
+        if (hsv[1] >= 0.10f) hsv[1] = hsv[1].coerceAtLeast(0.52f)
+        hsv[2] = hsv[2].coerceIn(0.46f, 0.86f)
+        return Color.HSVToColor(hsv).toLong() and 0xFFFFFFFFL
     }
 
     private fun drawableToBitmap(drawable: Drawable): Bitmap {

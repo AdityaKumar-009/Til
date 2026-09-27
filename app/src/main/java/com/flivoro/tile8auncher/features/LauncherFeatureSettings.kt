@@ -55,6 +55,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     val repository = appsRepository ?: remember(context) { AppsRepository(context.applicationContext) }
     var appPickerMode by remember { mutableStateOf<AppPickerMode?>(null) }
     var showIconPacks by remember { mutableStateOf(false) }
+    var showIconStyles by remember { mutableStateOf(false) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
     var showStartGroupHeadings by remember {
         mutableStateOf(LauncherFeatureStore.showStartGroupHeadings(context))
@@ -168,9 +169,15 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     }
 
     SettingsActionRow(
+        title = "App icon style",
+        description = "Style: ${LauncherFeatureStore.appIconStyle(context).displayName()}",
+        glyph = "app",
+    ) { showIconStyles = true }
+
+    SettingsActionRow(
         title = "Icon pack",
         description = LauncherFeatureStore.selectedIconPack(context)?.let { "Selected: $it" }
-            ?: "Use compatible ADW/Nova-style icon packs, with per-app overrides still taking priority.",
+            ?: "Use compatible ADW/Nova-style icon packs. Icon packs apply when App icon style is Default.",
         glyph = "photos",
     ) { showIconPacks = true }
 
@@ -263,6 +270,17 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         description = "Restore a Mosaic Launcher JSON backup and reload the launcher configuration.",
         glyph = "unpin",
     ) { restoreBackup.launch(arrayOf("application/json", "text/plain")) }
+
+    if (showIconStyles) {
+        AppIconStyleDialog(
+            selected = LauncherFeatureStore.appIconStyle(context),
+            onDismiss = { showIconStyles = false },
+            onSelect = { style ->
+                LauncherFeatureStore.setAppIconStyle(context, style)
+                showIconStyles = false
+            },
+        )
+    }
 
     if (showIconPacks) {
         IconPackDialog(
@@ -359,6 +377,33 @@ private fun SettingsToggleRow(
         )
     }
     Spacer(Modifier.height(9.dp))
+}
+
+@Composable
+private fun AppIconStyleDialog(
+    selected: AppIconStyle,
+    onDismiss: () -> Unit,
+    onSelect: (AppIconStyle) -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().background(Color(0xF0180424)).padding(18.dp)) {
+            Text(
+                "App icon style",
+                color = Color.White,
+                style = WindowsTypography.titleLarge.copy(fontSize = 19.sp),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Default keeps icon-pack/custom overrides. Android adaptive uses the app's platform icon. White monochrome uses Android's adaptive monochrome layer when available, with a white foreground fallback.",
+                color = Color.White.copy(alpha = .72f),
+                style = WindowsTypography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 15.sp),
+            )
+            Spacer(Modifier.height(10.dp))
+            AppIconStyle.entries.forEach { style ->
+                ChoiceRow(style.displayName(), style == selected) { onSelect(style) }
+            }
+        }
+    }
 }
 
 @Composable
@@ -528,4 +573,11 @@ private fun StartDoubleTapAction.displayName(): String = when (this) {
     StartDoubleTapAction.ALL_APPS -> "All Apps"
     StartDoubleTapAction.CHARMS -> "Charms"
     StartDoubleTapAction.LOCK_DEVICE -> "Lock device"
+}
+
+
+private fun AppIconStyle.displayName(): String = when (this) {
+    AppIconStyle.DEFAULT -> "Default / icon pack"
+    AppIconStyle.ANDROID_ADAPTIVE -> "Android adaptive"
+    AppIconStyle.WHITE_MONOCHROME -> "White monochrome"
 }
