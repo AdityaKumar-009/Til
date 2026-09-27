@@ -417,6 +417,17 @@ fun StartScreen(
         }
     }
 
+    // Entering selection/customize mode must leave Start in a fully settled geometry. Otherwise
+    // an unfinished RETURN/STARTUP transform can reappear when selection ends and a newly composed
+    // band enters from the right.
+    LaunchedEffect(selectedTileIds.isNotEmpty()) {
+        if (selectedTileIds.isNotEmpty() && entrance.value < 0.999f) {
+            entrance.stop()
+            entranceRunning = false
+            entrance.snapTo(1f)
+        }
+    }
+
     LaunchedEffect(tiles.map { it.id }) {
         val validIds = tiles.mapTo(mutableSetOf()) { it.id }
         reorderMotionJobs.keys.filterNot { it in validIds }.forEach { id ->
@@ -1406,7 +1417,11 @@ fun StartScreen(
                                         }
                                     }
                                     .graphicsLayer {
-                                        if (listState.isScrollInProgress) {
+                                        if (
+                                            listState.isScrollInProgress ||
+                                            selectedTileIds.isNotEmpty() ||
+                                            draggingTileId != null
+                                        ) {
                                             // While the user is horizontally panning, every band is
                                             // fully settled. Keeping the staggered STARTUP/RETURN
                                             // scale here made bands entering from the right grow
@@ -1581,7 +1596,22 @@ fun StartScreen(
 
                                                         val revisionChanged =
                                                             motionState.lastPreviewRevision != dragPreviewRevision
-                                                        if (
+
+                                                        // A LazyRow scroll can dispose a band and later recreate it.
+                                                        // Its persistent FLIP state may still contain the old window
+                                                        // coordinate/reorder revision. Treat real horizontal scrolling
+                                                        // as a new baseline instead of animating that stale delta;
+                                                        // otherwise newly revealed tiles appear to slide vertically.
+                                                        if (listState.isScrollInProgress && !isDragging) {
+                                                            motionState.naturalTopLeft = naturalTopLeft
+                                                            motionState.lastPreviewRevision = dragPreviewRevision
+                                                            reorderMotionJobs.remove(tile.id)?.cancel()
+                                                            if (motionState.translation.value != Offset.Zero) {
+                                                                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                                                    motionState.translation.snapTo(Offset.Zero)
+                                                                }
+                                                            }
+                                                        } else if (
                                                             revisionChanged &&
                                                             previousTopLeft != null &&
                                                             !isDragging
