@@ -242,6 +242,7 @@ private fun StaticAppTileContent(
     logoModifier: Modifier,
 ) {
     val isSmall = tile.size == TileSize.SMALL
+    val labelColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconSize = when (tile.size) {
         TileSize.SMALL -> 26.dp
         TileSize.MEDIUM -> 44.dp
@@ -270,7 +271,7 @@ private fun StaticAppTileContent(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Normal,
                 ),
-                color = Color.White,
+                color = labelColor,
                 maxLines = 1,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -395,6 +396,26 @@ private fun LargeLiveNotificationTileContent(
     }
 }
 
+private fun readableTileLabelColor(background: Color): Color {
+    fun linearize(channel: Float): Float =
+        if (channel <= 0.04045f) {
+            channel / 12.92f
+        } else {
+            Math.pow(((channel + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
+        }
+
+    val luminance =
+        0.2126f * linearize(background.red) +
+            0.7152f * linearize(background.green) +
+            0.0722f * linearize(background.blue)
+
+    // Pick whichever of black/white has the stronger WCAG contrast against the actual tile.
+    // The crossover is ~0.179 relative luminance; calculating both ratios keeps the intent clear.
+    val contrastWithBlack = (luminance + 0.05f) / 0.05f
+    val contrastWithWhite = 1.05f / (luminance + 0.05f)
+    return if (contrastWithBlack >= contrastWithWhite) Color.Black else Color.White
+}
+
 @Composable
 private fun LiveTileText(
     live: LiveTileNotification,
@@ -438,10 +459,11 @@ private fun BoxScope.LiveTileBranding(
     tile: TileModel,
     count: Int,
 ) {
+    val labelColor = readableTileLabelColor(tile.colorValue.toTileColor())
     Text(
         text = tile.title,
         style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-        color = Color.White,
+        color = labelColor,
         maxLines = 1,
         modifier = Modifier
             .align(Alignment.BottomStart),
