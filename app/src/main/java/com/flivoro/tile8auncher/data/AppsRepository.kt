@@ -604,6 +604,146 @@ class AppsRepository(private val context: Context) {
     private fun extractAppAccentColor(bitmap: Bitmap): Long {
         if (bitmap.width <= 0 || bitmap.height <= 0) return WindowsColors.Purple
 
+        val hueBins = 24
+        val hueCoverage = DoubleArray(hueBins)
+        val hueWeight = DoubleArray(hueBins)
+        val hueR = DoubleArray(hueBins)
+        val hueG = DoubleArray(hueBins)
+        val hueB = DoubleArray(hueBins)
+
+        var totalWeight = 0.0
+        var chromaticCoverage = 0.0
+
+        var darkNeutralWeight = 0.0
+        var darkNeutralR = 0.0
+        var darkNeutralG = 0.0
+        var darkNeutralB = 0.0
+
+        var neutralWeight = 0.0
+        var neutralR = 0.0
+        var neutralG = 0.0
+        var neutralB = 0.0
+
+        var allR = 0.0
+        var allG = 0.0
+        var allB = 0.0
+
+        val hsv = FloatArray(3)
+        val step = maxOf(1, minOf(bitmap.width, bitmap.height) / 48)
+
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                val alpha = Color.alpha(pixel)
+                if (alpha >= 64) {
+                    val r = Color.red(pixel)
+                    val g = Color.green(pixel)
+                    val b = Color.blue(pixel)
+                    val baseWeight = alpha / 255.0
+
+                    totalWeight += baseWeight
+                    allR += r * baseWeight
+                    allG += g * baseWeight
+                    allB += b * baseWeight
+
+                    Color.RGBToHSV(r, g, b, hsv)
+                    val saturation = hsv[1]
+                    val value = hsv[2]
+
+                    if (saturation >= 0.18f && value >= 0.10f) {
+                        chromaticCoverage += baseWeight
+                        val bin = ((hsv[0] / 360f) * hueBins).toInt().coerceIn(0, hueBins - 1)
+                        // Coverage decides whether a hue is truly present; this stronger weight
+                        // then favours the clean brand color over antialias/desaturated fringes.
+                        val weight = baseWeight * (0.55 + saturation * saturation * 1.45)
+                        hueCoverage[bin] += baseWeight
+                        hueWeight[bin] += weight
+                        hueR[bin] += r * weight
+                        hueG[bin] += g * weight
+                        hueB[bin] += b * weight
+                    } else {
+                        neutralWeight += baseWeight
+                        neutralR += r * baseWeight
+                        neutralG += g * baseWeight
+                        neutralB += b * baseWeight
+
+                        // For genuinely monochrome brands, prefer the dark mark/plate even when
+                        // it sits on a larger white background. This is what keeps Uber, ChatGPT,
+                        // Notion-style icons, etc. black instead of averaging to gray/white.
+                        if (value <= 0.58f) {
+                            darkNeutralWeight += baseWeight
+                            darkNeutralR += r * baseWeight
+                            darkNeutralG += g * baseWeight
+                            darkNeutralB += b * baseWeight
+                        }
+                    }
+                }
+                x += step
+            }
+            y += step
+        }
+
+        if (totalWeight <= 0.0) return WindowsColors.Purple
+
+        val bestHue = hueCoverage.indices.maxByOrNull { hueCoverage[it] } ?: 0
+        val bestHueCoverage = hueCoverage[bestHue] / totalWeight
+        val overallChromaticCoverage = chromaticCoverage / totalWeight
+
+        // A meaningful chromatic region owns the tile accent even if a white/black icon plate is
+        // larger. This preserves actual brand colors for Chrome/Brave/Telegram/WhatsApp/etc.
+        if (
+            hueWeight[bestHue] > 0.0 &&
+            overallChromaticCoverage >= 0.075 &&
+            bestHueCoverage >= 0.035
+        ) {
+            val weight = hueWeight[bestHue]
+            val r = (hueR[bestHue] / weight).roundToInt().coerceIn(0, 255)
+            val g = (hueG[bestHue] / weight).roundToInt().coerceIn(0, 255)
+            val b = (hueB[bestHue] / weight).roundToInt().coerceIn(0, 255)
+            return Color.rgb(r, g, b).toLong() and 0xFFFFFFFFL
+        }
+
+        // No real chromatic brand color: preserve the neutral identity instead of forcing a
+        // Metro mid-brightness. Prefer a meaningful dark neutral component over a white plate.
+        if (darkNeutralWeight / totalWeight >= 0.035) {
+            var r = (darkNeutralR / darkNeutralWeight).roundToInt().coerceIn(0, 255)
+            var g = (darkNeutralG / darkNeutralWeight).roundToInt().coerceIn(0, 255)
+            var b = (darkNeutralB / darkNeutralWeight).roundToInt().coerceIn(0, 255)
+
+            val maxChannel = maxOf(r, g, b)
+            val minChannel = minOf(r, g, b)
+            if (maxChannel - minChannel <= 18 && maxChannel <= 52) {
+                // Near-black branding should visually be black, not a muddy charcoal caused by
+                // antialiasing or a tiny gray highlight.
+                r = 0
+                g = 0
+                b = 0
+            }
+            return Color.rgb(r, g, b).toLong() and 0xFFFFFFFFL
+        }
+
+        if (neutralWeight > 0.0) {
+            val r = (neutralR / neutralWeight).roundToInt().coerceIn(0, 255)
+            val g = (neutralG / neutralWeight).roundToInt().coerceIn(0, 255)
+            val b = (neutralB / neutralWeight).roundToInt().coerceIn(0, 255)
+            return Color.rgb(r, g, b).toLong() and 0xFFFFFFFFL
+        }
+
+        val r = (allR / totalWeight).roundToInt().coerceIn(0, 255)
+        val g = (allG / totalWeight).roundToInt().coerceIn(0, 255)
+        val b = (allB / totalWeight).roundToInt().coerceIn(0, 255)
+        return Color.rgb(r, g, b).toLong() and 0xFFFFFFFFL
+    }
+
+    /**
+     * Exact pre-v2 accent algorithm. Kept only for one-time migration so existing automatically
+     * colored pins can be recognized without touching tiles the user manually recolored.
+     */
+    private fun extractLegacyAppAccentColor(bitmap: Bitmap): Long {
+        if (bitmap.width <= 0 || bitmap.height <= 0) return WindowsColors.Purple
+
         val step = maxOf(1, minOf(bitmap.width, bitmap.height) / 32)
         var satR = 0.0
         var satG = 0.0
@@ -659,6 +799,65 @@ class AppsRepository(private val context: Context) {
         if (hsv[1] >= 0.10f) hsv[1] = hsv[1].coerceAtLeast(0.52f)
         hsv[2] = hsv[2].coerceIn(0.46f, 0.86f)
         return Color.HSVToColor(hsv).toLong() and 0xFFFFFFFFL
+    }
+
+    /**
+     * Refreshes every tile explicitly owned by automatic app accents and performs a narrow one-time
+     * migration for pins created by the old extractor. A pre-v2 tile is migrated only when its
+     * saved color exactly matches the old algorithm, so arbitrary/manual colors remain untouched.
+     *
+     * This method performs PackageManager/bitmap work and must be called off the main thread.
+     */
+    fun refreshAutomaticAppAccentTiles(tiles: List<TileModel>): List<TileModel> {
+        val previousVersion = prefs.getInt(APP_ACCENT_ALGORITHM_VERSION_KEY, 0)
+        val allowLegacyRecognition = previousVersion < APP_ACCENT_ALGORITHM_VERSION
+        val accentPairs = mutableMapOf<String, Pair<Long, Long>>()
+        var changed = false
+
+        fun accentsFor(packageName: String): Pair<Long, Long>? =
+            accentPairs.getOrPut(packageName) {
+                val drawable = runCatching { packageManager.getApplicationIcon(packageName) }.getOrNull()
+                    ?: return null
+                val bitmap = drawableToBitmap(drawable)
+                val current = extractAppAccentColor(bitmap)
+                val legacy = extractLegacyAppAccentColor(bitmap)
+                appAccentCache[packageName] = current
+                current to legacy
+            }
+
+        val refreshed = tiles.map { tile ->
+            val packageName = tile.packageName
+            if (packageName.isNullOrBlank() || tile.tileType != TileType.APP) {
+                return@map tile
+            }
+
+            val pair = accentsFor(packageName) ?: return@map tile
+            val currentAccent = pair.first
+            val legacyAccent = pair.second
+            val ownsAutomaticAccent =
+                tile.usesAppAccent ||
+                    (allowLegacyRecognition && tile.colorValue == legacyAccent)
+
+            if (ownsAutomaticAccent) {
+                if (!tile.usesAppAccent || tile.colorValue != currentAccent) {
+                    changed = true
+                    tile.copy(
+                        colorValue = currentAccent,
+                        usesAppAccent = true,
+                    )
+                } else {
+                    tile
+                }
+            } else {
+                tile
+            }
+        }
+
+        if (allowLegacyRecognition) {
+            prefs.edit { putInt(APP_ACCENT_ALGORITHM_VERSION_KEY, APP_ACCENT_ALGORITHM_VERSION) }
+        }
+        if (changed) savePinnedTiles(refreshed)
+        return refreshed
     }
 
     private fun drawableToBitmap(drawable: Drawable): Bitmap {
@@ -745,6 +944,7 @@ class AppsRepository(private val context: Context) {
                             activityName = obj.optString("activityName").takeIf { it.isNotEmpty() },
                             size = TileSize.valueOf(obj.optString("size", TileSize.MEDIUM.name)),
                             colorValue = colorVal,
+                            usesAppAccent = obj.optBoolean("usesAppAccent", false),
                             tileType = TileType.valueOf(obj.optString("tileType", TileType.APP.name)),
                             iconGlyph = obj.optString("iconGlyph", ""),
                             groupId = obj.optString("groupId", "").takeIf { it.isNotBlank() }
@@ -778,6 +978,7 @@ class AppsRepository(private val context: Context) {
                 put("activityName", tile.activityName ?: "")
                 put("size", tile.size.name)
                 put("colorValue", tile.colorValue)
+                put("usesAppAccent", tile.usesAppAccent)
                 put("tileType", tile.tileType.name)
                 put("iconGlyph", tile.iconGlyph)
                 put(
@@ -1062,6 +1263,8 @@ class AppsRepository(private val context: Context) {
         const val ICON_CACHE_MAX_DP = 112f
         const val ICON_CACHE_MIN_PX = 96
         const val ICON_CACHE_MAX_PX = 384
+        const val APP_ACCENT_ALGORITHM_VERSION_KEY = "app_accent_algorithm_version"
+        const val APP_ACCENT_ALGORITHM_VERSION = 2
         const val LAUNCH_TIMING_DURATION = "launch_timing_duration_millis"
         const val LAUNCH_TIMING_CURVE = "launch_timing_curve"
         const val LAUNCH_TIMING_CUSTOM_X1 = "launch_timing_custom_x1"

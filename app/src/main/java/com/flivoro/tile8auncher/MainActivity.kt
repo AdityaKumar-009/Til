@@ -524,6 +524,7 @@ fun Tile8LauncherApp(
             packageName = app.packageName,
             activityName = app.activityName,
             colorValue = cachedAccent ?: WindowsColors.Purple,
+            usesAppAccent = true,
             size = TileSize.MEDIUM,
             order = tiles.size,
         )
@@ -653,7 +654,10 @@ fun Tile8LauncherApp(
     }
 
     LaunchedEffect(Unit) {
-        val pinned = withContext(Dispatchers.IO) { appsRepository.loadPinnedTiles() }
+        val pinned = withContext(Dispatchers.IO) {
+            val loaded = appsRepository.loadPinnedTiles()
+            appsRepository.refreshAutomaticAppAccentTiles(loaded)
+        }
         tiles.clear()
         tiles.addAll(pinned)
         tilesLoaded = true
@@ -921,7 +925,10 @@ fun Tile8LauncherApp(
                     onColorChange = { newColor ->
                         val index = tiles.indexOfFirst { it.id == tile.id }
                         if (index != -1) {
-                            tiles[index] = tile.copy(colorValue = newColor)
+                            tiles[index] = tile.copy(
+                                colorValue = newColor,
+                                usesAppAccent = false,
+                            )
                             appsRepository.savePinnedTiles(tiles.toList())
                         }
                         selectedTileForCustomization = null
