@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.ui.components
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,8 +18,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Returns a cached icon synchronously and schedules a cache miss on bounded background work.
- * User-selected icons/icon packs are resolved first; the existing repository path remains the
+ * Returns the already-resolved icon for the currently selected global style.
+ *
+ * Launch animations must use this instead of AppsRepository.getAppIcon(), otherwise the tile can
+ * show a themed/monochrome icon but the first flip frame falls back to the original Android icon.
+ * This function never performs PackageManager, disk or bitmap work.
+ */
+fun cachedAppIconForCurrentStyle(
+    context: Context,
+    repository: AppsRepository,
+    packageName: String?,
+): ImageBitmap? {
+    val name = packageName ?: return null
+    return when (LauncherFeatureStore.appIconStyle(context)) {
+        AppIconStyle.DEFAULT ->
+            IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
+        AppIconStyle.ANDROID_ADAPTIVE ->
+            repository.getCachedAppIcon(name)
+        AppIconStyle.WHITE_MONOCHROME ->
+            repository.getCachedMonochromeAppIcon(name) ?: repository.getCachedAppIcon(name)
+    }
+}
+
+$anchor * User-selected icons/icon packs are resolved first; the existing repository path remains the
  * unchanged fallback, so this feature cannot affect package scanning or launcher motion timing.
  */
 @Composable
@@ -35,9 +57,12 @@ fun rememberAppIcon(
         mutableStateOf(
             packageName?.let { name ->
                 when (iconStyle) {
-                    AppIconStyle.DEFAULT,
-                    AppIconStyle.ANDROID_ADAPTIVE -> repository.getCachedAppIcon(name)
-                    AppIconStyle.WHITE_MONOCHROME -> repository.getCachedMonochromeAppIcon(name)
+                    AppIconStyle.DEFAULT ->
+                        IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
+                    AppIconStyle.ANDROID_ADAPTIVE ->
+                        repository.getCachedAppIcon(name)
+                    AppIconStyle.WHITE_MONOCHROME ->
+                        repository.getCachedMonochromeAppIcon(name) ?: repository.getCachedAppIcon(name)
                 }
             },
         )
