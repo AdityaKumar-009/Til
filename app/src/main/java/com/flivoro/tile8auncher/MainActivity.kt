@@ -68,6 +68,7 @@ import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
+import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
 import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
@@ -185,7 +186,11 @@ class MainActivity : ComponentActivity() {
                     onTriggerFlip = { tile, bounds, origin ->
                         if (entranceReady && !flipState.isRunning) {
                             pendingLaunchIntent = resolveLaunchIntent(tile)
-                            val icon = tile.packageName?.let { appsRepository.getAppIcon(it) }
+                            val icon = cachedAppIconForCurrentStyle(
+                                context = this@MainActivity,
+                                repository = appsRepository,
+                                packageName = tile.packageName,
+                            )
                             flipState = FlipAnimationState(
                                 isRunning = true,
                                 sourceTile = tile,
