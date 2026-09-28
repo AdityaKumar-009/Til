@@ -115,9 +115,8 @@ internal fun WindowsTileFace(
         modifier = modifier.background(tileColor),
     ) {
         if (tile.size == TileSize.SMALL) {
-            // Windows 8.1 1x1 tiles are logo-only surfaces. They never squeeze the medium
-            // Calendar/Weather/Clock text template into the tiny square. A numeric notification
-            // badge may still sit independently in the corner.
+            // Compact Windows-style templates keep glanceable built-in information usable even
+            // at 1x1. App notification tiles still stay logo-first and use a corner count.
             SmallTileContent(
                 tile = tile,
                 appIcon = appIcon,
@@ -126,6 +125,7 @@ internal fun WindowsTileFace(
             liveQueue.firstOrNull()?.count?.takeIf { it > 0 }?.let { count ->
                 LiveTileBadge(
                     count = count,
+                    color = readableTileLabelColor(tileColor),
                     modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
                 )
             }
@@ -167,9 +167,6 @@ private fun DefaultTileContent(
     appIcon: ImageBitmap?,
     logoModifier: Modifier,
 ) {
-    // Windows 8.1 small tiles are logo surfaces, not compressed medium/live templates.
-    // Never squeeze date/time/weather/title text into a 1x1 tile; badges remain an independent
-    // overlay handled by WindowsTileFace.
     if (tile.size == TileSize.SMALL) {
         SmallTileContent(
             tile = tile,
@@ -179,19 +176,26 @@ private fun DefaultTileContent(
         return
     }
 
+    val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     when (tile.tileType) {
         TileType.DESKTOP -> DesktopTileContent(title = tile.title)
-        TileType.CLOCK -> ClockTileContent(title = tile.title, isWide = tile.size == TileSize.WIDE)
+        TileType.CLOCK -> ClockTileContent(
+            title = tile.title,
+            isWide = tile.size == TileSize.WIDE,
+            contentColor = contentColor,
+        )
         TileType.WEATHER -> WeatherTileContent(
             title = tile.title,
             isWide = tile.size == TileSize.WIDE,
             logoModifier = logoModifier,
+            contentColor = contentColor,
         )
-        TileType.CALENDAR -> CalendarTileContent(title = tile.title)
+        TileType.CALENDAR -> CalendarTileContent(title = tile.title, contentColor = contentColor)
         TileType.MONEY -> MoneyTileContent(
             title = tile.title,
             isWide = tile.size == TileSize.WIDE,
             logoModifier = logoModifier,
+            contentColor = contentColor,
         )
         else -> StaticAppTileContent(tile = tile, appIcon = appIcon, logoModifier = logoModifier)
     }
@@ -203,43 +207,168 @@ private fun SmallTileContent(
     appIcon: ImageBitmap?,
     logoModifier: Modifier,
 ) {
-    val builtInGlyph = tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: when (tile.tileType) {
-        TileType.CLOCK -> "clock"
-        TileType.BATTERY -> "battery"
-        TileType.WEATHER -> "weather"
-        TileType.CALENDAR -> "calendar"
-        TileType.PHOTOS -> "photos"
-        TileType.STORE -> "store"
-        TileType.DESKTOP -> "desktop"
-        TileType.READING_LIST -> "reading"
-        TileType.SETTINGS -> "settings"
-        TileType.INTERNET_EXPLORER -> "ie"
-        TileType.MAIL -> "mail"
-        TileType.MONEY -> "money"
-        TileType.APP -> null
-    }
+    val context = LocalContext.current
+    val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
+    val tintMonochrome = iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
+    when (tile.tileType) {
+        TileType.CLOCK -> CompactClockTileContent(contentColor)
+        TileType.WEATHER -> CompactWeatherTileContent(contentColor, logoModifier)
+        TileType.CALENDAR -> CompactCalendarTileContent(contentColor)
+        TileType.MONEY -> CompactMoneyTileContent(contentColor)
+        TileType.BATTERY -> CompactBatteryTileContent(contentColor, logoModifier)
+        else -> {
+            val builtInGlyph = tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: when (tile.tileType) {
+                TileType.PHOTOS -> "photos"
+                TileType.STORE -> "store"
+                TileType.DESKTOP -> "desktop"
+                TileType.READING_LIST -> "reading"
+                TileType.SETTINGS -> "settings"
+                TileType.INTERNET_EXPLORER -> "ie"
+                TileType.MAIL -> "mail"
+                else -> null
+            }
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    builtInGlyph != null -> MetroIcon(
+                        glyph = builtInGlyph,
+                        color = contentColor,
+                        size = 28.dp,
+                        modifier = logoModifier,
+                    )
+                    appIcon != null -> Image(
+                        bitmap = appIcon,
+                        contentDescription = tile.title,
+                        colorFilter = if (tintMonochrome) ColorFilter.tint(contentColor) else null,
+                        modifier = logoModifier.size(30.dp),
+                    )
+                    else -> MetroIcon(
+                        glyph = "app",
+                        color = contentColor,
+                        size = 28.dp,
+                        modifier = logoModifier,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactClockTileContent(contentColor: Color) {
+    val format = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    var timeText by remember { mutableStateOf(format.format(Date())) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            timeText = format.format(Date())
+            delay(60_000L - System.currentTimeMillis().mod(60_000L))
+        }
+    }
+    Box(Modifier.fillMaxSize().padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
+        Text(
+            timeText,
+            color = contentColor,
+            style = WindowsTypography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.Normal),
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+@Composable
+private fun CompactWeatherTileContent(contentColor: Color, logoModifier: Modifier) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        when {
-            builtInGlyph != null -> MetroIcon(
-                glyph = builtInGlyph,
-                color = Color.White,
-                size = 28.dp,
-                modifier = logoModifier,
-            )
-            appIcon != null -> Image(
-                bitmap = appIcon,
-                contentDescription = tile.title,
-                modifier = logoModifier.size(30.dp),
-            )
-            else -> MetroIcon(
-                glyph = "app",
-                color = Color.White,
-                size = 28.dp,
-                modifier = logoModifier,
+        MetroIcon(glyph = "weather", color = contentColor, size = 20.dp, modifier = logoModifier)
+        Text(
+            "24°",
+            color = contentColor,
+            style = WindowsTypography.titleMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CompactCalendarTileContent(contentColor: Color) {
+    val dayNum = remember { SimpleDateFormat("d", Locale.getDefault()).format(Date()) }
+    val dayName = remember { SimpleDateFormat("EEE", Locale.getDefault()).format(Date()) }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            dayNum,
+            color = contentColor,
+            style = WindowsTypography.displayLarge.copy(fontSize = 22.sp, fontWeight = FontWeight.Light),
+            maxLines = 1,
+        )
+        Text(
+            dayName,
+            color = contentColor.copy(alpha = .88f),
+            style = WindowsTypography.labelSmall.copy(fontSize = 8.sp),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CompactMoneyTileContent(contentColor: Color) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            "NASDAQ",
+            color = contentColor,
+            style = WindowsTypography.labelSmall.copy(fontSize = 7.5.sp),
+            maxLines = 1,
+        )
+        Text(
+            "▲ 0.92%",
+            color = contentColor,
+            style = WindowsTypography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CompactBatteryTileContent(contentColor: Color, logoModifier: Modifier) {
+    val context = LocalContext.current
+    val battery = remember(context) { context.getSystemService(BatteryManager::class.java) }
+    var percentage by remember {
+        mutableIntStateOf(battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1)
+    }
+    LaunchedEffect(battery) {
+        while (true) {
+            percentage = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            delay(60_000L)
+        }
+    }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        MetroIcon(glyph = "battery", color = contentColor, size = 19.dp, modifier = logoModifier)
+        if (percentage in 0..100) {
+            Text(
+                "$percentage%",
+                color = contentColor,
+                style = WindowsTypography.labelSmall.copy(fontSize = 9.sp),
+                maxLines = 1,
             )
         }
     }
