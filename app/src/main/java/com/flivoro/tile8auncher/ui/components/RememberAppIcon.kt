@@ -40,7 +40,9 @@ fun cachedAppIconForCurrentStyle(
     }
 }
 
-$anchor * User-selected icons/icon packs are resolved first; the existing repository path remains the
+/**
+ * Returns a cached icon synchronously and schedules a cache miss on bounded background work.
+ * User-selected icons/icon packs are resolved first; the existing repository path remains the
  * unchanged fallback, so this feature cannot affect package scanning or launcher motion timing.
  */
 @Composable
