@@ -52,15 +52,31 @@ private object ResolvedAllAppsIconCache {
 
     @Synchronized
     fun ensureRevision(currentRevision: Int) {
-        if (revision == currentRevision) return
+        // iconsRevision only moves forward. A cancelled/old preload may finish after the user has
+        // already selected a new icon style; never let that stale generation clear the new cache.
+        if (currentRevision <= revision) return
         icons.clear()
         revision = currentRevision
     }
 
-    fun get(packageName: String, style: AppIconStyle, maxPx: Int): ImageBitmap? =
-        icons[key(packageName, style, maxPx)]
+    fun get(
+        packageName: String,
+        style: AppIconStyle,
+        maxPx: Int,
+        currentRevision: Int,
+    ): ImageBitmap? {
+        if (currentRevision != revision) return null
+        return icons[key(packageName, style, maxPx)]
+    }
 
-    fun put(packageName: String, style: AppIconStyle, maxPx: Int, icon: ImageBitmap) {
+    fun put(
+        packageName: String,
+        style: AppIconStyle,
+        maxPx: Int,
+        currentRevision: Int,
+        icon: ImageBitmap,
+    ) {
+        if (currentRevision != revision) return
         icons[key(packageName, style, maxPx)] = icon
     }
 
@@ -82,7 +98,7 @@ private fun cachedAllAppsIconForStyle(
     iconsRevision: Int,
 ): ImageBitmap? {
     ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
-    ResolvedAllAppsIconCache.get(packageName, style, maxPx)?.let { return it }
+    ResolvedAllAppsIconCache.get(packageName, style, maxPx, iconsRevision)?.let { return it }
 
     val icon = when (style) {
     AppIconStyle.DEFAULT ->
@@ -101,7 +117,9 @@ private fun cachedAllAppsIconForStyle(
             ?: repository.getCachedAppIcon(packageName)
     }
 
-    if (icon != null) ResolvedAllAppsIconCache.put(packageName, style, maxPx, icon)
+    if (icon != null) {
+        ResolvedAllAppsIconCache.put(packageName, style, maxPx, iconsRevision, icon)
+    }
     return icon
 }
 
@@ -140,7 +158,7 @@ private suspend fun resolveAllAppsIcon(
 
     if (resolved != null) {
         ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
-        ResolvedAllAppsIconCache.put(packageName, style, maxPx, resolved)
+        ResolvedAllAppsIconCache.put(packageName, style, maxPx, iconsRevision, resolved)
     }
     return resolved
 }
@@ -198,8 +216,8 @@ fun rememberAllAppsIcon(
 
 /**
  * Warms the entire All Apps thumbnail set off the UI thread. Visible rows still request their
- * own icons immediately, while this sequential pass fills the rest of the compact LRU without
- * causing a PackageManager/bitmap decode burst.
+ * own icons immediately, while prioritized parallel batches fill the stable resolved cache
+ * without causing an unbounded PackageManager/bitmap decode burst.
  */
 suspend fun preloadAllAppsIcons(
     context: Context,
