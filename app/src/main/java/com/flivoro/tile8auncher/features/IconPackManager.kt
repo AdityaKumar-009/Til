@@ -40,7 +40,10 @@ object IconPackManager {
         val customUri = LauncherFeatureStore.customIconUri(context, targetPackage)
         if (!customUri.isNullOrBlank()) {
             val key = "uri:$customUri:$maxPx"
-            bitmapCache[key]?.let { return it }
+            bitmapCache[key]?.let {
+                bitmapCache[targetKey] = it
+                return it
+            }
             decodeUri(context, Uri.parse(customUri), maxPx)?.let {
                 bitmapCache[key] = it
                 bitmapCache[targetKey] = it
@@ -62,7 +65,10 @@ object IconPackManager {
         ).mapNotNull { key -> key?.let(pack.components::get) }.firstOrNull() ?: return null
 
         val cacheKey = "pack:$packPackage:$drawableName:$maxPx"
-        bitmapCache[cacheKey]?.let { return it }
+        bitmapCache[cacheKey]?.let {
+            bitmapCache[targetKey] = it
+            return it
+        }
         val resources = runCatching { context.packageManager.getResourcesForApplication(packPackage) }.getOrNull()
             ?: return null
         val id = resources.getIdentifier(drawableName, "drawable", packPackage)
