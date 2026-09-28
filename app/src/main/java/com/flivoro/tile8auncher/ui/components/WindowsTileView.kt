@@ -481,6 +481,7 @@ private fun LiveNotificationTileContent(
     live: LiveTileNotification,
     appIcon: ImageBitmap?,
 ) {
+    val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     Box(Modifier.fillMaxSize().padding(9.dp)) {
         if (tile.size == TileSize.WIDE) {
             Row(
@@ -503,6 +504,7 @@ private fun LiveNotificationTileContent(
                         bodyLineHeight = 14f,
                         titleLines = 1,
                         bodyLines = 3,
+                        contentColor = contentColor,
                     )
                 }
             }
@@ -519,6 +521,7 @@ private fun LiveNotificationTileContent(
                     bodyLineHeight = 14f,
                     titleLines = 2,
                     bodyLines = 4,
+                    contentColor = contentColor,
                 )
             }
         }
@@ -534,6 +537,7 @@ private fun LargeLiveNotificationTileContent(
     appIcon: ImageBitmap?,
 ) {
     val count = live.firstOrNull()?.count ?: 0
+    val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     Box(Modifier.fillMaxSize().padding(11.dp)) {
         Column(
             modifier = Modifier
@@ -548,7 +552,7 @@ private fun LargeLiveNotificationTileContent(
                 LiveTileAppIcon(tile = tile, appIcon = appIcon, size = 34.dp)
                 Text(
                     text = tile.title,
-                    color = Color.White,
+                    color = contentColor,
                     style = WindowsTypography.titleMedium.copy(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Normal,
@@ -562,7 +566,7 @@ private fun LargeLiveNotificationTileContent(
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         text = notification.title,
-                        color = Color.White,
+                        color = contentColor,
                         style = WindowsTypography.titleMedium.copy(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -573,7 +577,7 @@ private fun LargeLiveNotificationTileContent(
                     if (notification.text.isNotBlank()) {
                         Text(
                             text = notification.text,
-                            color = Color.White.copy(alpha = .92f),
+                            color = contentColor.copy(alpha = .92f),
                             style = WindowsTypography.bodyMedium.copy(
                                 fontSize = 10.5.sp,
                                 lineHeight = 13.sp,
@@ -591,17 +595,20 @@ private fun LargeLiveNotificationTileContent(
 }
 
 private fun readableTileLabelColor(background: Color): Color {
-    // Windows 8.1 keeps tile branding white across the saturated Metro palette. Dark text is the
-    // deliberate exception for yellow/amber-family tiles, where white becomes visually washed out.
-    // Do not use a generic luminance crossover here: it incorrectly turns lime, cyan and other
-    // bright Metro colors black even though Windows keeps those labels white.
+    // Windows keeps the saturated Metro palette white, but yellow/amber and the light neutral
+    // (white/very-light-gray) variants use dark branding for readable contrast.
+    val maxChannel = maxOf(background.red, background.green, background.blue)
+    val minChannel = minOf(background.red, background.green, background.blue)
+    val isLightNeutral =
+        minChannel >= 0.80f &&
+            maxChannel - minChannel <= 0.14f
     val isYellowFamily =
         background.red >= 0.58f &&
             background.green >= 0.45f &&
             background.blue <= 0.30f &&
             background.red + background.green - (2f * background.blue) >= 0.85f
 
-    return if (isYellowFamily) Color.Black else Color.White
+    return if (isYellowFamily || isLightNeutral) Color.Black else Color.White
 }
 
 @Composable
@@ -612,11 +619,12 @@ private fun LiveTileText(
     bodyLineHeight: Float,
     titleLines: Int,
     bodyLines: Int,
+    contentColor: Color,
 ) {
     if (live.title.isNotBlank()) {
         Text(
             text = live.title,
-            color = Color.White,
+            color = contentColor,
             style = WindowsTypography.titleMedium.copy(
                 fontSize = titleSize.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -631,7 +639,7 @@ private fun LiveTileText(
     if (live.text.isNotBlank()) {
         Text(
             text = live.text,
-            color = Color.White.copy(alpha = .94f),
+            color = contentColor.copy(alpha = .94f),
             style = WindowsTypography.bodyMedium.copy(
                 fontSize = bodySize.sp,
                 lineHeight = bodyLineHeight.sp,
@@ -659,6 +667,7 @@ private fun BoxScope.LiveTileBranding(
     if (count > 0) {
         LiveTileBadge(
             count = count,
+            color = labelColor,
             modifier = Modifier.align(Alignment.BottomEnd),
         )
     }
@@ -668,6 +677,7 @@ private fun BoxScope.LiveTileBranding(
 private fun LiveTileBadge(
     count: Int,
     modifier: Modifier = Modifier,
+    color: Color = Color.White,
 ) {
     Text(
         text = count.coerceIn(1, 99).toString(),
@@ -675,7 +685,7 @@ private fun LiveTileBadge(
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
         ),
-        color = Color.White,
+        color = color,
         modifier = modifier,
     )
 }
@@ -687,10 +697,17 @@ private fun LiveTileAppIcon(
     size: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
+    val tintMonochrome =
+        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
+
     if (tile.iconGlyph.isNotEmpty()) {
         MetroIcon(
             glyph = tile.iconGlyph,
-            color = Color.White,
+            color = contentColor,
             size = size,
             modifier = modifier,
         )
@@ -698,12 +715,13 @@ private fun LiveTileAppIcon(
         Image(
             bitmap = appIcon,
             contentDescription = tile.title,
+            colorFilter = if (tintMonochrome) ColorFilter.tint(contentColor) else null,
             modifier = modifier.size(size),
         )
     } else {
         MetroIcon(
             glyph = "app",
-            color = Color.White,
+            color = contentColor,
             size = size,
             modifier = modifier,
         )
