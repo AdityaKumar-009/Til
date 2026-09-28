@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.LruCache
@@ -268,7 +269,16 @@ class AppsRepository(private val context: Context) {
         // Use it whenever the app actually supplies one.
         if (drawable is AdaptiveIconDrawable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             drawable.monochrome?.let { monochrome ->
-                return renderTintedDrawable(monochrome, Color.WHITE)
+                val whiteLayer = (monochrome.constantState?.newDrawable() ?: monochrome).mutate().apply {
+                    setTint(Color.WHITE)
+                }
+                // Route the raw monochrome layer back through AdaptiveIconDrawable so Android's
+                // own icon mask/inset rules clip OEM/app layer residue exactly like themed icons.
+                val masked = AdaptiveIconDrawable(
+                    ColorDrawable(Color.TRANSPARENT),
+                    whiteLayer,
+                )
+                return renderDrawableHighResolution(masked)
             }
         }
 
@@ -277,7 +287,12 @@ class AppsRepository(private val context: Context) {
         // circle. Instead render the normal icon, identify its dominant plate/background, remove
         // that plate, and keep only contrasting logo/detail pixels as the white glyph.
         val original = renderDrawableHighResolution(drawable)
-        return createSmartWhiteGlyph(original) ?: original
+        val glyph = createSmartWhiteGlyph(original)
+        if (glyph != null) {
+            if (glyph !== original && !original.isRecycled) original.recycle()
+            return glyph
+        }
+        return original
     }
 
     private fun renderTintedDrawable(drawable: Drawable, tint: Int): Bitmap {
