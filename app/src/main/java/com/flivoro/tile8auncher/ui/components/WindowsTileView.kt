@@ -768,7 +768,7 @@ private fun DesktopTileContent(title: String) {
 }
 
 @Composable
-private fun ClockTileContent(title: String, isWide: Boolean) {
+private fun ClockTileContent(title: String, isWide: Boolean, contentColor: Color) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val dateFormat = remember { SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()) }
     var timeText by remember { mutableStateOf(timeFormat.format(Date())) }
@@ -788,69 +788,69 @@ private fun ClockTileContent(title: String, isWide: Boolean) {
             Text(
                 text = timeText,
                 style = WindowsTypography.displayLarge.copy(fontSize = if (isWide) 36.sp else 28.sp),
-                color = Color.White,
+                color = contentColor,
             )
             if (isWide) {
                 Text(
                     text = dateText,
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-                    color = Color.White.copy(alpha = 0.85f),
+                    color = contentColor.copy(alpha = 0.85f),
                 )
             }
         }
         Text(
             text = title,
             style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-            color = Color.White,
+            color = contentColor,
             modifier = Modifier.align(Alignment.BottomStart),
         )
     }
 }
 
 @Composable
-private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Modifier) {
+private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Modifier, contentColor: Color) {
     Box(modifier = Modifier.fillMaxSize().padding(10.dp)) {
         if (isWide) {
             Column(modifier = Modifier.align(Alignment.CenterStart)) {
                 Text(
                     text = "24°",
                     style = WindowsTypography.displayLarge.copy(fontSize = 38.sp, fontWeight = FontWeight.Light),
-                    color = Color.White,
+                    color = contentColor,
                 )
                 Text(
                     text = "Mostly Sunny",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = contentColor.copy(alpha = 0.9f),
                 )
             }
             MetroIcon(
                 glyph = "weather",
-                color = Color.White,
+                color = contentColor,
                 size = 46.dp,
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).then(logoModifier),
             )
         } else {
             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                MetroIcon(glyph = "weather", color = Color.White, size = 36.dp, modifier = logoModifier)
+                MetroIcon(glyph = "weather", color = contentColor, size = 36.dp, modifier = logoModifier)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "24° Sunny",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-                    color = Color.White,
+                    color = contentColor,
                 )
             }
         }
         Text(
             text = title,
             style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-            color = Color.White,
+            color = contentColor,
             modifier = Modifier.align(Alignment.BottomStart),
         )
     }
 }
 
 @Composable
-private fun CalendarTileContent(title: String) {
+private fun CalendarTileContent(title: String, contentColor: Color) {
     val dayNum = remember { SimpleDateFormat("d", Locale.getDefault()).format(Date()) }
     val dayName = remember { SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()) }
 
@@ -859,49 +859,49 @@ private fun CalendarTileContent(title: String) {
             Text(
                 text = dayNum,
                 style = WindowsTypography.displayLarge.copy(fontSize = 36.sp, fontWeight = FontWeight.Light),
-                color = Color.White,
+                color = contentColor,
             )
             Text(
                 text = dayName,
                 style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-                color = Color.White.copy(alpha = 0.85f),
+                color = contentColor.copy(alpha = 0.85f),
             )
         }
         Text(
             text = title,
             style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-            color = Color.White,
+            color = contentColor,
             modifier = Modifier.align(Alignment.BottomStart),
         )
     }
 }
 
 @Composable
-private fun MoneyTileContent(title: String, isWide: Boolean, logoModifier: Modifier) {
+private fun MoneyTileContent(title: String, isWide: Boolean, logoModifier: Modifier, contentColor: Color) {
     Box(modifier = Modifier.fillMaxSize().padding(10.dp)) {
         if (isWide) {
             Column(modifier = Modifier.align(Alignment.CenterStart)) {
                 Text(
                     text = "NASDAQ",
                     style = WindowsTypography.titleMedium.copy(fontSize = 14.sp),
-                    color = Color.White,
+                    color = contentColor,
                 )
                 Text(
                     text = "19,842.10  ▲ +0.92%",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-                    color = Color(0xFFC8FFC8),
+                    color = contentColor.copy(alpha = .88f),
                 )
             }
             MetroIcon(
                 glyph = "money",
-                color = Color.White,
+                color = contentColor,
                 size = 40.dp,
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).then(logoModifier),
             )
         } else {
             MetroIcon(
                 glyph = "money",
-                color = Color.White,
+                color = contentColor,
                 size = 38.dp,
                 modifier = Modifier.align(Alignment.Center).then(logoModifier),
             )
@@ -909,7 +909,7 @@ private fun MoneyTileContent(title: String, isWide: Boolean, logoModifier: Modif
         Text(
             text = title,
             style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-            color = Color.White,
+            color = contentColor,
             modifier = Modifier.align(Alignment.BottomStart),
         )
     }
