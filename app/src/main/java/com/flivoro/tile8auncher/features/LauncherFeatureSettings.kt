@@ -394,7 +394,7 @@ private fun AppIconStyleDialog(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Default keeps icon-pack/custom overrides. Android adaptive uses the app's platform icon. White monochrome uses Android's adaptive monochrome layer when available, with a white foreground fallback.",
+                "Default keeps icon-pack/custom overrides. Android adaptive uses the app's platform icon. White monochrome uses Android's true monochrome layer when available; otherwise Tile8 extracts a clean white logo/detail and preserves the normal icon if extraction would become a blank plate.",
                 color = Color.White.copy(alpha = .72f),
                 style = WindowsTypography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 15.sp),
             )
