@@ -396,7 +396,6 @@ private fun LargeLiveNotificationTileContent(
     }
 }
 
-@Composable
 private fun readableTileLabelColor(background: Color): Color {
     fun linearize(channel: Float): Float =
         if (channel <= 0.04045f) {
@@ -417,6 +416,7 @@ private fun readableTileLabelColor(background: Color): Color {
     return if (contrastWithBlack >= contrastWithWhite) Color.Black else Color.White
 }
 
+@Composable
 private fun LiveTileText(
     live: LiveTileNotification,
     titleSize: Float,
