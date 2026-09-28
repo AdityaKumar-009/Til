@@ -64,19 +64,24 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
@@ -111,6 +116,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private data class AlphabetLetterSource(
+    val letter: String,
+    val columnIndex: Int,
+    val rowIndex: Int,
+)
 
 /**
  * Windows 8.1 Apps view: upward Start navigation, horizontal finite-height app columns and the
@@ -433,17 +445,24 @@ fun AllAppsScreen(
                         )
                     }
 
-                    val alphabetColumnByLetter = remember(columns) {
-                        buildMap<String, Int> {
-                            columns.forEachIndexed { index, column ->
-                                column.items
-                                    .filterIsInstance<AllAppsColumnItem.LetterHeader>()
-                                    .forEach { header -> putIfAbsent(header.letter.uppercase(Locale.ROOT), index) }
+                    val alphabetSources = remember(columns) {
+                        buildMap<String, AlphabetLetterSource> {
+                            columns.forEachIndexed { columnIndex, column ->
+                                column.items.forEachIndexed { rowIndex, item ->
+                                    if (item is AllAppsColumnItem.LetterHeader) {
+                                        val letter = item.letter.uppercase(Locale.ROOT)
+                                        putIfAbsent(
+                                            letter,
+                                            AlphabetLetterSource(
+                                                letter = letter,
+                                                columnIndex = columnIndex,
+                                                rowIndex = rowIndex,
+                                            ),
+                                        )
+                                    }
+                                }
                             }
                         }
-                    }
-                    val availableLetters = remember(alphabetColumnByLetter) {
-                        alphabetColumnByLetter.keys.toSet()
                     }
 
                     Box(Modifier.fillMaxSize()) {
@@ -455,10 +474,9 @@ fun AllAppsScreen(
                                 .then(if (alphabetSemanticActive) Modifier else Modifier.elasticHorizontalScroll())
                                 .clipToBounds()
                                 .graphicsLayer {
-                                    val scale = 1f - 0.22f * alphabetOverviewProgress
-                                    scaleX = scale
-                                    scaleY = scale
-                                    alpha = 1f - alphabetOverviewProgress
+                                    // The letter proxies below own the semantic motion. The app rows
+                                    // recede without applying a second, unrelated whole-list zoom.
+                                    alpha = 1f - (alphabetOverviewProgress * 1.35f).coerceIn(0f, 1f)
                                 },
                             horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
                             verticalAlignment = Alignment.Top,
@@ -476,6 +494,7 @@ fun AllAppsScreen(
                                     isNewByPackage = isNewByPackage,
                                     appTileAccent = appTileAccent,
                                     letterColor = appTileAccent,
+                                    showLetterHeader = !alphabetSemanticActive,
                                     onLetterClick = {
                                         if (sortMode == AppSortMode.NAME) {
                                             selectedAppForAction = null
@@ -491,15 +510,22 @@ fun AllAppsScreen(
                             }
                         }
 
-                        if (alphabetOverviewProgress > .001f && sortMode == AppSortMode.NAME) {
-                            AlphabetSemanticOverview(
+                        if (alphabetSemanticActive && sortMode == AppSortMode.NAME) {
+                            AlphabetSpatialSemanticZoom(
                                 progress = alphabetOverviewProgress,
                                 accentColor = appTileAccent,
-                                availableLetters = availableLetters,
+                                sources = alphabetSources,
+                                columnWidth = metrics.columnWidthDp.dp,
+                                columnGap = metrics.columnGapDp.dp,
+                                rowHeight = metrics.rowHeightDp.dp,
+                                listState = listState,
                                 onLetterClick = { letter ->
-                                    alphabetColumnByLetter[letter]?.let { targetIndex ->
+                                    alphabetSources[letter]?.let { source ->
                                         scope.launch {
-                                            listState.scrollToItem(targetIndex)
+                                            // Same handoff used by Start semantic zoom: at p == 1
+                                            // source geometry is invisible, so position the detailed
+                                            // list first and then reverse the exact spatial motion.
+                                            listState.scrollToItem(source.columnIndex)
                                             showAlphabetOverview = false
                                         }
                                     }
@@ -745,6 +771,7 @@ private fun AllAppsColumn(
     isNewByPackage: Map<String, Boolean>,
     appTileAccent: Color,
     letterColor: Color,
+    showLetterHeader: Boolean,
     onLetterClick: (String) -> Unit,
     onAppClick: (app: AppInfo, bounds: Rect) -> Unit,
     onLongClick: (app: AppInfo) -> Unit,
@@ -760,6 +787,7 @@ private fun AllAppsColumn(
                         letter = item.letter,
                         rowHeight = rowHeight,
                         color = letterColor,
+                        visible = showLetterHeader,
                         onClick = { onLetterClick(item.letter) },
                     )
                     is AllAppsColumnItem.App -> AppListItem(
@@ -782,14 +810,16 @@ private fun LetterHeader(
     letter: String,
     rowHeight: Dp,
     color: Color,
+    visible: Boolean,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(rowHeight)
-            .clickable(onClick = onClick)
-            .padding(top = 10.dp),
+            .clickable(enabled = visible, onClick = onClick)
+            .padding(top = 10.dp)
+            .graphicsLayer { alpha = if (visible) 1f else 0f },
         contentAlignment = Alignment.TopStart,
     ) {
         Text(
@@ -803,65 +833,132 @@ private fun LetterHeader(
 }
 
 @Composable
-private fun AlphabetSemanticOverview(
+private fun AlphabetSpatialSemanticZoom(
     progress: Float,
     accentColor: Color,
-    availableLetters: Set<String>,
+    sources: Map<String, AlphabetLetterSource>,
+    columnWidth: Dp,
+    columnGap: Dp,
+    rowHeight: Dp,
+    listState: LazyListState,
     onLetterClick: (String) -> Unit,
 ) {
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer {
-                val scale = .78f + .22f * progress
-                scaleX = scale
-                scaleY = scale
-                alpha = progress
-            },
+            .clipToBounds()
+            .zIndex(10f),
     ) {
-        val columns = if (maxWidth < 360.dp) 5 else 6
+        val density = LocalDensity.current
+        val textMeasurer = rememberTextMeasurer()
+        val p = progress.coerceIn(0f, 1f)
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
+        val sourceColumnStepPx = with(density) { (columnWidth + columnGap).toPx() }
+        val rowHeightPx = with(density) { rowHeight.toPx() }
+        val headerTopInsetPx = with(density) { 10.dp.toPx() }
+        val horizontalPaddingPx = with(density) { 8.dp.toPx() }
+        val targetCellHeightPx = with(density) { 50.dp.toPx() }
+        val targetScale = .86f
+
+        val overviewColumns = if (maxWidth < 360.dp) 5 else 6
         val letters = remember {
             buildList {
                 add("#")
                 ('A'..'Z').forEach { add(it.toString()) }
             }
         }
-        val rows = remember(columns) { letters.chunked(columns) }
+        val overviewRows = (letters.size + overviewColumns - 1) / overviewColumns
+        val targetCellWidthPx =
+            ((viewportWidthPx - horizontalPaddingPx * 2f) / overviewColumns).coerceAtLeast(1f)
+        val targetGridHeightPx = targetCellHeightPx * overviewRows
+        val targetGridTopPx = ((viewportHeightPx - targetGridHeightPx) / 2f).coerceAtLeast(0f)
 
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            rows.forEach { rowLetters ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    rowLetters.forEach { letter ->
-                        val enabled = letter in availableLetters
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .clickable(enabled = enabled) { onLetterClick(letter) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = letter,
-                                color = if (enabled) accentColor else Color.White.copy(alpha = .22f),
-                                style = WindowsTypography.headlineMedium.copy(
-                                    fontSize = 27.sp,
-                                    fontWeight = FontWeight.Normal,
-                                ),
-                                maxLines = 1,
+        // All Apps columns have a single fixed width and Arrangement.spacedBy(), so their
+        // scroll-world X position is deterministic just like Start's band world coordinates.
+        val scrollPx =
+            listState.firstVisibleItemIndex * sourceColumnStepPx +
+                listState.firstVisibleItemScrollOffset
+
+        val sourceTextStyle = WindowsTypography.headlineMedium.copy(
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Normal,
+        )
+
+        letters.forEachIndexed { index, letter ->
+            val targetColumn = index % overviewColumns
+            val targetRow = index / overviewColumns
+            val measured = remember(letter, sourceTextStyle) {
+                textMeasurer.measure(text = letter, style = sourceTextStyle).size
+            }
+            val targetLeftPx =
+                horizontalPaddingPx +
+                    targetColumn * targetCellWidthPx +
+                    (targetCellWidthPx - measured.width * targetScale) / 2f
+            val targetTopPx =
+                targetGridTopPx +
+                    targetRow * targetCellHeightPx +
+                    (targetCellHeightPx - measured.height * targetScale) / 2f
+
+            val source = sources[letter]
+            if (source != null) {
+                val sourceLeftPx = source.columnIndex * sourceColumnStepPx - scrollPx
+                val sourceTopPx = source.rowIndex * rowHeightPx + headerTopInsetPx
+                val leftPx = sourceLeftPx + (targetLeftPx - sourceLeftPx) * p
+                val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
+                val scale = 1f + (targetScale - 1f) * p
+
+                Text(
+                    text = letter,
+                    color = accentColor,
+                    style = sourceTextStyle,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                        .graphicsLayer {
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            scaleX = scale
+                            scaleY = scale
+                        },
+                )
+
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                (horizontalPaddingPx + targetColumn * targetCellWidthPx).roundToInt(),
+                                (targetGridTopPx + targetRow * targetCellHeightPx).roundToInt(),
                             )
                         }
-                    }
-                    repeat(columns - rowLetters.size) {
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
+                        .size(
+                            with(density) { targetCellWidthPx.toDp() },
+                            with(density) { targetCellHeightPx.toDp() },
+                        )
+                        .clickable(
+                            enabled = p >= .985f,
+                            onClick = { onLetterClick(letter) },
+                        )
+                        .semantics { contentDescription = "Jump to $letter" },
+                )
+            } else {
+                // Letters with no installed apps have no detailed-view source coordinate.
+                // Windows keeps them disabled in the semantic map, so fade them into their final
+                // slots while real section letters travel in spatially from left/right.
+                Text(
+                    text = letter,
+                    color = Color.White.copy(alpha = .22f * p),
+                    style = sourceTextStyle,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .offset { IntOffset(targetLeftPx.roundToInt(), targetTopPx.roundToInt()) }
+                        .graphicsLayer {
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            scaleX = targetScale
+                            scaleY = targetScale
+                        },
+                )
             }
         }
     }
