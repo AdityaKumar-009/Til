@@ -553,6 +553,12 @@ fun StartScreen(
         enterCustomization()
     }
 
+    fun visualTileBounds(tileId: String): Rect? {
+        val natural = tileBounds[tileId] ?: return null
+        val translation = reorderMotionStates[tileId]?.translation?.value ?: Offset.Zero
+        return natural.translate(translation)
+    }
+
     fun dragVisualTopLeft(): Offset =
         Offset(
             x = dragPointerWindow.x - dragContactOffset.x,
@@ -816,7 +822,13 @@ fun StartScreen(
         dragAutoScrollActive = false
 
         if (commit) {
-            pendingDropProposal?.let { proposal ->
+            // Resolve the exact position under the held tile at release time instead of trusting
+            // a possibly stale dwell/anti-bounce proposal. The same key is then used for the
+            // final packing step, so the translucent hint and the committed cell cannot disagree.
+            val releaseProposal =
+                proposalAt(dragVisualCenter()) ?: pendingDropProposal ?: appliedDropProposal
+            releaseProposal?.let { proposal ->
+                pendingDropProposal = proposal
                 applyDropProposal(proposal, finalDrop = true)
             }
         } else if (dragTiles != null && dragTiles != tiles) {
@@ -1248,16 +1260,17 @@ fun StartScreen(
                                     x = viewport.left + down.position.x,
                                     y = viewport.top + down.position.y,
                                 )
-                                val hitId = tileBounds.entries
-                                    .lastOrNull { (_, bounds) -> bounds.contains(downInWindow) }
-                                    ?.key
+                                val hitId = tileBounds.keys
+                                    .lastOrNull { tileId ->
+                                        visualTileBounds(tileId)?.contains(downInWindow) == true
+                                    }
                                     ?: return@awaitEachGesture
                                 val hitTile = tiles.firstOrNull { it.id == hitId }
                                     ?: return@awaitEachGesture
 
                                 val longPress = awaitLongPressOrCancellation(down.id)
                                     ?: return@awaitEachGesture
-                                val bounds = tileBounds[hitId] ?: return@awaitEachGesture
+                                val bounds = visualTileBounds(hitId) ?: return@awaitEachGesture
                                 val currentViewport = tileViewportBounds
                                 if (currentViewport == Rect.Zero) return@awaitEachGesture
 
@@ -1752,7 +1765,8 @@ fun StartScreen(
                     // The floating held tile itself remains the top-most object below.
                     draggingTileId?.let { draggedId ->
                         val draggedTile = tiles.firstOrNull { it.id == draggedId }
-                        val gridProposal = pendingDropProposal as? StartDropProposal.Grid
+                        val activeDropProposal = pendingDropProposal ?: appliedDropProposal
+                        val gridProposal = activeDropProposal as? StartDropProposal.Grid
                         val key = gridProposal?.key
                         val targetBand = key?.let { proposalKey ->
                             bandDropTargets.values.firstOrNull {
