@@ -77,6 +77,7 @@ class AppsRepository(private val context: Context) {
     private val allAppsThumbnailCacheLock = Any()
     private val inFlightAllAppsThumbnailLoads =
         ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val failedAllAppsThumbnailKeys = ConcurrentHashMap.newKeySet<String>()
 
     private val appAccentCache = ConcurrentHashMap<String, Long>()
     private val failedIcons = ConcurrentHashMap.newKeySet<String>()
@@ -87,6 +88,7 @@ class AppsRepository(private val context: Context) {
     // PackageManager and bitmap decoding are both CPU/Binder-heavy. A screenful of Compose
     // icon requests should not fan out into dozens of simultaneous decodes on low-end phones.
     private val iconDecodePermits = Semaphore(ICON_DECODE_CONCURRENCY)
+    private val allAppsDecodePermits = Semaphore(ALL_APPS_ICON_DECODE_CONCURRENCY)
 
     // The largest app icon currently rendered by the launcher is ~104 dp during the launch
     // overlay. Keeping a small guard above that preserves visual fidelity while preventing a
@@ -258,9 +260,11 @@ class AppsRepository(private val context: Context) {
         getCachedAllAppsIcon(packageName, safePx, monochrome)?.let { return it }
 
         val key = allAppsThumbnailKey(packageName, safePx, monochrome)
+        if (failedAllAppsThumbnailKeys.contains(key)) return null
+
         val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
             try {
-                iconDecodePermits.withPermit {
+                allAppsDecodePermits.withPermit {
                     getCachedAllAppsIcon(packageName, safePx, monochrome)
                         ?: decodeAndCacheAllAppsIcon(packageName, safePx, monochrome)
                 }
@@ -292,9 +296,12 @@ class AppsRepository(private val context: Context) {
         }
 
         if (image != null) {
+            failedAllAppsThumbnailKeys.remove(key)
             synchronized(allAppsThumbnailCacheLock) {
                 allAppsThumbnailCache.put(key, image)
             }
+        } else {
+            failedAllAppsThumbnailKeys.add(key)
         }
         return image
     }
@@ -1376,6 +1383,7 @@ class AppsRepository(private val context: Context) {
         const val ALL_APPS_ICON_MIN_PX = 72
         const val ALL_APPS_ICON_MAX_PX = 192
         const val ICON_DECODE_CONCURRENCY = 2
+        const val ALL_APPS_ICON_DECODE_CONCURRENCY = 4
         const val ICON_CACHE_MAX_DP = 112f
         const val ICON_CACHE_MIN_PX = 96
         const val ICON_CACHE_MAX_PX = 384
