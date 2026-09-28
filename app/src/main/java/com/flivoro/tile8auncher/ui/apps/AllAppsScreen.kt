@@ -210,7 +210,8 @@ fun AllAppsScreen(
         animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "AllAppsAlphabetSemanticZoom",
     )
-    BackHandler(enabled = showAlphabetOverview) {
+    val alphabetSemanticActive = showAlphabetOverview || alphabetOverviewProgress > .001f
+    BackHandler(enabled = alphabetSemanticActive) {
         showAlphabetOverview = false
     }
     LaunchedEffect(sortMode) {
@@ -448,10 +449,10 @@ fun AllAppsScreen(
                     Box(Modifier.fillMaxSize()) {
                         LazyRow(
                             state = listState,
-                            userScrollEnabled = !showAlphabetOverview,
+                            userScrollEnabled = !alphabetSemanticActive,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .elasticHorizontalScroll()
+                                .then(if (alphabetSemanticActive) Modifier else Modifier.elasticHorizontalScroll())
                                 .clipToBounds()
                                 .graphicsLayer {
                                     val scale = 1f - 0.22f * alphabetOverviewProgress
