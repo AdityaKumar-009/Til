@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,8 +96,12 @@ import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * Windows 8.1 Apps view: upward Start navigation, horizontal finite-height app columns and the
@@ -150,17 +155,6 @@ fun AllAppsScreen(
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) {
         LauncherFeatureStore.appIconStyle(context)
-    }
-
-    LaunchedEffect(allApps, iconsRevision, iconStyle) {
-        withContext(Dispatchers.IO) {
-            preloadAllAppsIcons(
-                context = context.applicationContext,
-                repository = appsRepository,
-                packageNames = allApps.map(AppInfo::packageName),
-                style = iconStyle,
-            )
-        }
     }
 
     val enhancedApps by produceState<List<EnhancedAppInfo>>(
@@ -371,6 +365,50 @@ fun AllAppsScreen(
                             rowsPerColumn = metrics.rowsPerColumn,
                         )
                     }
+
+                    // Prime the current and adjacent Windows columns first. LazyRow disposes
+                    // off-screen columns, so without this a fast horizontal pan can outrun icon
+                    // decoding and briefly show the generic four-square glyph.
+                    LaunchedEffect(columns, iconsRevision, iconStyle, listState) {
+                        snapshotFlow { listState.firstVisibleItemIndex }
+                            .distinctUntilChanged()
+                            .collectLatest { firstVisible ->
+                                if (columns.isEmpty()) return@collectLatest
+                                val start = (firstVisible - 1).coerceAtLeast(0)
+                                val end = (firstVisible + 3).coerceAtMost(columns.lastIndex)
+                                val nearbyPackages = (start..end)
+                                    .flatMap { columns[it].apps }
+                                    .map(AppInfo::packageName)
+                                preloadAllAppsIcons(
+                                    context = context.applicationContext,
+                                    repository = appsRepository,
+                                    packageNames = nearbyPackages,
+                                    style = iconStyle,
+                                    iconsRevision = iconsRevision,
+                                )
+                            }
+                    }
+
+                    // Then warm the remaining list outward from the current viewport rather than
+                    // always decoding A, B, C... first. Reopening All Apps or returning to an M/O
+                    // position therefore has its visible icons hot before distant columns.
+                    LaunchedEffect(columns, iconsRevision, iconStyle) {
+                        if (columns.isEmpty()) return@LaunchedEffect
+                        delay(180)
+                        val origin = listState.firstVisibleItemIndex.coerceIn(0, columns.lastIndex)
+                        val priorityPackages = columns.indices
+                            .sortedBy { index -> abs(index - origin) }
+                            .flatMap { index -> columns[index].apps }
+                            .map(AppInfo::packageName)
+                        preloadAllAppsIcons(
+                            context = context.applicationContext,
+                            repository = appsRepository,
+                            packageNames = priorityPackages,
+                            style = iconStyle,
+                            iconsRevision = iconsRevision,
+                        )
+                    }
+
                     LazyRow(
                         state = listState,
                         modifier = Modifier.fillMaxSize().elasticHorizontalScroll().clipToBounds(),

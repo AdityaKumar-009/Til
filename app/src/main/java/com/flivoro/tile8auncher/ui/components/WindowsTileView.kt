@@ -112,21 +112,23 @@ internal fun WindowsTileFace(
     Box(
         modifier = modifier.background(tileColor),
     ) {
-        when {
-            liveQueue.isNotEmpty() && tile.size == TileSize.SMALL -> {
-                // Windows 8.1 small (70x70) tiles did not accept live tile templates. Their only
-                // live surface was the independent badge overlay.
-                DefaultTileContent(
-                    tile = tile,
-                    appIcon = appIcon,
-                    logoModifier = logoModifier,
-                )
+        if (tile.size == TileSize.SMALL) {
+            // Windows 8.1 1x1 tiles are logo-only surfaces. They never squeeze the medium
+            // Calendar/Weather/Clock text template into the tiny square. A numeric notification
+            // badge may still sit independently in the corner.
+            SmallTileContent(
+                tile = tile,
+                appIcon = appIcon,
+                logoModifier = logoModifier,
+            )
+            liveQueue.firstOrNull()?.count?.takeIf { it > 0 }?.let { count ->
                 LiveTileBadge(
-                    count = liveQueue.first().count,
+                    count = count,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
                 )
             }
-
+        } else {
+            when {
             liveQueue.isNotEmpty() && tile.size == TileSize.LARGE -> {
                 // Windows 8.1 had large list templates that showed several updates at once. This
                 // is intentionally stable instead of constantly rotating an already-dense tile.
@@ -151,6 +153,7 @@ internal fun WindowsTileFace(
                     appIcon = appIcon,
                     logoModifier = logoModifier,
                 )
+            }
             }
         }
     }
@@ -198,16 +201,45 @@ private fun SmallTileContent(
     appIcon: ImageBitmap?,
     logoModifier: Modifier,
 ) {
+    val builtInGlyph = tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: when (tile.tileType) {
+        TileType.CLOCK -> "clock"
+        TileType.BATTERY -> "battery"
+        TileType.WEATHER -> "weather"
+        TileType.CALENDAR -> "calendar"
+        TileType.PHOTOS -> "photos"
+        TileType.STORE -> "store"
+        TileType.DESKTOP -> "desktop"
+        TileType.READING_LIST -> "reading"
+        TileType.SETTINGS -> "settings"
+        TileType.INTERNET_EXPLORER -> "ie"
+        TileType.MAIL -> "mail"
+        TileType.MONEY -> "money"
+        TileType.APP -> null
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        LiveTileAppIcon(
-            tile = tile,
-            appIcon = appIcon,
-            size = 30.dp,
-            modifier = logoModifier,
-        )
+        when {
+            builtInGlyph != null -> MetroIcon(
+                glyph = builtInGlyph,
+                color = Color.White,
+                size = 28.dp,
+                modifier = logoModifier,
+            )
+            appIcon != null -> Image(
+                bitmap = appIcon,
+                contentDescription = tile.title,
+                modifier = logoModifier.size(30.dp),
+            )
+            else -> MetroIcon(
+                glyph = "app",
+                color = Color.White,
+                size = 28.dp,
+                modifier = logoModifier,
+            )
+        }
     }
 }
 
