@@ -741,6 +741,8 @@ private fun AllAppsColumn(
     rowHeight: Dp,
     isNewByPackage: Map<String, Boolean>,
     appTileAccent: Color,
+    letterColor: Color,
+    onLetterClick: (String) -> Unit,
     onAppClick: (app: AppInfo, bounds: Rect) -> Unit,
     onLongClick: (app: AppInfo) -> Unit,
 ) {
@@ -751,7 +753,12 @@ private fun AllAppsColumn(
         column.items.forEach { item ->
             key(item.key) {
                 when (item) {
-                    is AllAppsColumnItem.LetterHeader -> LetterHeader(item.letter, rowHeight)
+                    is AllAppsColumnItem.LetterHeader -> LetterHeader(
+                        letter = item.letter,
+                        rowHeight = rowHeight,
+                        color = letterColor,
+                        onClick = { onLetterClick(item.letter) },
+                    )
                     is AllAppsColumnItem.App -> AppListItem(
                         app = item.app,
                         appsRepository = appsRepository,
@@ -768,18 +775,92 @@ private fun AllAppsColumn(
 }
 
 @Composable
-private fun LetterHeader(letter: String, rowHeight: Dp) {
+private fun LetterHeader(
+    letter: String,
+    rowHeight: Dp,
+    color: Color,
+    onClick: () -> Unit,
+) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(rowHeight).padding(top = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowHeight)
+            .clickable(onClick = onClick)
+            .padding(top = 10.dp),
         contentAlignment = Alignment.TopStart,
     ) {
         Text(
             text = letter,
             style = WindowsTypography.headlineMedium.copy(fontSize = 24.sp, fontWeight = FontWeight.Normal),
-            color = WindowsColors.Magenta.toTileColor(),
+            color = color,
             maxLines = 1,
             softWrap = false,
         )
+    }
+}
+
+@Composable
+private fun AlphabetSemanticOverview(
+    progress: Float,
+    accentColor: Color,
+    availableLetters: Set<String>,
+    onLetterClick: (String) -> Unit,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val scale = .78f + .22f * progress
+                scaleX = scale
+                scaleY = scale
+                alpha = progress
+            },
+    ) {
+        val columns = if (maxWidth < 360.dp) 5 else 6
+        val letters = remember {
+            buildList {
+                add("#")
+                ('A'..'Z').forEach { add(it.toString()) }
+            }
+        }
+        val rows = remember(columns) { letters.chunked(columns) }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            rows.forEach { rowLetters ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    rowLetters.forEach { letter ->
+                        val enabled = letter in availableLetters
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clickable(enabled = enabled) { onLetterClick(letter) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = letter,
+                                color = if (enabled) accentColor else Color.White.copy(alpha = .22f),
+                                style = WindowsTypography.headlineMedium.copy(
+                                    fontSize = 27.sp,
+                                    fontWeight = FontWeight.Normal,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    repeat(columns - rowLetters.size) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -833,7 +914,7 @@ private fun AppListItem(
         if (isNew) {
             Text(
                 text = "NEW",
-                color = WindowsColors.Magenta.toTileColor(),
+                color = appTileAccent,
                 style = WindowsTypography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold),
                 modifier = Modifier.padding(start = 5.dp, end = 2.dp),
             )
