@@ -429,7 +429,7 @@ fun AllAppsScreen(
             val currentApp = selectedAppForAction
             if (currentApp != null) {
                 val isPinned = isAppPinned(currentApp.packageName)
-                val icon = rememberAppIcon(appsRepository, currentApp.packageName)
+                val icon = rememberAllAppsIcon(appsRepository, currentApp.packageName)
                 Surface(
                     color = Color(0xF0180424),
                     modifier = Modifier.fillMaxWidth().border(1.dp, Color(0x66FFFFFF)),
