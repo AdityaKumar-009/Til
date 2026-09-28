@@ -30,13 +30,23 @@ object IconPackManager {
         bitmapCache.clear()
     }
 
+    fun peekOverride(targetPackage: String, maxPx: Int = 256): ImageBitmap? =
+        bitmapCache["target:$targetPackage:$maxPx"]
+
     fun loadOverride(context: Context, targetPackage: String, maxPx: Int = 256): ImageBitmap? {
+        val targetKey = "target:$targetPackage:$maxPx"
+        bitmapCache[targetKey]?.let { return it }
+
         val customUri = LauncherFeatureStore.customIconUri(context, targetPackage)
         if (!customUri.isNullOrBlank()) {
             val key = "uri:$customUri:$maxPx"
-            bitmapCache[key]?.let { return it }
+            bitmapCache[key]?.let {
+                bitmapCache[targetKey] = it
+                return it
+            }
             decodeUri(context, Uri.parse(customUri), maxPx)?.let {
                 bitmapCache[key] = it
+                bitmapCache[targetKey] = it
                 return it
             }
         }
@@ -55,7 +65,10 @@ object IconPackManager {
         ).mapNotNull { key -> key?.let(pack.components::get) }.firstOrNull() ?: return null
 
         val cacheKey = "pack:$packPackage:$drawableName:$maxPx"
-        bitmapCache[cacheKey]?.let { return it }
+        bitmapCache[cacheKey]?.let {
+            bitmapCache[targetKey] = it
+            return it
+        }
         val resources = runCatching { context.packageManager.getResourcesForApplication(packPackage) }.getOrNull()
             ?: return null
         val id = resources.getIdentifier(drawableName, "drawable", packPackage)
@@ -63,7 +76,10 @@ object IconPackManager {
             ?: resources.getIdentifier(drawableName, "mipmap", packPackage).takeIf { it != 0 }
             ?: return null
         val drawable = runCatching { resources.getDrawable(id, null) }.getOrNull() ?: return null
-        return drawableToImageBitmap(drawable, maxPx)?.also { bitmapCache[cacheKey] = it }
+        return drawableToImageBitmap(drawable, maxPx)?.also {
+            bitmapCache[cacheKey] = it
+            bitmapCache[targetKey] = it
+        }
     }
 
     fun discoverIconPacks(context: Context): List<Pair<String, String>> {
