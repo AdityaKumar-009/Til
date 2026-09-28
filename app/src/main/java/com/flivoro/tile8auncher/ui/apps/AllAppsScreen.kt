@@ -430,29 +430,77 @@ fun AllAppsScreen(
                         )
                     }
 
-                    LazyRow(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize().elasticHorizontalScroll().clipToBounds(),
-                        horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        items(
-                            items = columns,
-                            key = { column -> column.key },
-                            contentType = { "all-apps-column" },
-                        ) { column ->
-                            AllAppsColumn(
-                                column = column,
-                                appsRepository = appsRepository,
-                                columnWidth = metrics.columnWidthDp.dp,
-                                rowHeight = metrics.rowHeightDp.dp,
-                                isNewByPackage = isNewByPackage,
-                                appTileAccent = appTileAccent,
-                                onAppClick = { app, bounds ->
-                                    if (selectedAppForAction != null) selectedAppForAction = null
-                                    else onAppClick(app, bounds)
+                    val alphabetColumnByLetter = remember(columns) {
+                        buildMap<String, Int> {
+                            columns.forEachIndexed { index, column ->
+                                column.items
+                                    .filterIsInstance<AllAppsColumnItem.LetterHeader>()
+                                    .forEach { header -> putIfAbsent(header.letter.uppercase(Locale.ROOT), index) }
+                            }
+                        }
+                    }
+                    val availableLetters = remember(alphabetColumnByLetter) {
+                        alphabetColumnByLetter.keys.toSet()
+                    }
+
+                    Box(Modifier.fillMaxSize()) {
+                        LazyRow(
+                            state = listState,
+                            userScrollEnabled = !showAlphabetOverview,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .elasticHorizontalScroll()
+                                .clipToBounds()
+                                .graphicsLayer {
+                                    val scale = 1f - 0.22f * alphabetOverviewProgress
+                                    scaleX = scale
+                                    scaleY = scale
+                                    alpha = 1f - alphabetOverviewProgress
                                 },
-                                onLongClick = { selectedAppForAction = it },
+                            horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            items(
+                                items = columns,
+                                key = { column -> column.key },
+                                contentType = { "all-apps-column" },
+                            ) { column ->
+                                AllAppsColumn(
+                                    column = column,
+                                    appsRepository = appsRepository,
+                                    columnWidth = metrics.columnWidthDp.dp,
+                                    rowHeight = metrics.rowHeightDp.dp,
+                                    isNewByPackage = isNewByPackage,
+                                    appTileAccent = appTileAccent,
+                                    letterColor = appTileAccent,
+                                    onLetterClick = {
+                                        if (sortMode == AppSortMode.NAME) {
+                                            selectedAppForAction = null
+                                            showAlphabetOverview = true
+                                        }
+                                    },
+                                    onAppClick = { app, bounds ->
+                                        if (selectedAppForAction != null) selectedAppForAction = null
+                                        else onAppClick(app, bounds)
+                                    },
+                                    onLongClick = { selectedAppForAction = it },
+                                )
+                            }
+                        }
+
+                        if (alphabetOverviewProgress > .001f && sortMode == AppSortMode.NAME) {
+                            AlphabetSemanticOverview(
+                                progress = alphabetOverviewProgress,
+                                accentColor = appTileAccent,
+                                availableLetters = availableLetters,
+                                onLetterClick = { letter ->
+                                    alphabetColumnByLetter[letter]?.let { targetIndex ->
+                                        scope.launch {
+                                            listState.scrollToItem(targetIndex)
+                                            showAlphabetOverview = false
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
