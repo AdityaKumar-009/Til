@@ -16,6 +16,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * Returns the already-resolved icon for the currently selected global style.
@@ -37,6 +38,132 @@ fun cachedAppIconForCurrentStyle(
             repository.getCachedAppIcon(name)
         AppIconStyle.WHITE_MONOCHROME ->
             repository.getCachedMonochromeAppIcon(name) ?: repository.getCachedAppIcon(name)
+    }
+}
+
+private fun allAppsIconTargetPx(context: Context): Int =
+    (40f * context.resources.displayMetrics.density)
+        .roundToInt()
+        .coerceIn(72, 160)
+
+private fun cachedAllAppsIconForStyle(
+    context: Context,
+    repository: AppsRepository,
+    packageName: String,
+    style: AppIconStyle,
+    maxPx: Int,
+): ImageBitmap? = when (style) {
+    AppIconStyle.DEFAULT ->
+        IconPackManager.peekOverride(packageName, maxPx)
+            ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
+            ?: repository.getCachedAppIcon(packageName)
+
+    AppIconStyle.ANDROID_ADAPTIVE ->
+        repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
+            ?: repository.getCachedAppIcon(packageName)
+
+    AppIconStyle.WHITE_MONOCHROME ->
+        repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = true)
+            ?: repository.getCachedMonochromeAppIcon(packageName)
+            ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
+            ?: repository.getCachedAppIcon(packageName)
+}
+
+private suspend fun resolveAllAppsIcon(
+    context: Context,
+    repository: AppsRepository,
+    packageName: String,
+    style: AppIconStyle,
+    maxPx: Int,
+): ImageBitmap? {
+    cachedAllAppsIconForStyle(context, repository, packageName, style, maxPx)?.let { return it }
+
+    return when (style) {
+        AppIconStyle.DEFAULT -> {
+            val override = withContext(Dispatchers.IO) {
+                IconPackManager.loadOverride(context.applicationContext, packageName, maxPx)
+            }
+            override ?: repository.loadAllAppsIcon(packageName, maxPx, monochrome = false)
+        }
+
+        AppIconStyle.ANDROID_ADAPTIVE ->
+            repository.loadAllAppsIcon(packageName, maxPx, monochrome = false)
+
+        AppIconStyle.WHITE_MONOCHROME ->
+            repository.loadAllAppsIcon(packageName, maxPx, monochrome = true)
+                ?: repository.loadAllAppsIcon(packageName, maxPx, monochrome = false)
+    }
+}
+
+/**
+ * Display-sized, memory-stable icon path for the Windows 8.1 All Apps surface.
+ *
+ * This deliberately does not reuse the launch-resolution LRU: horizontally recycled columns
+ * should come back from a compact thumbnail cache synchronously instead of briefly showing the
+ * fallback glyph and decoding the app again.
+ */
+@Composable
+fun rememberAllAppsIcon(
+    repository: AppsRepository,
+    packageName: String?,
+): ImageBitmap? {
+    val context = LocalContext.current
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) {
+        LauncherFeatureStore.appIconStyle(context)
+    }
+    val maxPx = remember(context.resources.displayMetrics.density) {
+        allAppsIconTargetPx(context)
+    }
+
+    var icon by remember(repository, packageName, iconsRevision, iconStyle, maxPx) {
+        mutableStateOf(
+            packageName?.let { name ->
+                cachedAllAppsIconForStyle(
+                    context = context,
+                    repository = repository,
+                    packageName = name,
+                    style = iconStyle,
+                    maxPx = maxPx,
+                )
+            },
+        )
+    }
+
+    LaunchedEffect(repository, packageName, iconsRevision, iconStyle, maxPx) {
+        val name = packageName ?: return@LaunchedEffect
+        icon = resolveAllAppsIcon(
+            context = context,
+            repository = repository,
+            packageName = name,
+            style = iconStyle,
+            maxPx = maxPx,
+        )
+    }
+
+    return icon
+}
+
+/**
+ * Warms the entire All Apps thumbnail set off the UI thread. Visible rows still request their
+ * own icons immediately, while this sequential pass fills the rest of the compact LRU without
+ * causing a PackageManager/bitmap decode burst.
+ */
+suspend fun preloadAllAppsIcons(
+    context: Context,
+    repository: AppsRepository,
+    packageNames: List<String>,
+    style: AppIconStyle,
+) {
+    val maxPx = allAppsIconTargetPx(context)
+    packageNames.distinct().forEach { packageName ->
+        resolveAllAppsIcon(
+            context = context,
+            repository = repository,
+            packageName = packageName,
+            style = style,
+            maxPx = maxPx,
+        )
     }
 }
 

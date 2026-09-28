@@ -75,6 +75,7 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.features.AppSortMode
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.UniversalSearchResult
 import com.flivoro.tile8auncher.features.hasUsageAccess
@@ -88,7 +89,8 @@ import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
-import com.flivoro.tile8auncher.ui.components.rememberAppIcon
+import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
+import com.flivoro.tile8auncher.ui.components.rememberAllAppsIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -145,6 +147,22 @@ fun AllAppsScreen(
     }
 
     val allApps = remember(liveSections) { liveSections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) {
+        LauncherFeatureStore.appIconStyle(context)
+    }
+
+    LaunchedEffect(allApps, iconsRevision, iconStyle) {
+        withContext(Dispatchers.IO) {
+            preloadAllAppsIcons(
+                context = context.applicationContext,
+                repository = appsRepository,
+                packageNames = allApps.map(AppInfo::packageName),
+                style = iconStyle,
+            )
+        }
+    }
+
     val enhancedApps by produceState<List<EnhancedAppInfo>>(
         initialValue = emptyList(),
         allApps,
@@ -411,7 +429,7 @@ fun AllAppsScreen(
             val currentApp = selectedAppForAction
             if (currentApp != null) {
                 val isPinned = isAppPinned(currentApp.packageName)
-                val icon = rememberAppIcon(appsRepository, currentApp.packageName)
+                val icon = rememberAllAppsIcon(appsRepository, currentApp.packageName)
                 Surface(
                     color = Color(0xF0180424),
                     modifier = Modifier.fillMaxWidth().border(1.dp, Color(0x66FFFFFF)),
@@ -670,7 +688,7 @@ private fun AppListItem(
     onLongClick: () -> Unit,
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
-    val icon = rememberAppIcon(appsRepository, app.packageName)
+    val icon = rememberAllAppsIcon(appsRepository, app.packageName)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier

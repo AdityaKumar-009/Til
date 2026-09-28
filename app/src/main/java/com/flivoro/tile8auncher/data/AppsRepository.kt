@@ -60,6 +60,24 @@ class AppsRepository(private val context: Context) {
         }
     }
     private val monochromeIconCacheLock = Any()
+
+    /**
+     * All Apps deliberately uses display-sized thumbnails instead of the launch-resolution cache.
+     * A 40dp list icon should not consume the same ~0.5MB entry as a launch overlay icon. Keeping
+     * these thumbnails in a separate, larger LRU prevents horizontal LazyRow recycling from
+     * evicting/re-decoding the icons the user just saw.
+     */
+    private val allAppsThumbnailCache =
+        object : LruCache<String, ImageBitmap>(ALL_APPS_ICON_CACHE_MAX_BYTES) {
+            override fun sizeOf(key: String, value: ImageBitmap): Int {
+                val bytes = value.width.toLong() * value.height.toLong() * BYTES_PER_PIXEL
+                return bytes.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+            }
+        }
+    private val allAppsThumbnailCacheLock = Any()
+    private val inFlightAllAppsThumbnailLoads =
+        ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+
     private val appAccentCache = ConcurrentHashMap<String, Long>()
     private val failedIcons = ConcurrentHashMap.newKeySet<String>()
     private val iconLoadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -219,6 +237,74 @@ class AppsRepository(private val context: Context) {
         return (active ?: candidate).await()
     }
 
+    fun getCachedAllAppsIcon(
+        packageName: String,
+        maxPx: Int,
+        monochrome: Boolean,
+    ): ImageBitmap? {
+        val safePx = maxPx.coerceIn(ALL_APPS_ICON_MIN_PX, ALL_APPS_ICON_MAX_PX)
+        val key = allAppsThumbnailKey(packageName, safePx, monochrome)
+        synchronized(allAppsThumbnailCacheLock) {
+            return allAppsThumbnailCache.get(key)
+        }
+    }
+
+    suspend fun loadAllAppsIcon(
+        packageName: String,
+        maxPx: Int,
+        monochrome: Boolean,
+    ): ImageBitmap? {
+        val safePx = maxPx.coerceIn(ALL_APPS_ICON_MIN_PX, ALL_APPS_ICON_MAX_PX)
+        getCachedAllAppsIcon(packageName, safePx, monochrome)?.let { return it }
+
+        val key = allAppsThumbnailKey(packageName, safePx, monochrome)
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                iconDecodePermits.withPermit {
+                    getCachedAllAppsIcon(packageName, safePx, monochrome)
+                        ?: decodeAndCacheAllAppsIcon(packageName, safePx, monochrome)
+                }
+            } finally {
+                inFlightAllAppsThumbnailLoads.remove(key)
+            }
+        }
+        val active = inFlightAllAppsThumbnailLoads.putIfAbsent(key, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
+    private fun decodeAndCacheAllAppsIcon(
+        packageName: String,
+        maxPx: Int,
+        monochrome: Boolean,
+    ): ImageBitmap? {
+        val key = allAppsThumbnailKey(packageName, maxPx, monochrome)
+        val image = try {
+            val drawable = packageManager.getApplicationIcon(packageName)
+            val bitmap = if (monochrome) {
+                drawableToMonochromeBitmap(drawable, maxPx)
+            } else {
+                drawableToBitmap(drawable, maxPx)
+            }
+            bitmap.asImageBitmap()
+        } catch (_: Exception) {
+            null
+        }
+
+        if (image != null) {
+            synchronized(allAppsThumbnailCacheLock) {
+                allAppsThumbnailCache.put(key, image)
+            }
+        }
+        return image
+    }
+
+    private fun allAppsThumbnailKey(
+        packageName: String,
+        maxPx: Int,
+        monochrome: Boolean,
+    ): String = "${if (monochrome) "mono" else "normal"}:$packageName:$maxPx"
+
     fun getCachedAppAccentColor(packageName: String): Long? = appAccentCache[packageName]
 
     suspend fun loadAppAccentColor(packageName: String): Long {
@@ -264,7 +350,13 @@ class AppsRepository(private val context: Context) {
         }
     }
 
-    private fun drawableToMonochromeBitmap(drawable: Drawable): Bitmap {
+    private fun drawableToMonochromeBitmap(drawable: Drawable): Bitmap =
+        drawableToMonochromeBitmap(drawable, maxCachedIconPx)
+
+    private fun drawableToMonochromeBitmap(
+        drawable: Drawable,
+        targetPx: Int,
+    ): Bitmap {
         // Android 13+ exposes the exact monochrome layer an app designed for themed icons.
         // Use it whenever the app actually supplies one.
         if (drawable is AdaptiveIconDrawable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -278,7 +370,7 @@ class AppsRepository(private val context: Context) {
                     ColorDrawable(Color.TRANSPARENT),
                     whiteLayer,
                 )
-                return renderDrawableHighResolution(masked)
+                return renderDrawableAtResolution(masked, targetPx)
             }
         }
 
@@ -286,7 +378,7 @@ class AppsRepository(private val context: Context) {
         // their adaptive foreground blindly turns the complete icon plate into a white square or
         // circle. Instead render the normal icon, identify its dominant plate/background, remove
         // that plate, and keep only contrasting logo/detail pixels as the white glyph.
-        val original = renderDrawableHighResolution(drawable)
+        val original = renderDrawableAtResolution(drawable, targetPx)
         val glyph = createSmartWhiteGlyph(original)
         if (glyph != null) {
             if (glyph !== original && !original.isRecycled) original.recycle()
@@ -315,11 +407,18 @@ class AppsRepository(private val context: Context) {
         }
     }
 
-    private fun renderDrawableHighResolution(drawable: Drawable): Bitmap {
-        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
-        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
+    private fun renderDrawableHighResolution(drawable: Drawable): Bitmap =
+        renderDrawableAtResolution(drawable, maxCachedIconPx)
+
+    private fun renderDrawableAtResolution(
+        drawable: Drawable,
+        targetPx: Int,
+    ): Bitmap {
+        val safeTarget = targetPx.coerceAtLeast(1)
+        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else safeTarget
+        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else safeTarget
         val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
-        val scale = maxCachedIconPx.toFloat() / longestSide.toFloat()
+        val scale = safeTarget.toFloat() / longestSide.toFloat()
         val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
         val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
 
@@ -860,15 +959,22 @@ class AppsRepository(private val context: Context) {
         return refreshed
     }
 
-    private fun drawableToBitmap(drawable: Drawable): Bitmap {
+    private fun drawableToBitmap(drawable: Drawable): Bitmap =
+        drawableToBitmap(drawable, maxCachedIconPx)
+
+    private fun drawableToBitmap(
+        drawable: Drawable,
+        targetPx: Int,
+    ): Bitmap {
+        val safeTarget = targetPx.coerceAtLeast(1)
         if (drawable is BitmapDrawable && drawable.bitmap != null) {
-            return downsampleBitmapIfNeeded(drawable.bitmap)
+            return downsampleBitmapIfNeeded(drawable.bitmap, safeTarget)
         }
 
-        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
-        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
+        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else safeTarget
+        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else safeTarget
         val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
-        val scale = minOf(1f, maxCachedIconPx.toFloat() / longestSide.toFloat())
+        val scale = minOf(1f, safeTarget.toFloat() / longestSide.toFloat())
         val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
         val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
 
@@ -879,11 +985,18 @@ class AppsRepository(private val context: Context) {
         return bitmap
     }
 
-    private fun downsampleBitmapIfNeeded(bitmap: Bitmap): Bitmap {
-        val longestSide = maxOf(bitmap.width, bitmap.height)
-        if (longestSide <= maxCachedIconPx) return bitmap
+    private fun downsampleBitmapIfNeeded(bitmap: Bitmap): Bitmap =
+        downsampleBitmapIfNeeded(bitmap, maxCachedIconPx)
 
-        val scale = maxCachedIconPx.toFloat() / longestSide.toFloat()
+    private fun downsampleBitmapIfNeeded(
+        bitmap: Bitmap,
+        targetPx: Int,
+    ): Bitmap {
+        val safeTarget = targetPx.coerceAtLeast(1)
+        val longestSide = maxOf(bitmap.width, bitmap.height)
+        if (longestSide <= safeTarget) return bitmap
+
+        val scale = safeTarget.toFloat() / longestSide.toFloat()
         val width = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
         val height = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
         return Bitmap.createScaledBitmap(bitmap, width, height, true)
@@ -1259,6 +1372,9 @@ class AppsRepository(private val context: Context) {
     private companion object {
         const val BYTES_PER_PIXEL = 4L
         const val ICON_CACHE_MAX_BYTES = 8 * 1024 * 1024
+        const val ALL_APPS_ICON_CACHE_MAX_BYTES = 32 * 1024 * 1024
+        const val ALL_APPS_ICON_MIN_PX = 72
+        const val ALL_APPS_ICON_MAX_PX = 192
         const val ICON_DECODE_CONCURRENCY = 2
         const val ICON_CACHE_MAX_DP = 112f
         const val ICON_CACHE_MIN_PX = 96

@@ -162,6 +162,18 @@ private fun DefaultTileContent(
     appIcon: ImageBitmap?,
     logoModifier: Modifier,
 ) {
+    // Windows 8.1 small tiles are logo surfaces, not compressed medium/live templates.
+    // Never squeeze date/time/weather/title text into a 1x1 tile; badges remain an independent
+    // overlay handled by WindowsTileFace.
+    if (tile.size == TileSize.SMALL) {
+        SmallTileContent(
+            tile = tile,
+            appIcon = appIcon,
+            logoModifier = logoModifier,
+        )
+        return
+    }
+
     when (tile.tileType) {
         TileType.DESKTOP -> DesktopTileContent(title = tile.title)
         TileType.CLOCK -> ClockTileContent(title = tile.title, isWide = tile.size == TileSize.WIDE)
@@ -177,6 +189,25 @@ private fun DefaultTileContent(
             logoModifier = logoModifier,
         )
         else -> StaticAppTileContent(tile = tile, appIcon = appIcon, logoModifier = logoModifier)
+    }
+}
+
+@Composable
+private fun SmallTileContent(
+    tile: TileModel,
+    appIcon: ImageBitmap?,
+    logoModifier: Modifier,
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        LiveTileAppIcon(
+            tile = tile,
+            appIcon = appIcon,
+            size = 30.dp,
+            modifier = logoModifier,
+        )
     }
 }
 
