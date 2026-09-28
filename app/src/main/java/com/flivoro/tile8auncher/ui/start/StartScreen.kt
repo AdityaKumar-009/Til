@@ -822,11 +822,21 @@ fun StartScreen(
         dragAutoScrollActive = false
 
         if (commit) {
-            // Resolve the exact position under the held tile at release time instead of trusting
-            // a possibly stale dwell/anti-bounce proposal. The same key is then used for the
-            // final packing step, so the translucent hint and the committed cell cannot disagree.
-            val releaseProposal =
-                proposalAt(dragVisualCenter()) ?: pendingDropProposal ?: appliedDropProposal
+            val pending = pendingDropProposal
+            val visibleProposal = appliedDropProposal
+
+            // The visible preview is the user's contract. During the anti-bounce dwell a newer
+            // pending grid candidate may exist, but the neighbours and ghost still represent the
+            // last APPLIED proposal. Committing that newer invisible candidate was the remaining
+            // source of "ghost says here, tile lands there" drops. A visible new-group separator
+            // is the one exception: it is immediate, so it owns release while active.
+            val releaseProposal = when {
+                pending is StartDropProposal.NewGroup &&
+                    activeGutterKey == pending.gutterKey -> pending
+                visibleProposal != null -> visibleProposal
+                else -> proposalAt(dragVisualCenter()) ?: pending
+            }
+
             releaseProposal?.let { proposal ->
                 pendingDropProposal = proposal
                 applyDropProposal(proposal, finalDrop = true)
@@ -1754,49 +1764,42 @@ fun StartScreen(
 
                     }
 
-                    // Immediate drop-location hint for the HELD tile only.
+                    // Authoritative drop-location hint for the HELD tile only.
                     //
-                    // Important: keep this preview *behind* ordinary/reflowing tiles. In the
-                    // recording, the translucent dragged-tile preview was drawn above neighbors
-                    // while they were animating through the destination cell, which visually
-                    // looked like those old tiles had their own "ghost" copies. They did not;
-                    // it was the dragged-tile ghost composited over them. Windows/launcher-style
-                    // direct manipulation keeps the insertion preview underneath the real items.
-                    // The floating held tile itself remains the top-most object below.
+                    // Do NOT calculate this from the latest pointer/pending proposal. The drag
+                    // reorder intentionally has a short dwell to suppress cell-boundary bounce,
+                    // so a pending candidate can be ahead of the layout currently shown to the
+                    // user. Instead, render the ghost from the hidden dragged tile's ACTUAL packed
+                    // preview bounds. That invisible grid copy is produced by the same packer that
+                    // moved the neighbours and is therefore the single source of truth for:
+                    //   neighbour opening == ghost == final committed cell.
+                    //
+                    // If a newly-applied preview has not completed layout yet, suppress the ghost
+                    // for that frame rather than flashing it at the previous/stale coordinates.
                     draggingTileId?.let { draggedId ->
                         val draggedTile = tiles.firstOrNull { it.id == draggedId }
-                        val activeDropProposal = pendingDropProposal ?: appliedDropProposal
-                        val gridProposal = activeDropProposal as? StartDropProposal.Grid
-                        val key = gridProposal?.key
-                        val targetBand = key?.let { proposalKey ->
-                            bandDropTargets.values.firstOrNull {
-                                it.groupId == proposalKey.groupId &&
-                                    it.continuationIndex == proposalKey.continuationIndex
-                            }
-                        }
+                        val appliedGrid = appliedDropProposal as? StartDropProposal.Grid
+                        val appliedKey = appliedGrid?.key
+                        val packedPosition = tileGridPositions[draggedId]
+                        val packedBounds = tileBounds[draggedId]
+                        val previewReady =
+                            appliedKey != null &&
+                                packedPosition != null &&
+                                packedPosition.groupId == appliedKey.groupId &&
+                                packedPosition.continuationIndex == appliedKey.continuationIndex &&
+                                packedPosition.column == appliedKey.column &&
+                                packedPosition.row == appliedKey.row
 
                         if (
                             draggedTile != null &&
-                            key != null &&
-                            targetBand != null &&
+                            previewReady &&
+                            packedBounds != null &&
                             tileViewportBounds != Rect.Zero
                         ) {
-                            val span = draggedTile.size.startTileSpan()
-                            val stepPx = targetBand.cellPx + targetBand.gapPx
-                            val ghostLeftWindow =
-                                targetBand.bounds.left + key.column * stepPx
-                            val ghostTopWindow =
-                                targetBand.bounds.top + key.row * stepPx
-                            val ghostLeft = ghostLeftWindow - tileViewportBounds.left
-                            val ghostTop = ghostTopWindow - tileViewportBounds.top
-                            val ghostWidth = (
-                                span.columns * metrics.cellDp +
-                                    (span.columns - 1) * metrics.gapDp
-                                ).dp
-                            val ghostHeight = (
-                                span.rows * metrics.cellDp +
-                                    (span.rows - 1) * metrics.gapDp
-                                ).dp
+                            val ghostLeft = packedBounds.left - tileViewportBounds.left
+                            val ghostTop = packedBounds.top - tileViewportBounds.top
+                            val ghostWidth = with(density) { packedBounds.width.toDp() }
+                            val ghostHeight = with(density) { packedBounds.height.toDp() }
                             val ghostIcon = draggedTile.packageName?.let {
                                 rememberAppIcon(appsRepository, it)
                             }
