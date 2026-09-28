@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher.ui.apps
 import android.app.Activity
 import android.app.KeyguardManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -10,6 +11,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -48,11 +52,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
@@ -100,6 +106,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
 
@@ -127,11 +134,13 @@ fun AllAppsScreen(
     var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
     var sortMode by remember { mutableStateOf(AppSortMode.NAME) }
     var showSortChoices by remember { mutableStateOf(false) }
+    var showAlphabetOverview by remember { mutableStateOf(false) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val appTileAccent = StartPersonalization.wallpaperAccentColor
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
     var handledSearchRequest by remember { mutableIntStateOf(0) }
     val packageCatalogRevision = PackageCatalogUpdates.revision
 
@@ -192,6 +201,18 @@ fun AllAppsScreen(
             grouped.getOrPut(sectionLabel(item, sortMode)) { mutableListOf() }.add(item.app)
         }
         grouped.map { (label, apps) -> AppSection(label, apps) }
+    }
+
+    val alphabetOverviewProgress by animateFloatAsState(
+        targetValue = if (showAlphabetOverview && sortMode == AppSortMode.NAME) 1f else 0f,
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
+        label = "AllAppsAlphabetSemanticZoom",
+    )
+    BackHandler(enabled = showAlphabetOverview) {
+        showAlphabetOverview = false
+    }
+    LaunchedEffect(sortMode) {
+        if (sortMode != AppSortMode.NAME) showAlphabetOverview = false
     }
 
     val normalizedQuery = searchQuery.trim().lowercase(Locale.getDefault())
