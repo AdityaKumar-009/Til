@@ -28,7 +28,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 class AppsRepository(private val context: Context) {
 
@@ -261,30 +264,183 @@ class AppsRepository(private val context: Context) {
     }
 
     private fun drawableToMonochromeBitmap(drawable: Drawable): Bitmap {
-        val source: Drawable = if (drawable is AdaptiveIconDrawable) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                drawable.monochrome ?: drawable.foreground
-            } else {
-                drawable.foreground
+        // Android 13+ exposes the exact monochrome layer an app designed for themed icons.
+        // Use it whenever the app actually supplies one.
+        if (drawable is AdaptiveIconDrawable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            drawable.monochrome?.let { monochrome ->
+                return renderTintedDrawable(monochrome, Color.WHITE)
             }
-        } else {
-            drawable
         }
 
-        val intrinsicWidth = if (source.intrinsicWidth > 0) source.intrinsicWidth else maxCachedIconPx
-        val intrinsicHeight = if (source.intrinsicHeight > 0) source.intrinsicHeight else maxCachedIconPx
+        // Many apps (and several OEM-packaged apps) do not publish a monochrome layer. Tinting
+        // their adaptive foreground blindly turns the complete icon plate into a white square or
+        // circle. Instead render the normal icon, identify its dominant plate/background, remove
+        // that plate, and keep only contrasting logo/detail pixels as the white glyph.
+        val original = drawableToBitmap(drawable)
+        return createSmartWhiteGlyph(original) ?: original
+    }
+
+    private fun renderTintedDrawable(drawable: Drawable, tint: Int): Bitmap {
+        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
+        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
         val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
         val scale = minOf(1f, maxCachedIconPx.toFloat() / longestSide.toFloat())
         val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
         val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
 
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val tinted = source.mutate()
-        tinted.setTint(Color.WHITE)
-        tinted.setBounds(0, 0, width, height)
-        tinted.draw(canvas)
-        return bitmap
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            val tinted = drawable.mutate()
+            tinted.setTint(tint)
+            tinted.setBounds(0, 0, width, height)
+            tinted.draw(canvas)
+        }
+    }
+
+    private fun createSmartWhiteGlyph(source: Bitmap): Bitmap? {
+        if (source.width <= 1 || source.height <= 1) return null
+
+        // Quantized-color accumulation keeps this inexpensive even with hundreds of installed apps.
+        fun addPixel(map: MutableMap<Int, LongArray>, pixel: Int) {
+            val alpha = Color.alpha(pixel)
+            if (alpha < 96) return
+            val r = Color.red(pixel)
+            val g = Color.green(pixel)
+            val b = Color.blue(pixel)
+            val key = ((r shr 4) shl 8) or ((g shr 4) shl 4) or (b shr 4)
+            val acc = map.getOrPut(key) { LongArray(4) }
+            acc[0] += 1L
+            acc[1] += r.toLong()
+            acc[2] += g.toLong()
+            acc[3] += b.toLong()
+        }
+
+        fun dominantColor(map: Map<Int, LongArray>): IntArray? {
+            val best = map.values.maxByOrNull { it[0] } ?: return null
+            val count = best[0].coerceAtLeast(1L)
+            return intArrayOf(
+                (best[1] / count).toInt().coerceIn(0, 255),
+                (best[2] / count).toInt().coerceIn(0, 255),
+                (best[3] / count).toInt().coerceIn(0, 255),
+            )
+        }
+
+        val step = max(1, min(source.width, source.height) / 72)
+        val borderX = max(1, source.width / 7)
+        val borderY = max(1, source.height / 7)
+        val borderBins = HashMap<Int, LongArray>()
+        val allBins = HashMap<Int, LongArray>()
+
+        var y = 0
+        while (y < source.height) {
+            var x = 0
+            while (x < source.width) {
+                val pixel = source.getPixel(x, y)
+                addPixel(allBins, pixel)
+                if (
+                    x < borderX || x >= source.width - borderX ||
+                    y < borderY || y >= source.height - borderY
+                ) {
+                    addPixel(borderBins, pixel)
+                }
+                x += step
+            }
+            y += step
+        }
+
+        // Prefer the color touching the icon perimeter. Transparent adaptive corners can leave too
+        // few usable border samples, in which case the dominant color of the whole rendered icon
+        // is normally the plate color.
+        val borderSamples = borderBins.values.sumOf { it[0] }
+        val background = if (borderSamples >= 8L) {
+            dominantColor(borderBins)
+        } else {
+            dominantColor(allBins)
+        } ?: return null
+
+        fun colorDistance(pixel: Int): Int {
+            val dr = Color.red(pixel) - background[0]
+            val dg = Color.green(pixel) - background[1]
+            val db = Color.blue(pixel) - background[2]
+            return sqrt((dr * dr + dg * dg + db * db).toDouble()).roundToInt()
+        }
+
+        val distances = ArrayList<Int>()
+        y = 0
+        while (y < source.height) {
+            var x = 0
+            while (x < source.width) {
+                val pixel = source.getPixel(x, y)
+                if (Color.alpha(pixel) >= 96) distances += colorDistance(pixel)
+                x += step
+            }
+            y += step
+        }
+        if (distances.size < 6) return null
+        distances.sort()
+
+        fun percentile(fraction: Float): Int {
+            val index = ((distances.lastIndex) * fraction.coerceIn(0f, 1f))
+                .roundToInt()
+                .coerceIn(0, distances.lastIndex)
+            return distances[index]
+        }
+
+        fun buildMask(threshold: Int): Pair<Bitmap, Float> {
+            val softness = 34f
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            var kept = 0
+            var considered = 0
+
+            var py = 0
+            while (py < source.height) {
+                var px = 0
+                while (px < source.width) {
+                    val pixel = source.getPixel(px, py)
+                    val alpha = Color.alpha(pixel)
+                    if (alpha >= 32) {
+                        considered++
+                        val distance = colorDistance(pixel)
+                        val signal = ((distance - threshold) / softness).coerceIn(0f, 1f)
+                        val outAlpha = (alpha * signal).roundToInt().coerceIn(0, 255)
+                        if (outAlpha >= 48) kept++
+                        if (outAlpha > 0) {
+                            output.setPixel(px, py, Color.argb(outAlpha, 255, 255, 255))
+                        }
+                    }
+                    px++
+                }
+                py++
+            }
+            return output to if (considered == 0) 0f else kept.toFloat() / considered.toFloat()
+        }
+
+        var threshold = max(38, percentile(0.58f))
+        var result = buildMask(threshold)
+
+        // If too much of the plate survived, aggressively isolate the most distinctive pixels.
+        if (result.second > 0.50f) {
+            result.first.recycle()
+            threshold = max(threshold, percentile(0.76f))
+            result = buildMask(threshold)
+        }
+
+        // If almost nothing survived, relax the separation once. This catches low-contrast logos.
+        if (result.second < 0.018f) {
+            result.first.recycle()
+            threshold = max(20, percentile(0.30f))
+            result = buildMask(threshold)
+        }
+
+        // A mask covering most of the icon is still just a white plate; a near-empty mask is not
+        // identifiable. Preserve the ordinary colored icon in either case rather than showing a
+        // misleading white square/circle.
+        return if (result.second in 0.018f..0.50f) {
+            result.first
+        } else {
+            result.first.recycle()
+            null
+        }
     }
 
     private fun extractAppAccentColor(bitmap: Bitmap): Long {

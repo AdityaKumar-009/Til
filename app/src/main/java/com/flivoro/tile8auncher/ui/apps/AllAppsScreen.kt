@@ -122,7 +122,7 @@ fun AllAppsScreen(
     var showSortChoices by remember { mutableStateOf(false) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val appTileAccent = StartPersonalization.accentColor
+    val appTileAccent = StartPersonalization.wallpaperAccentColor
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var handledSearchRequest by remember { mutableIntStateOf(0) }

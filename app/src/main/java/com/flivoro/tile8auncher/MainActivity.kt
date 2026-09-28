@@ -494,6 +494,21 @@ fun Tile8LauncherApp(
     var drawerResetRequest by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val activeCustomWallpaperUri = StartPersonalization.customWallpaperUri
+    val manualStartAccentArgb = StartPersonalization.accentArgb
+
+    LaunchedEffect(wallpaperStyle, activeCustomWallpaperUri, manualStartAccentArgb) {
+        val fallback = StartPersonalization.accentColor
+        val derived = withContext(Dispatchers.IO) {
+            StartPersonalization.calculateWallpaperAccent(
+                context = context.applicationContext,
+                wallpaperStyle = wallpaperStyle,
+                customUri = activeCustomWallpaperUri,
+                fallbackAccent = fallback,
+            )
+        }
+        StartPersonalization.setWallpaperDerivedAccent(context, derived)
+    }
 
     fun pinAppWithAccent(app: AppInfo) {
         val cachedAccent = appsRepository.getCachedAppAccentColor(app.packageName)
@@ -780,7 +795,7 @@ fun Tile8LauncherApp(
                                     title = app.label,
                                     packageName = app.packageName,
                                     activityName = app.activityName,
-                                    colorValue = StartPersonalization.accentArgb,
+                                    colorValue = StartPersonalization.wallpaperAccentArgb,
                                     size = TileSize.MEDIUM,
                                 )
                                 onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
