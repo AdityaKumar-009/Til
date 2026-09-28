@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.LruCache
@@ -268,7 +269,16 @@ class AppsRepository(private val context: Context) {
         // Use it whenever the app actually supplies one.
         if (drawable is AdaptiveIconDrawable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             drawable.monochrome?.let { monochrome ->
-                return renderTintedDrawable(monochrome, Color.WHITE)
+                val whiteLayer = (monochrome.constantState?.newDrawable() ?: monochrome).mutate().apply {
+                    setTint(Color.WHITE)
+                }
+                // Route the raw monochrome layer back through AdaptiveIconDrawable so Android's
+                // own icon mask/inset rules clip OEM/app layer residue exactly like themed icons.
+                val masked = AdaptiveIconDrawable(
+                    ColorDrawable(Color.TRANSPARENT),
+                    whiteLayer,
+                )
+                return renderDrawableHighResolution(masked)
             }
         }
 
@@ -276,15 +286,23 @@ class AppsRepository(private val context: Context) {
         // their adaptive foreground blindly turns the complete icon plate into a white square or
         // circle. Instead render the normal icon, identify its dominant plate/background, remove
         // that plate, and keep only contrasting logo/detail pixels as the white glyph.
-        val original = drawableToBitmap(drawable)
-        return createSmartWhiteGlyph(original) ?: original
+        val original = renderDrawableHighResolution(drawable)
+        val glyph = createSmartWhiteGlyph(original)
+        if (glyph != null) {
+            if (glyph !== original && !original.isRecycled) original.recycle()
+            return glyph
+        }
+        return original
     }
 
     private fun renderTintedDrawable(drawable: Drawable, tint: Int): Bitmap {
         val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
         val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
         val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
-        val scale = minOf(1f, maxCachedIconPx.toFloat() / longestSide.toFloat())
+        // Monochrome artwork is often a vector/adaptive layer with only a 108px intrinsic size.
+        // Render it at the launch-cache resolution instead of preserving that small intrinsic
+        // bitmap; Compose can then scale it down with smooth edges instead of enlarging jaggies.
+        val scale = maxCachedIconPx.toFloat() / longestSide.toFloat()
         val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
         val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
 
@@ -295,6 +313,144 @@ class AppsRepository(private val context: Context) {
             tinted.setBounds(0, 0, width, height)
             tinted.draw(canvas)
         }
+    }
+
+    private fun renderDrawableHighResolution(drawable: Drawable): Bitmap {
+        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
+        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
+        val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
+        val scale = maxCachedIconPx.toFloat() / longestSide.toFloat()
+        val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
+        val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
+
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            val copy = drawable.mutate()
+            copy.setBounds(0, 0, width, height)
+            copy.draw(canvas)
+        }
+    }
+
+    private fun refineWhiteGlyphMask(mask: Bitmap): Bitmap? {
+        val width = mask.width
+        val height = mask.height
+        if (width <= 2 || height <= 2) return mask
+
+        val area = width * height
+        val pixels = IntArray(area)
+        mask.getPixels(pixels, 0, width, 0, 0, width, height)
+        val labels = IntArray(area)
+        val queue = IntArray(area)
+        data class Component(
+            var count: Int = 0,
+            var minX: Int = Int.MAX_VALUE,
+            var minY: Int = Int.MAX_VALUE,
+            var maxX: Int = Int.MIN_VALUE,
+            var maxY: Int = Int.MIN_VALUE,
+        )
+        val components = mutableListOf<Component>()
+        var nextLabel = 1
+
+        fun pushIfEligible(index: Int, label: Int, tailRef: IntArray): Int {
+            if (index !in pixels.indices || labels[index] != 0 || Color.alpha(pixels[index]) < 28) {
+                return tailRef[0]
+            }
+            labels[index] = label
+            queue[tailRef[0]] = index
+            tailRef[0]++
+            return tailRef[0]
+        }
+
+        for (start in pixels.indices) {
+            if (labels[start] != 0 || Color.alpha(pixels[start]) < 28) continue
+            val component = Component()
+            var head = 0
+            val tailRef = intArrayOf(0)
+            labels[start] = nextLabel
+            queue[tailRef[0]++] = start
+
+            while (head < tailRef[0]) {
+                val index = queue[head++]
+                val x = index % width
+                val y = index / width
+                component.count++
+                component.minX = min(component.minX, x)
+                component.maxX = max(component.maxX, x)
+                component.minY = min(component.minY, y)
+                component.maxY = max(component.maxY, y)
+
+                if (x > 0) pushIfEligible(index - 1, nextLabel, tailRef)
+                if (x + 1 < width) pushIfEligible(index + 1, nextLabel, tailRef)
+                if (y > 0) pushIfEligible(index - width, nextLabel, tailRef)
+                if (y + 1 < height) pushIfEligible(index + width, nextLabel, tailRef)
+            }
+            components += component
+            nextLabel++
+        }
+
+        if (components.isEmpty()) return null
+        val edgeMarginX = max(1, width / 32)
+        val edgeMarginY = max(1, height / 32)
+        val remove = BooleanArray(components.size + 1)
+
+        components.forEachIndexed { index, component ->
+            val componentWidth = (component.maxX - component.minX + 1).coerceAtLeast(1)
+            val componentHeight = (component.maxY - component.minY + 1).coerceAtLeast(1)
+            val longSide = max(componentWidth, componentHeight)
+            val shortSide = min(componentWidth, componentHeight)
+            val aspect = longSide.toFloat() / shortSide.toFloat()
+            val touchesOuterEdge =
+                component.minX <= edgeMarginX ||
+                    component.maxX >= width - 1 - edgeMarginX ||
+                    component.minY <= edgeMarginY ||
+                    component.maxY >= height - 1 - edgeMarginY
+
+            // OEM/adaptive plates often leave a faint rim or highlight after color separation.
+            // Long thin strips and small edge-connected fragments are plate residue, not the logo.
+            val longThinResidue =
+                aspect >= 4.0f &&
+                    shortSide <= max(3, min(width, height) / 10) &&
+                    component.count < area / 4
+            val edgeResidue = touchesOuterEdge && component.count < area / 10
+            remove[index + 1] = longThinResidue || edgeResidue
+        }
+
+        val filteredAlpha = IntArray(area)
+        var kept = 0
+        for (index in pixels.indices) {
+            val label = labels[index]
+            val alpha = if (label == 0 || remove[label]) 0 else Color.alpha(pixels[index])
+            filteredAlpha[index] = alpha
+            if (alpha >= 48) kept++
+        }
+        if (kept < area / 120) return null
+
+        // One light separable-style 3x3 weighted blur on alpha removes the stair-step edge created
+        // by color-distance thresholding. It is small enough to keep the Metro glyph crisp.
+        val output = IntArray(area)
+        val kernel = intArrayOf(1, 2, 1, 2, 4, 2, 1, 2, 1)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                var sum = 0
+                var weight = 0
+                var k = 0
+                for (dy in -1..1) {
+                    val sy = (y + dy).coerceIn(0, height - 1)
+                    for (dx in -1..1) {
+                        val sx = (x + dx).coerceIn(0, width - 1)
+                        val w = kernel[k++]
+                        sum += filteredAlpha[sy * width + sx] * w
+                        weight += w
+                    }
+                }
+                val alpha = (sum / weight).coerceIn(0, 255)
+                output[y * width + x] = if (alpha == 0) 0 else Color.argb(alpha, 255, 255, 255)
+            }
+        }
+
+        val refined = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        refined.setPixels(output, 0, width, 0, 0, width, height)
+        return refined
     }
 
     private fun createSmartWhiteGlyph(source: Bitmap): Bitmap? {
@@ -436,7 +592,9 @@ class AppsRepository(private val context: Context) {
         // identifiable. Preserve the ordinary colored icon in either case rather than showing a
         // misleading white square/circle.
         return if (result.second in 0.018f..0.50f) {
-            result.first
+            val refined = refineWhiteGlyphMask(result.first)
+            if (refined !== result.first) result.first.recycle()
+            refined
         } else {
             result.first.recycle()
             null
