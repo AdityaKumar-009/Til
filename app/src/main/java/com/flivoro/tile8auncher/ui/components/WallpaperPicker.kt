@@ -223,10 +223,10 @@ internal fun WallpaperPicker(
     }
 
     Spacer(Modifier.height(24.dp))
-    Text("Accent color", color = Color(0xFF5133AB), fontSize = 18.sp)
+    Text("Generated background accent", color = Color(0xFF5133AB), fontSize = 18.sp)
     Spacer(Modifier.height(6.dp))
     Text(
-        "Changes the colored icon containers in All Apps. It does not recolor the selected wallpaper.",
+        "Used by the generated Windows background. With a picture or stock wallpaper, All Apps automatically derives its tile accent from the wallpaper itself.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
