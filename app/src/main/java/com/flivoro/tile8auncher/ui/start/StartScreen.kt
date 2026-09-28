@@ -100,7 +100,7 @@ import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
-import com.flivoro.tile8auncher.ui.components.rememberAppIcon
+import com.flivoro.tile8auncher.ui.components.rememberStartAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
 import kotlinx.coroutines.CoroutineStart
@@ -1562,7 +1562,7 @@ fun StartScreen(
                                 band.tiles.forEach { placed ->
                                     key(placed.tile.id) {
                                         val tile = placed.tile
-                                        val appIcon = tile.packageName?.let { rememberAppIcon(appsRepository, it) }
+                                        val appIcon = tile.packageName?.let { rememberStartAppIcon(appsRepository, it) }
                                         val tileWidth = (
                                             placed.columns * metrics.cellDp +
                                                 (placed.columns - 1) * metrics.gapDp
@@ -1801,7 +1801,7 @@ fun StartScreen(
                             val ghostWidth = with(density) { packedBounds.width.toDp() }
                             val ghostHeight = with(density) { packedBounds.height.toDp() }
                             val ghostIcon = draggedTile.packageName?.let {
-                                rememberAppIcon(appsRepository, it)
+                                rememberStartAppIcon(appsRepository, it)
                             }
 
                             Box(
@@ -1848,7 +1848,7 @@ fun StartScreen(
                                     (span.rows - 1) * metrics.gapDp
                                 ).dp
                             val dragIcon = draggedTile.packageName?.let {
-                                rememberAppIcon(appsRepository, it)
+                                rememberStartAppIcon(appsRepository, it)
                             }
                             val visualTopLeft = dragVisualTopLeft()
                             val localLeft = visualTopLeft.x - tileViewportBounds.left
@@ -2557,7 +2557,7 @@ private fun StartSpatialSemanticZoom(
                         val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
                         val scale = 1f + (semanticScale - 1f) * p
                         val appIcon = tile.packageName?.let {
-                            rememberAppIcon(appsRepository, it)
+                            rememberStartAppIcon(appsRepository, it)
                         }
 
                         Box(

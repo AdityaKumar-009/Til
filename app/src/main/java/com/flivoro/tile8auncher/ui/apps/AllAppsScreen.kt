@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher.ui.apps
 import android.app.Activity
 import android.app.KeyguardManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -10,6 +11,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -48,15 +52,18 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -74,6 +81,7 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
@@ -100,6 +108,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
 
@@ -127,11 +136,13 @@ fun AllAppsScreen(
     var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
     var sortMode by remember { mutableStateOf(AppSortMode.NAME) }
     var showSortChoices by remember { mutableStateOf(false) }
+    var showAlphabetOverview by remember { mutableStateOf(false) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val appTileAccent = StartPersonalization.wallpaperAccentColor
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
     var handledSearchRequest by remember { mutableIntStateOf(0) }
     val packageCatalogRevision = PackageCatalogUpdates.revision
 
@@ -192,6 +203,19 @@ fun AllAppsScreen(
             grouped.getOrPut(sectionLabel(item, sortMode)) { mutableListOf() }.add(item.app)
         }
         grouped.map { (label, apps) -> AppSection(label, apps) }
+    }
+
+    val alphabetOverviewProgress by animateFloatAsState(
+        targetValue = if (showAlphabetOverview && sortMode == AppSortMode.NAME) 1f else 0f,
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
+        label = "AllAppsAlphabetSemanticZoom",
+    )
+    val alphabetSemanticActive = showAlphabetOverview || alphabetOverviewProgress > .001f
+    BackHandler(enabled = alphabetSemanticActive) {
+        showAlphabetOverview = false
+    }
+    LaunchedEffect(sortMode) {
+        if (sortMode != AppSortMode.NAME) showAlphabetOverview = false
     }
 
     val normalizedQuery = searchQuery.trim().lowercase(Locale.getDefault())
@@ -409,29 +433,77 @@ fun AllAppsScreen(
                         )
                     }
 
-                    LazyRow(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize().elasticHorizontalScroll().clipToBounds(),
-                        horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        items(
-                            items = columns,
-                            key = { column -> column.key },
-                            contentType = { "all-apps-column" },
-                        ) { column ->
-                            AllAppsColumn(
-                                column = column,
-                                appsRepository = appsRepository,
-                                columnWidth = metrics.columnWidthDp.dp,
-                                rowHeight = metrics.rowHeightDp.dp,
-                                isNewByPackage = isNewByPackage,
-                                appTileAccent = appTileAccent,
-                                onAppClick = { app, bounds ->
-                                    if (selectedAppForAction != null) selectedAppForAction = null
-                                    else onAppClick(app, bounds)
+                    val alphabetColumnByLetter = remember(columns) {
+                        buildMap<String, Int> {
+                            columns.forEachIndexed { index, column ->
+                                column.items
+                                    .filterIsInstance<AllAppsColumnItem.LetterHeader>()
+                                    .forEach { header -> putIfAbsent(header.letter.uppercase(Locale.ROOT), index) }
+                            }
+                        }
+                    }
+                    val availableLetters = remember(alphabetColumnByLetter) {
+                        alphabetColumnByLetter.keys.toSet()
+                    }
+
+                    Box(Modifier.fillMaxSize()) {
+                        LazyRow(
+                            state = listState,
+                            userScrollEnabled = !alphabetSemanticActive,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(if (alphabetSemanticActive) Modifier else Modifier.elasticHorizontalScroll())
+                                .clipToBounds()
+                                .graphicsLayer {
+                                    val scale = 1f - 0.22f * alphabetOverviewProgress
+                                    scaleX = scale
+                                    scaleY = scale
+                                    alpha = 1f - alphabetOverviewProgress
                                 },
-                                onLongClick = { selectedAppForAction = it },
+                            horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            items(
+                                items = columns,
+                                key = { column -> column.key },
+                                contentType = { "all-apps-column" },
+                            ) { column ->
+                                AllAppsColumn(
+                                    column = column,
+                                    appsRepository = appsRepository,
+                                    columnWidth = metrics.columnWidthDp.dp,
+                                    rowHeight = metrics.rowHeightDp.dp,
+                                    isNewByPackage = isNewByPackage,
+                                    appTileAccent = appTileAccent,
+                                    letterColor = appTileAccent,
+                                    onLetterClick = {
+                                        if (sortMode == AppSortMode.NAME) {
+                                            selectedAppForAction = null
+                                            showAlphabetOverview = true
+                                        }
+                                    },
+                                    onAppClick = { app, bounds ->
+                                        if (selectedAppForAction != null) selectedAppForAction = null
+                                        else onAppClick(app, bounds)
+                                    },
+                                    onLongClick = { selectedAppForAction = it },
+                                )
+                            }
+                        }
+
+                        if (alphabetOverviewProgress > .001f && sortMode == AppSortMode.NAME) {
+                            AlphabetSemanticOverview(
+                                progress = alphabetOverviewProgress,
+                                accentColor = appTileAccent,
+                                availableLetters = availableLetters,
+                                onLetterClick = { letter ->
+                                    alphabetColumnByLetter[letter]?.let { targetIndex ->
+                                        scope.launch {
+                                            listState.scrollToItem(targetIndex)
+                                            showAlphabetOverview = false
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
@@ -672,6 +744,8 @@ private fun AllAppsColumn(
     rowHeight: Dp,
     isNewByPackage: Map<String, Boolean>,
     appTileAccent: Color,
+    letterColor: Color,
+    onLetterClick: (String) -> Unit,
     onAppClick: (app: AppInfo, bounds: Rect) -> Unit,
     onLongClick: (app: AppInfo) -> Unit,
 ) {
@@ -682,7 +756,12 @@ private fun AllAppsColumn(
         column.items.forEach { item ->
             key(item.key) {
                 when (item) {
-                    is AllAppsColumnItem.LetterHeader -> LetterHeader(item.letter, rowHeight)
+                    is AllAppsColumnItem.LetterHeader -> LetterHeader(
+                        letter = item.letter,
+                        rowHeight = rowHeight,
+                        color = letterColor,
+                        onClick = { onLetterClick(item.letter) },
+                    )
                     is AllAppsColumnItem.App -> AppListItem(
                         app = item.app,
                         appsRepository = appsRepository,
@@ -699,18 +778,92 @@ private fun AllAppsColumn(
 }
 
 @Composable
-private fun LetterHeader(letter: String, rowHeight: Dp) {
+private fun LetterHeader(
+    letter: String,
+    rowHeight: Dp,
+    color: Color,
+    onClick: () -> Unit,
+) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(rowHeight).padding(top = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowHeight)
+            .clickable(onClick = onClick)
+            .padding(top = 10.dp),
         contentAlignment = Alignment.TopStart,
     ) {
         Text(
             text = letter,
             style = WindowsTypography.headlineMedium.copy(fontSize = 24.sp, fontWeight = FontWeight.Normal),
-            color = WindowsColors.Magenta.toTileColor(),
+            color = color,
             maxLines = 1,
             softWrap = false,
         )
+    }
+}
+
+@Composable
+private fun AlphabetSemanticOverview(
+    progress: Float,
+    accentColor: Color,
+    availableLetters: Set<String>,
+    onLetterClick: (String) -> Unit,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val scale = .78f + .22f * progress
+                scaleX = scale
+                scaleY = scale
+                alpha = progress
+            },
+    ) {
+        val columns = if (maxWidth < 360.dp) 5 else 6
+        val letters = remember {
+            buildList {
+                add("#")
+                ('A'..'Z').forEach { add(it.toString()) }
+            }
+        }
+        val rows = remember(columns) { letters.chunked(columns) }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            rows.forEach { rowLetters ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    rowLetters.forEach { letter ->
+                        val enabled = letter in availableLetters
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clickable(enabled = enabled) { onLetterClick(letter) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = letter,
+                                color = if (enabled) accentColor else Color.White.copy(alpha = .22f),
+                                style = WindowsTypography.headlineMedium.copy(
+                                    fontSize = 27.sp,
+                                    fontWeight = FontWeight.Normal,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    repeat(columns - rowLetters.size) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -727,6 +880,10 @@ private fun AppListItem(
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val context = LocalContext.current
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
+    val tileForeground = readableAllAppsTileForeground(appTileAccent)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -748,8 +905,20 @@ private fun AppListItem(
                 .background(appTileAccent),
             contentAlignment = Alignment.Center,
         ) {
-            if (icon != null) Image(icon, app.label, Modifier.size(ALL_APPS_ICON_DP.dp))
-            else MetroIcon(glyph = "app", color = Color.White, size = ALL_APPS_ICON_DP.dp)
+            if (icon != null) {
+                Image(
+                    bitmap = icon,
+                    contentDescription = app.label,
+                    colorFilter = if (iconStyle == AppIconStyle.WHITE_MONOCHROME) {
+                        ColorFilter.tint(tileForeground)
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                )
+            } else {
+                MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
+            }
         }
         Spacer(modifier = Modifier.width(10.dp))
         Text(
@@ -764,12 +933,24 @@ private fun AppListItem(
         if (isNew) {
             Text(
                 text = "NEW",
-                color = WindowsColors.Magenta.toTileColor(),
+                color = appTileAccent,
                 style = WindowsTypography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold),
                 modifier = Modifier.padding(start = 5.dp, end = 2.dp),
             )
         }
     }
+}
+
+private fun readableAllAppsTileForeground(background: Color): Color {
+    val maxChannel = maxOf(background.red, background.green, background.blue)
+    val minChannel = minOf(background.red, background.green, background.blue)
+    val lightNeutral = minChannel >= .80f && maxChannel - minChannel <= .14f
+    val yellowFamily =
+        background.red >= .58f &&
+            background.green >= .45f &&
+            background.blue <= .30f &&
+            background.red + background.green - 2f * background.blue >= .85f
+    return if (lightNeutral || yellowFamily) Color.Black else Color.White
 }
 
 @Composable
