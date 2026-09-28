@@ -460,23 +460,17 @@ private fun LargeLiveNotificationTileContent(
 }
 
 private fun readableTileLabelColor(background: Color): Color {
-    fun linearize(channel: Float): Float =
-        if (channel <= 0.04045f) {
-            channel / 12.92f
-        } else {
-            Math.pow(((channel + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
-        }
+    // Windows 8.1 keeps tile branding white across the saturated Metro palette. Dark text is the
+    // deliberate exception for yellow/amber-family tiles, where white becomes visually washed out.
+    // Do not use a generic luminance crossover here: it incorrectly turns lime, cyan and other
+    // bright Metro colors black even though Windows keeps those labels white.
+    val isYellowFamily =
+        background.red >= 0.58f &&
+            background.green >= 0.45f &&
+            background.blue <= 0.30f &&
+            background.red + background.green - (2f * background.blue) >= 0.85f
 
-    val luminance =
-        0.2126f * linearize(background.red) +
-            0.7152f * linearize(background.green) +
-            0.0722f * linearize(background.blue)
-
-    // Pick whichever of black/white has the stronger WCAG contrast against the actual tile.
-    // The crossover is ~0.179 relative luminance; calculating both ratios keeps the intent clear.
-    val contrastWithBlack = (luminance + 0.05f) / 0.05f
-    val contrastWithWhite = 1.05f / (luminance + 0.05f)
-    return if (contrastWithBlack >= contrastWithWhite) Color.Black else Color.White
+    return if (isYellowFamily) Color.Black else Color.White
 }
 
 @Composable
