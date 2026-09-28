@@ -286,7 +286,11 @@ class AppsRepository(private val context: Context) {
         val image = try {
             val drawable = packageManager.getApplicationIcon(packageName)
             val bitmap = if (monochrome) {
-                drawableToMonochromeBitmap(drawable, maxPx)
+                // Build the monochrome glyph at the same high resolution used by Start/launch
+                // icons, then shrink it for All Apps. Running smart plate removal directly on the
+                // tiny list thumbnail loses thin logo details and often falls back to the colored
+                // icon, which made White monochrome appear broken specifically in All Apps.
+                drawableToMonochromeBitmap(drawable).downscaleToMaxPx(maxPx)
             } else {
                 drawableToBitmap(drawable, maxPx)
             }
@@ -359,6 +363,19 @@ class AppsRepository(private val context: Context) {
 
     private fun drawableToMonochromeBitmap(drawable: Drawable): Bitmap =
         drawableToMonochromeBitmap(drawable, maxCachedIconPx)
+
+    private fun Bitmap.downscaleToMaxPx(targetPx: Int): Bitmap {
+        val safeTarget = targetPx.coerceAtLeast(1)
+        val longestSide = max(width, height).coerceAtLeast(1)
+        if (longestSide <= safeTarget) return this
+
+        val scale = safeTarget.toFloat() / longestSide.toFloat()
+        val scaledWidth = (width * scale).roundToInt().coerceAtLeast(1)
+        val scaledHeight = (height * scale).roundToInt().coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(this, scaledWidth, scaledHeight, true)
+        if (scaled !== this && !isRecycled) recycle()
+        return scaled
+    }
 
     private fun drawableToMonochromeBitmap(
         drawable: Drawable,
