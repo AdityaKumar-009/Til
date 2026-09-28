@@ -45,6 +45,34 @@ fun cachedAppIconForCurrentStyle(
     }
 }
 
+private object ResolvedStartIconCache {
+    @Volatile
+    private var revision: Int = Int.MIN_VALUE
+    private val icons = ConcurrentHashMap<String, ImageBitmap>()
+
+    @Synchronized
+    fun ensureRevision(currentRevision: Int) {
+        if (currentRevision <= revision) return
+        icons.clear()
+        revision = currentRevision
+    }
+
+    fun get(packageName: String, style: AppIconStyle, currentRevision: Int): ImageBitmap? {
+        if (currentRevision != revision) return null
+        return icons["${style.name}:$packageName"]
+    }
+
+    fun put(
+        packageName: String,
+        style: AppIconStyle,
+        currentRevision: Int,
+        icon: ImageBitmap,
+    ) {
+        if (currentRevision != revision) return
+        icons["${style.name}:$packageName"] = icon
+    }
+}
+
 private object ResolvedAllAppsIconCache {
     @Volatile
     private var revision: Int = Int.MIN_VALUE
@@ -209,6 +237,66 @@ fun rememberAllAppsIcon(
             maxPx = maxPx,
             iconsRevision = iconsRevision,
         )
+    }
+
+    return icon
+}
+
+/**
+ * Start tiles are horizontally recycled by LazyRow. Keep every icon that has already been resolved
+ * for the pinned Start surface in a process-resident style/revision cache so returning to a band
+ * never flashes the fallback glyph or repeats PackageManager/icon-pack work.
+ */
+@Composable
+fun rememberStartAppIcon(
+    repository: AppsRepository,
+    packageName: String?,
+): ImageBitmap? {
+    val context = LocalContext.current
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) {
+        LauncherFeatureStore.appIconStyle(context)
+    }
+
+    ResolvedStartIconCache.ensureRevision(iconsRevision)
+    var icon by remember(repository, packageName, iconsRevision, iconStyle) {
+        mutableStateOf(
+            packageName?.let { name ->
+                ResolvedStartIconCache.get(name, iconStyle, iconsRevision) ?: when (iconStyle) {
+                    AppIconStyle.DEFAULT ->
+                        IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
+                    AppIconStyle.ANDROID_ADAPTIVE ->
+                        repository.getCachedAppIcon(name)
+                    AppIconStyle.WHITE_MONOCHROME ->
+                        repository.getCachedMonochromeAppIcon(name) ?: repository.getCachedAppIcon(name)
+                }
+            },
+        )
+    }
+
+    LaunchedEffect(repository, packageName, iconsRevision, iconStyle) {
+        val name = packageName ?: return@LaunchedEffect
+        ResolvedStartIconCache.get(name, iconStyle, iconsRevision)?.let {
+            icon = it
+            return@LaunchedEffect
+        }
+
+        val resolved = when (iconStyle) {
+            AppIconStyle.DEFAULT -> {
+                val override = withContext(Dispatchers.IO) {
+                    IconPackManager.loadOverride(context.applicationContext, name)
+                }
+                override ?: repository.loadAppIcon(name)
+            }
+            AppIconStyle.ANDROID_ADAPTIVE -> repository.loadAppIcon(name)
+            AppIconStyle.WHITE_MONOCHROME -> repository.loadMonochromeAppIcon(name)
+        }
+
+        if (resolved != null) {
+            ResolvedStartIconCache.ensureRevision(iconsRevision)
+            ResolvedStartIconCache.put(name, iconStyle, iconsRevision, resolved)
+        }
+        icon = resolved
     }
 
     return icon
