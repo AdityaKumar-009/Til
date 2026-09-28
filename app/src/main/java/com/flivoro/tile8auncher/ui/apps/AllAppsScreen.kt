@@ -880,8 +880,9 @@ private fun AppListItem(
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val context = LocalContext.current
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
-    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(LocalContext.current) }
+    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
     val tileForeground = readableAllAppsTileForeground(appTileAccent)
     Row(
         verticalAlignment = Alignment.CenterVertically,
