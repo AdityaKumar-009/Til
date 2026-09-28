@@ -15,7 +15,11 @@ import com.flivoro.tile8auncher.features.IconPackManager
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 /**
@@ -41,6 +45,29 @@ fun cachedAppIconForCurrentStyle(
     }
 }
 
+private object ResolvedAllAppsIconCache {
+    @Volatile
+    private var revision: Int = Int.MIN_VALUE
+    private val icons = ConcurrentHashMap<String, ImageBitmap>()
+
+    @Synchronized
+    fun ensureRevision(currentRevision: Int) {
+        if (revision == currentRevision) return
+        icons.clear()
+        revision = currentRevision
+    }
+
+    fun get(packageName: String, style: AppIconStyle, maxPx: Int): ImageBitmap? =
+        icons[key(packageName, style, maxPx)]
+
+    fun put(packageName: String, style: AppIconStyle, maxPx: Int, icon: ImageBitmap) {
+        icons[key(packageName, style, maxPx)] = icon
+    }
+
+    private fun key(packageName: String, style: AppIconStyle, maxPx: Int): String =
+        "${style.name}:$packageName:$maxPx"
+}
+
 private fun allAppsIconTargetPx(context: Context): Int =
     (40f * context.resources.displayMetrics.density)
         .roundToInt()
@@ -52,7 +79,12 @@ private fun cachedAllAppsIconForStyle(
     packageName: String,
     style: AppIconStyle,
     maxPx: Int,
-): ImageBitmap? = when (style) {
+    iconsRevision: Int,
+): ImageBitmap? {
+    ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
+    ResolvedAllAppsIconCache.get(packageName, style, maxPx)?.let { return it }
+
+    val icon = when (style) {
     AppIconStyle.DEFAULT ->
         IconPackManager.peekOverride(packageName, maxPx)
             ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
@@ -67,6 +99,10 @@ private fun cachedAllAppsIconForStyle(
             ?: repository.getCachedMonochromeAppIcon(packageName)
             ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
             ?: repository.getCachedAppIcon(packageName)
+    }
+
+    if (icon != null) ResolvedAllAppsIconCache.put(packageName, style, maxPx, icon)
+    return icon
 }
 
 private suspend fun resolveAllAppsIcon(
@@ -75,10 +111,18 @@ private suspend fun resolveAllAppsIcon(
     packageName: String,
     style: AppIconStyle,
     maxPx: Int,
+    iconsRevision: Int,
 ): ImageBitmap? {
-    cachedAllAppsIconForStyle(context, repository, packageName, style, maxPx)?.let { return it }
+    cachedAllAppsIconForStyle(
+        context = context,
+        repository = repository,
+        packageName = packageName,
+        style = style,
+        maxPx = maxPx,
+        iconsRevision = iconsRevision,
+    )?.let { return it }
 
-    return when (style) {
+    val resolved = when (style) {
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
                 IconPackManager.loadOverride(context.applicationContext, packageName, maxPx)
@@ -93,6 +137,12 @@ private suspend fun resolveAllAppsIcon(
             repository.loadAllAppsIcon(packageName, maxPx, monochrome = true)
                 ?: repository.loadAllAppsIcon(packageName, maxPx, monochrome = false)
     }
+
+    if (resolved != null) {
+        ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
+        ResolvedAllAppsIconCache.put(packageName, style, maxPx, resolved)
+    }
+    return resolved
 }
 
 /**
@@ -125,6 +175,7 @@ fun rememberAllAppsIcon(
                     packageName = name,
                     style = iconStyle,
                     maxPx = maxPx,
+                    iconsRevision = iconsRevision,
                 )
             },
         )
@@ -138,6 +189,7 @@ fun rememberAllAppsIcon(
             packageName = name,
             style = iconStyle,
             maxPx = maxPx,
+            iconsRevision = iconsRevision,
         )
     }
 
@@ -154,16 +206,28 @@ suspend fun preloadAllAppsIcons(
     repository: AppsRepository,
     packageNames: List<String>,
     style: AppIconStyle,
+    iconsRevision: Int,
 ) {
     val maxPx = allAppsIconTargetPx(context)
-    packageNames.distinct().forEach { packageName ->
-        resolveAllAppsIcon(
-            context = context,
-            repository = repository,
-            packageName = packageName,
-            style = style,
-            maxPx = maxPx,
-        )
+    ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
+
+    // Work in small batches. The repository has its own four-slot thumbnail semaphore, so this
+    // gets the visible/nearby apps ready quickly without creating an unbounded decode storm.
+    packageNames.distinct().chunked(8).forEach { batch ->
+        coroutineScope {
+            batch.map { packageName ->
+                async(Dispatchers.IO) {
+                    resolveAllAppsIcon(
+                        context = context,
+                        repository = repository,
+                        packageName = packageName,
+                        style = style,
+                        maxPx = maxPx,
+                        iconsRevision = iconsRevision,
+                    )
+                }
+            }.awaitAll()
+        }
     }
 }
 
