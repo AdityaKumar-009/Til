@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -80,6 +81,7 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
@@ -877,6 +879,9 @@ private fun AppListItem(
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(LocalContext.current) }
+    val tileForeground = readableAllAppsTileForeground(appTileAccent)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -898,8 +903,20 @@ private fun AppListItem(
                 .background(appTileAccent),
             contentAlignment = Alignment.Center,
         ) {
-            if (icon != null) Image(icon, app.label, Modifier.size(ALL_APPS_ICON_DP.dp))
-            else MetroIcon(glyph = "app", color = Color.White, size = ALL_APPS_ICON_DP.dp)
+            if (icon != null) {
+                Image(
+                    bitmap = icon,
+                    contentDescription = app.label,
+                    colorFilter = if (iconStyle == AppIconStyle.WHITE_MONOCHROME) {
+                        ColorFilter.tint(tileForeground)
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                )
+            } else {
+                MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
+            }
         }
         Spacer(modifier = Modifier.width(10.dp))
         Text(
@@ -920,6 +937,18 @@ private fun AppListItem(
             )
         }
     }
+}
+
+private fun readableAllAppsTileForeground(background: Color): Color {
+    val maxChannel = maxOf(background.red, background.green, background.blue)
+    val minChannel = minOf(background.red, background.green, background.blue)
+    val lightNeutral = minChannel >= .80f && maxChannel - minChannel <= .14f
+    val yellowFamily =
+        background.red >= .58f &&
+            background.green >= .45f &&
+            background.blue <= .30f &&
+            background.red + background.green - 2f * background.blue >= .85f
+    return if (lightNeutral || yellowFamily) Color.Black else Color.White
 }
 
 @Composable
