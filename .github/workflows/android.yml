@@ -2,6 +2,9 @@ name: Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/validate-white-small-widgets-v2
 
 permissions:
   contents: read
