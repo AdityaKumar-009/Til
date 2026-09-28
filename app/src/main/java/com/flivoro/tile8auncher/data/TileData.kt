@@ -38,6 +38,12 @@ data class TileModel(
     val activityName: String? = null,
     val size: TileSize = TileSize.MEDIUM,
     val colorValue: Long = 0xFF0078D7,
+    /**
+     * True when [colorValue] is owned by Tile8's automatic app-accent extractor.
+     * A manual Customize color always clears this flag so future accent refreshes never
+     * overwrite a color the user deliberately chose.
+     */
+    val usesAppAccent: Boolean = false,
     val tileType: TileType = TileType.APP,
     val iconGlyph: String = "",
     val groupName: String = "Start",
