@@ -402,7 +402,7 @@ private fun readableTileLabelColor(background: Color): Color {
         if (channel <= 0.04045f) {
             channel / 12.92f
         } else {
-            kotlin.math.pow((channel + 0.055f) / 1.055f, 2.4f)
+            Math.pow(((channel + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
         }
 
     val luminance =
