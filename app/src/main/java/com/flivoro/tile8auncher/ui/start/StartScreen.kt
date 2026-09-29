@@ -2384,7 +2384,7 @@ private fun StartCustomizationBar(
                     modifier = Modifier
                         .width(if (compact) 132.dp else 150.dp)
                         .background(resizeMenuColor),
-                    shape = RectangleShape,
+                    shape = RoundedCornerShape(0.dp),
                     containerColor = resizeMenuColor,
                     tonalElevation = 0.dp,
                     shadowElevation = 8.dp,
