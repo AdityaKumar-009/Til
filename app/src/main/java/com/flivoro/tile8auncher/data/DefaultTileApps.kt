@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.data
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -105,6 +106,44 @@ fun resolveDefaultTileApp(
  * Base intent for Android's activity picker. If the semantic category has no handlers on a device,
  * fall back to all launcher apps so the user can still bind that Start tile manually.
  */
+/**
+ * Builds the launch intent for a tile that has already been bound to an app. Stock tiles keep
+ * their semantic Android action (camera, browser, alarms, etc.) while targeting the exact activity
+ * the user/default resolver selected.
+ */
+fun boundTileLaunchIntent(
+    context: Context,
+    tile: TileModel,
+): Intent? {
+    val packageName = tile.packageName ?: return null
+    val pm = context.packageManager
+    val semantic = if (isStockDefaultTileId(tile.id)) defaultTileSemanticIntent(tile.id) else null
+
+    tile.activityName?.let { activityName ->
+        val explicit = Intent(
+            semantic ?: Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            },
+        ).apply {
+            component = ComponentName(packageName, activityName)
+        }
+        if (runCatching { explicit.resolveActivity(pm) }.getOrNull() != null) {
+            return explicit
+        }
+    }
+
+    if (semantic != null) {
+        val scoped = Intent(semantic).setPackage(packageName)
+        if (runCatching { scoped.resolveActivity(pm) }.getOrNull() != null) {
+            return scoped
+        }
+    }
+
+    return runCatching { pm.getLaunchIntentForPackage(packageName) }
+        .getOrNull()
+        ?.takeIf { runCatching { it.resolveActivity(pm) }.getOrNull() != null }
+}
+
 fun defaultTilePickerBaseIntent(
     context: Context,
     tileId: String,
