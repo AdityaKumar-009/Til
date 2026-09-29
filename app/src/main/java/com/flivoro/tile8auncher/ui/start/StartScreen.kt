@@ -49,6 +49,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RectangleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -83,6 +86,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -97,6 +101,7 @@ import com.flivoro.tile8auncher.features.performStartDoubleTapAction
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
@@ -220,6 +225,7 @@ fun StartScreen(
     appsRepository: AppsRepository,
     onTileClick: (tile: TileModel, bounds: Rect) -> Unit,
     onTileLongClick: (tile: TileModel) -> Unit,
+    onUninstallApp: (packageName: String) -> Unit = {},
     onPowerClick: () -> Unit,
     onSearchClick: () -> Unit,
     onAddAppsClick: () -> Unit,
