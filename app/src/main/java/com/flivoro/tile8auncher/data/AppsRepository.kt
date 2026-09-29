@@ -9,7 +9,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.LruCache
@@ -385,16 +384,11 @@ class AppsRepository(private val context: Context) {
         // Use it whenever the app actually supplies one.
         if (drawable is AdaptiveIconDrawable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             drawable.monochrome?.let { monochrome ->
-                val whiteLayer = (monochrome.constantState?.newDrawable() ?: monochrome).mutate().apply {
-                    setTint(Color.WHITE)
-                }
-                // Route the raw monochrome layer back through AdaptiveIconDrawable so Android's
-                // own icon mask/inset rules clip OEM/app layer residue exactly like themed icons.
-                val masked = AdaptiveIconDrawable(
-                    ColorDrawable(Color.TRANSPARENT),
-                    whiteLayer,
-                )
-                return renderDrawableAtResolution(masked, targetPx)
+                // Render the app-supplied monochrome artwork itself. Wrapping this layer back
+                // inside a new AdaptiveIconDrawable applies the adaptive outer mask as visible
+                // alpha and turns many themed icons into rounded/square plates. The raw
+                // monochrome layer is already the intended glyph mask, with vector AA intact.
+                return renderTintedDrawable(monochrome, Color.WHITE, targetPx)
             }
         }
 
@@ -411,20 +405,25 @@ class AppsRepository(private val context: Context) {
         return original
     }
 
-    private fun renderTintedDrawable(drawable: Drawable, tint: Int): Bitmap {
-        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else maxCachedIconPx
-        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else maxCachedIconPx
+    private fun renderTintedDrawable(
+        drawable: Drawable,
+        tint: Int,
+        targetPx: Int = maxCachedIconPx,
+    ): Bitmap {
+        val safeTarget = targetPx.coerceAtLeast(1)
+        val intrinsicWidth = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else safeTarget
+        val intrinsicHeight = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else safeTarget
         val longestSide = maxOf(intrinsicWidth, intrinsicHeight).coerceAtLeast(1)
-        // Monochrome artwork is often a vector/adaptive layer with only a 108px intrinsic size.
-        // Render it at the launch-cache resolution instead of preserving that small intrinsic
-        // bitmap; Compose can then scale it down with smooth edges instead of enlarging jaggies.
-        val scale = maxCachedIconPx.toFloat() / longestSide.toFloat()
+        // Always render vector monochrome artwork at the requested cache resolution. This keeps
+        // the app-authored curves anti-aliased and avoids reconstructing a border from the
+        // adaptive mask.
+        val scale = safeTarget.toFloat() / longestSide.toFloat()
         val width = (intrinsicWidth * scale).roundToInt().coerceAtLeast(1)
         val height = (intrinsicHeight * scale).roundToInt().coerceAtLeast(1)
 
         return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
             val canvas = Canvas(bitmap)
-            val tinted = drawable.mutate()
+            val tinted = (drawable.constantState?.newDrawable() ?: drawable).mutate()
             tinted.setTint(tint)
             tinted.setBounds(0, 0, width, height)
             tinted.draw(canvas)
