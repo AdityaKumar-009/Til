@@ -49,6 +49,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -72,6 +74,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -83,6 +86,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -97,6 +101,7 @@ import com.flivoro.tile8auncher.features.performStartDoubleTapAction
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.animation.StartEntranceMotion
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
@@ -220,6 +225,7 @@ fun StartScreen(
     appsRepository: AppsRepository,
     onTileClick: (tile: TileModel, bounds: Rect) -> Unit,
     onTileLongClick: (tile: TileModel) -> Unit,
+    onUninstallApp: (packageName: String) -> Unit = {},
     onPowerClick: () -> Unit,
     onSearchClick: () -> Unit,
     onAddAppsClick: () -> Unit,
@@ -1586,6 +1592,11 @@ fun StartScreen(
                                         val reorderTranslation = motionState.translation.value
                                         val isDragging = tile.id == draggingTileId
                                         val isSelected = tile.id in selectedTileIds
+                                        val selectionScale by animateFloatAsState(
+                                            targetValue = if (isSelected && !isDragging) 1.025f else 1f,
+                                            animationSpec = tween(110, easing = FastOutSlowInEasing),
+                                            label = "Win81TileSelectionFloat",
+                                        )
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
                                         DisposableEffect(tile.id) {
@@ -1684,6 +1695,13 @@ fun StartScreen(
                                                 .graphicsLayer {
                                                     translationX = reorderTranslation.x
                                                     translationY = reorderTranslation.y
+                                                    scaleX = selectionScale
+                                                    scaleY = selectionScale
+                                                    shadowElevation = if (isSelected && !isDragging) {
+                                                        with(dragDensity) { 8.dp.toPx() }
+                                                    } else {
+                                                        0f
+                                                    }
                                                 }
                                                 // During a drag the grid copy is only the live
                                                 // placeholder. A separate absolute proxy follows
@@ -1745,16 +1763,11 @@ fun StartScreen(
                                             }
 
                                             if (isSelected && !isDragging) {
-                                                Box(
+                                                Windows81SelectionCheck(
                                                     modifier = Modifier
                                                         .align(Alignment.TopEnd)
-                                                        .padding(5.dp)
-                                                        .size(20.dp)
-                                                        .background(Color(0xCC6E6E6E)),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                                }
+                                                        .padding(top = 4.dp, end = 4.dp),
+                                                )
                                             }
                                         }
                                     }
@@ -1875,21 +1888,11 @@ fun StartScreen(
                                     appIcon = dragIcon,
                                     modifier = Modifier.fillMaxSize(),
                                 )
-                                Box(
+                                Windows81SelectionCheck(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
-                                        .padding(5.dp)
-                                        .size(20.dp)
-                                        .background(Color(0xCC6E6E6E)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        "✓",
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
+                                        .padding(top = 4.dp, end = 4.dp),
+                                )
                             }
                         }
                     }
@@ -2005,10 +2008,9 @@ fun StartScreen(
                 showResizeChoices = showResizeChoices,
                 onToggleResizeChoices = { showResizeChoices = !showResizeChoices },
                 onResize = { size ->
-                    val selected = selectedTiles.singleOrNull() ?: return@StartCustomizationBar
                     val updated = normalizeStartTileOrder(
                         tiles.map { tile ->
-                            if (tile.id == selected.id) {
+                            if (tile.id in selectedTileIds) {
                                 tile.copy(
                                     size = size,
                                     startBand = null,
@@ -2030,6 +2032,13 @@ fun StartScreen(
                     latestOnTilesChanged.value(updated)
                     selectedTileIds = emptySet()
                     showResizeChoices = false
+                },
+                onUninstall = singlePackage?.let { packageName ->
+                    {
+                        onUninstallApp(packageName)
+                        selectedTileIds = emptySet()
+                        showResizeChoices = false
+                    }
                 },
                 onCustomize = {
                     selectedTiles.singleOrNull()?.let { latestOnTileLongClick.value(it) }
@@ -2273,12 +2282,36 @@ private fun distanceSquaredToRect(point: Offset, rect: Rect): Float {
 }
 
 @Composable
+private fun Windows81SelectionCheck(
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(18.dp)) {
+        val stroke = (size.minDimension * .12f).coerceAtLeast(1.5f)
+        drawLine(
+            color = Color.White,
+            start = Offset(size.width * .12f, size.height * .52f),
+            end = Offset(size.width * .40f, size.height * .78f),
+            strokeWidth = stroke,
+            cap = androidx.compose.ui.graphics.StrokeCap.Square,
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(size.width * .40f, size.height * .78f),
+            end = Offset(size.width * .88f, size.height * .20f),
+            strokeWidth = stroke,
+            cap = androidx.compose.ui.graphics.StrokeCap.Square,
+        )
+    }
+}
+
+@Composable
 private fun StartCustomizationBar(
     selectedTiles: List<TileModel>,
     showResizeChoices: Boolean,
     onToggleResizeChoices: () -> Unit,
     onResize: (TileSize) -> Unit,
     onUnpin: () -> Unit,
+    onUninstall: (() -> Unit)?,
     onCustomize: () -> Unit,
     liveTileEnabled: Boolean?,
     onToggleLiveTile: (() -> Unit)?,
@@ -2290,66 +2323,142 @@ private fun StartCustomizationBar(
     onDone: () -> Unit,
 ) {
     val singleTile = selectedTiles.singleOrNull()
-    Column(
+    val commonSize = selectedTiles.map(TileModel::size).distinct().singleOrNull()
+    val accent = StartPersonalization.wallpaperAccentColor
+    val appBarColor = win81CustomizationBarColor(accent)
+    val resizeMenuColor = win81ResizeFlyoutColor(appBarColor)
+
+    // Windows 8.1 touch customization uses the bottom app bar even after Update 1; the desktop
+    // mouse path gained a context menu, but a touch hold still shows this command surface.
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xF0180424))
+            .background(appBarColor)
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .height(92.dp),
     ) {
-        AnimatedVisibility(visible = showResizeChoices && singleTile != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TileSize.entries.forEach { size ->
-                    val selected = singleTile?.size == size
-                    Box(
-                        modifier = Modifier
-                            .height(34.dp)
-                            .background(if (selected) Color(0xFF6B4AA5) else Color(0xFF32106B))
-                            .border(1.dp, if (selected) Color.White else Color(0x66FFFFFF))
-                            .clickable { onResize(size) }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = size.name.lowercase().replaceFirstChar { it.uppercase() },
-                            color = Color.White,
-                            fontSize = 11.sp,
+        val compact = maxWidth < 420.dp
+        val commandWidth = if (compact) 66.dp else 80.dp
+        val sidePadding = if (compact) 6.dp else 14.dp
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = sidePadding),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StartCommandButton(
+                label = "Unpin from Start",
+                glyph = "unpin",
+                commandWidth = commandWidth,
+                compact = compact,
+                onClick = onUnpin,
+            )
+
+            onUninstall?.let { uninstall ->
+                StartCommandButton(
+                    label = "Uninstall",
+                    glyph = "uninstall",
+                    commandWidth = commandWidth,
+                    compact = compact,
+                    onClick = uninstall,
+                )
+            }
+
+            Box {
+                StartCommandButton(
+                    label = "Resize",
+                    glyph = "resize",
+                    commandWidth = commandWidth,
+                    compact = compact,
+                    onClick = onToggleResizeChoices,
+                )
+
+                DropdownMenu(
+                    expanded = showResizeChoices,
+                    onDismissRequest = {
+                        if (showResizeChoices) onToggleResizeChoices()
+                    },
+                    offset = DpOffset(0.dp, (-6).dp),
+                    modifier = Modifier
+                        .width(if (compact) 132.dp else 150.dp)
+                        .background(resizeMenuColor),
+                    shape = RectangleShape,
+                    containerColor = resizeMenuColor,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 8.dp,
+                ) {
+                    listOf(
+                        TileSize.LARGE,
+                        TileSize.WIDE,
+                        TileSize.MEDIUM,
+                        TileSize.SMALL,
+                    ).forEach { size ->
+                        val selected = commonSize == size
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Box(
+                                        modifier = Modifier.width(22.dp),
+                                        contentAlignment = Alignment.CenterStart,
+                                    ) {
+                                        if (selected) {
+                                            Windows81SelectionCheck(Modifier.size(13.dp))
+                                        }
+                                    }
+                                    Text(
+                                        text = size.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        color = Color.White,
+                                        style = WindowsTypography.bodyMedium.copy(
+                                            fontSize = if (compact) 11.sp else 12.sp,
+                                            fontWeight = FontWeight.Normal,
+                                        ),
+                                    )
+                                }
+                            },
+                            onClick = { onResize(size) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(if (compact) 38.dp else 42.dp)
+                                .background(
+                                    if (selected) Color.White.copy(alpha = .12f) else Color.Transparent,
+                                ),
                         )
                     }
                 }
             }
+
+            if (singleTile != null && onToggleLiveTile != null && liveTileEnabled != null) {
+                StartCommandButton(
+                    label = if (liveTileEnabled) "Turn live tile off" else "Turn live tile on",
+                    glyph = "live_tile",
+                    commandWidth = commandWidth,
+                    compact = compact,
+                    onClick = onToggleLiveTile,
+                )
+            }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(22.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            StartCommandButton("Unpin from Start", "unpin", onUnpin)
-            if (singleTile != null) {
-                StartCommandButton("Resize", "app", onToggleResizeChoices)
-                if (onToggleLiveTile != null && liveTileEnabled != null) {
-                    StartCommandButton(
-                        if (liveTileEnabled) "Turn live tile off" else "Turn live tile on",
-                        "mail",
-                        onToggleLiveTile,
-                    )
-                }
-                StartCommandButton("Customize", "settings", onCustomize)
-            }
-            onCreateFolder?.let { StartCommandButton("Create folder", "app", it) }
-            onStackWidgets?.let { StartCommandButton("Stack widgets", "app", it) }
-            onRenameGroup?.let { StartCommandButton("Name group", "settings", it) }
-            onMoveGroup?.let { StartCommandButton("Move to group", "arrow_down", it) }
-            onCreateGroup?.let { StartCommandButton("New group", "app", it) }
-            StartCommandButton("Done", "arrow_down", onDone)
+        // Windows 8.1 separates Customize from the tile-specific commands at the far right edge.
+        val customizeAction = when {
+            singleTile != null -> onCustomize
+            onRenameGroup != null -> onRenameGroup
+            else -> onDone
         }
+        StartCommandButton(
+            label = "Customize",
+            glyph = "settings",
+            commandWidth = commandWidth,
+            compact = compact,
+            onClick = customizeAction,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = sidePadding),
+        )
     }
 }
 
@@ -2357,27 +2466,63 @@ private fun StartCustomizationBar(
 private fun StartCommandButton(
     label: String,
     glyph: String,
+    commandWidth: androidx.compose.ui.unit.Dp,
+    compact: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp),
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .width(commandWidth)
+            .clickable(onClick = onClick)
+            .padding(vertical = 5.dp),
     ) {
         Box(
-            modifier = Modifier.size(40.dp).border(2.dp, Color.White, CircleShape),
+            modifier = Modifier
+                .size(if (compact) 35.dp else 40.dp)
+                .border(if (compact) 1.6.dp else 2.dp, Color.White, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            MetroIcon(glyph = glyph, color = Color.White, size = 19.dp)
+            MetroIcon(
+                glyph = glyph,
+                color = Color.White,
+                size = if (compact) 17.dp else 19.dp,
+            )
         }
         Spacer(Modifier.height(4.dp))
         Text(
             text = label,
-            style = WindowsTypography.labelSmall.copy(fontSize = 10.sp),
+            style = WindowsTypography.labelSmall.copy(
+                fontSize = if (compact) 7.5.sp else 9.sp,
+                fontWeight = FontWeight.Normal,
+            ),
             color = Color.White,
-            maxLines = 1,
+            maxLines = 2,
+            softWrap = true,
         )
     }
 }
+
+private fun win81CustomizationBarColor(accent: Color): Color {
+    val luminance = .2126f * accent.red + .7152f * accent.green + .0722f * accent.blue
+    val factor = if (luminance > .72f) .62f else if (luminance > .50f) .78f else 1f
+    return Color(
+        red = (accent.red * factor).coerceIn(0f, 1f),
+        green = (accent.green * factor).coerceIn(0f, 1f),
+        blue = (accent.blue * factor).coerceIn(0f, 1f),
+        alpha = 1f,
+    )
+}
+
+private fun win81ResizeFlyoutColor(appBar: Color): Color =
+    Color(
+        red = (appBar.red * .78f).coerceIn(0f, 1f),
+        green = (appBar.green * .78f).coerceIn(0f, 1f),
+        blue = (appBar.blue * .78f).coerceIn(0f, 1f),
+        alpha = 1f,
+    )
 
 @Composable
 private fun StartSpatialSemanticZoom(

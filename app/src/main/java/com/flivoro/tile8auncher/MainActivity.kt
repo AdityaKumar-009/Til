@@ -773,6 +773,9 @@ fun Tile8LauncherApp(
                         onTileLongClick = { tile ->
                             if (entranceReady) selectedTileForCustomization = tile
                         },
+                        onUninstallApp = { packageName ->
+                            if (entranceReady) onUninstallApp(packageName)
+                        },
                         onTilesChanged = { updatedTiles ->
                             if (entranceReady) {
                                 tiles.clear()

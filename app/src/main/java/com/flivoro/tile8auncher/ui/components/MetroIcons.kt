@@ -630,6 +630,93 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
             drawPath(fPath, color = color, style = Stroke(width = strokeW))
         }
 
+        "uninstall" -> {
+            // Windows 8.1 app-bar uninstall glyph: simple wastebasket silhouette.
+            drawLine(
+                color = color,
+                start = Offset(w * .28f, h * .31f),
+                end = Offset(w * .72f, h * .31f),
+                strokeWidth = strokeW,
+                cap = StrokeCap.Square,
+            )
+            drawLine(
+                color = color,
+                start = Offset(w * .40f, h * .22f),
+                end = Offset(w * .60f, h * .22f),
+                strokeWidth = strokeW,
+                cap = StrokeCap.Square,
+            )
+            drawRect(
+                color = color,
+                topLeft = Offset(w * .34f, h * .38f),
+                size = Size(w * .32f, h * .40f),
+                style = Stroke(width = strokeW),
+            )
+            drawLine(
+                color = color,
+                start = Offset(w * .44f, h * .45f),
+                end = Offset(w * .44f, h * .70f),
+                strokeWidth = strokeW * .75f,
+            )
+            drawLine(
+                color = color,
+                start = Offset(w * .56f, h * .45f),
+                end = Offset(w * .56f, h * .70f),
+                strokeWidth = strokeW * .75f,
+            )
+        }
+
+        "resize" -> {
+            // Windows 8.1 Resize command: large and small tile forms on the same baseline.
+            drawRect(
+                color = color,
+                topLeft = Offset(w * .18f, h * .24f),
+                size = Size(w * .42f, h * .42f),
+                style = Stroke(width = strokeW),
+            )
+            drawRect(
+                color = color,
+                topLeft = Offset(w * .64f, h * .48f),
+                size = Size(w * .18f, h * .18f),
+                style = Stroke(width = strokeW),
+            )
+        }
+
+        "live_tile" -> {
+            // Circular refresh arrows used by the Windows live-tile on/off command.
+            val arc = Rect(w * .20f, h * .20f, w * .80f, h * .80f)
+            val upper = Path().apply {
+                arcTo(arc, 205f, 205f, forceMoveTo = false)
+            }
+            val lower = Path().apply {
+                arcTo(arc, 25f, 205f, forceMoveTo = false)
+            }
+            drawPath(
+                upper,
+                color = color,
+                style = Stroke(width = strokeW, cap = StrokeCap.Round),
+            )
+            drawPath(
+                lower,
+                color = color,
+                style = Stroke(width = strokeW, cap = StrokeCap.Round),
+            )
+            val p1 = Path().apply {
+                moveTo(w * .71f, h * .18f)
+                lineTo(w * .82f, h * .23f)
+                lineTo(w * .75f, h * .33f)
+                close()
+            }
+            val p2 = Path().apply {
+                moveTo(w * .29f, h * .82f)
+                lineTo(w * .18f, h * .77f)
+                lineTo(w * .25f, h * .67f)
+                close()
+            }
+            drawPath(p1, color = color, style = Fill)
+            drawPath(p2, color = color, style = Fill)
+        }
+
         "plus" -> {
             // Plus sign (+)
             val cx = w * 0.5f
