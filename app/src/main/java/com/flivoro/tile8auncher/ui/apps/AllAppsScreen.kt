@@ -1002,6 +1002,20 @@ private fun AlphabetSpatialSemanticZoom(
         // coordinates of the detailed Apps view and finish in the compact alphabet grid. Offscreen
         // sections therefore enter from their real left/right world positions exactly as Start
         // groups do when the minus button is pressed.
+        val cellColor = remember(accentColor) { semanticAlphabetCellColor(accentColor) }
+        val finalLetterColor = remember(cellColor) { readableAllAppsTileForeground(cellColor) }
+        val disabledCellColor = remember(cellColor) {
+            Color(
+                red = cellColor.red * .72f,
+                green = cellColor.green * .72f,
+                blue = cellColor.blue * .72f,
+                alpha = 1f,
+            )
+        }
+        val disabledLetterColor = remember(disabledCellColor) {
+            readableAllAppsTileForeground(disabledCellColor).copy(alpha = .48f)
+        }
+
         letters.forEach { letter ->
             val target = targetFor(letter) ?: return@forEach
             val source = sources[letter]
@@ -1016,51 +1030,79 @@ private fun AlphabetSpatialSemanticZoom(
                 targetGridTopPx + targetRow * targetCellHeightPx + cellGapPx
             val cellWidthPx = (targetCellWidthPx - cellGapPx * 2f).coerceAtLeast(1f)
             val cellHeightPx = (targetCellHeightPx - cellGapPx * 2f).coerceAtLeast(1f)
-            val containerProgress = ((p - .08f) / .72f).coerceIn(0f, 1f)
-            val containerAlpha = if (source != null) .24f else .10f
-
-            // Windows 8.1's zoomed-out Apps headers sit on low-emphasis rectangular accent
-            // surfaces. Fade/scale that destination surface in underneath the moving source
-            // letter so it still reads as one semantic object rather than a new screen.
-            Box(
-                modifier = Modifier
-                    .offset { IntOffset(cellLeftPx.roundToInt(), cellTopPx.roundToInt()) }
-                    .size(
-                        with(density) { cellWidthPx.toDp() },
-                        with(density) { cellHeightPx.toDp() },
-                    )
-                    .graphicsLayer {
-                        val cellScale = .90f + .10f * containerProgress
-                        scaleX = cellScale
-                        scaleY = cellScale
-                        alpha = containerProgress
-                    }
-                    .background(accentColor.copy(alpha = containerAlpha)),
-            )
+            val measured = remember(letter, sourceTextStyle) {
+                textMeasurer.measure(text = letter, style = sourceTextStyle).size
+            }
 
             if (source != null) {
                 val sourceLeftPx = source.columnIndex * sourceColumnStepPx - scrollPx
                 val sourceTopPx = source.rowIndex * rowHeightPx + headerTopInsetPx
-                val leftPx = sourceLeftPx + (target.left - sourceLeftPx) * p
-                val topPx = sourceTopPx + (target.top - sourceTopPx) * p
+                val sourceCenterXPx = sourceLeftPx + measured.width / 2f
+                val sourceCenterYPx = sourceTopPx + measured.height / 2f
+                val targetCenterXPx = cellLeftPx + cellWidthPx / 2f
+                val targetCenterYPx = cellTopPx + cellHeightPx / 2f
+                val centerXPx = sourceCenterXPx + (targetCenterXPx - sourceCenterXPx) * p
+                val centerYPx = sourceCenterYPx + (targetCenterYPx - sourceCenterYPx) * p
+                val movingCellLeftPx = centerXPx - cellWidthPx / 2f
+                val movingCellTopPx = centerYPx - cellHeightPx / 2f
                 val scale = 1f + (targetScale - 1f) * p
+                val containerProgress = ((p - .10f) / .60f).coerceIn(0f, 1f)
+                val letterColor = Color(
+                    red = accentColor.red + (finalLetterColor.red - accentColor.red) * containerProgress,
+                    green = accentColor.green + (finalLetterColor.green - accentColor.green) * containerProgress,
+                    blue = accentColor.blue + (finalLetterColor.blue - accentColor.blue) * containerProgress,
+                    alpha = 1f,
+                )
 
-                Text(
-                    text = letter,
-                    color = accentColor,
-                    style = sourceTextStyle,
-                    maxLines = 1,
-                    softWrap = false,
+                // Letter + destination rectangle are one semantic object. The rectangle follows
+                // exactly the same center path as the source letter, so the glyph never appears
+                // to slide around inside a stationary target box.
+                Box(
                     modifier = Modifier
-                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                        .zIndex(1f)
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(0f, 0f)
+                        .offset {
+                            IntOffset(
+                                movingCellLeftPx.roundToInt(),
+                                movingCellTopPx.roundToInt(),
+                            )
+                        }
+                        .size(
+                            with(density) { cellWidthPx.toDp() },
+                            with(density) { cellHeightPx.toDp() },
+                        )
+                        .zIndex(2f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = containerProgress }
+                            .background(cellColor),
+                    )
+                    Text(
+                        text = letter,
+                        color = letterColor,
+                        style = sourceTextStyle,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.graphicsLayer {
                             scaleX = scale
                             scaleY = scale
                         },
-                )
-
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                enabled = p >= .985f,
+                                onClick = { onLetterClick(letter) },
+                            )
+                            .semantics { contentDescription = "Jump to $letter" },
+                    )
+                }
+            } else {
+                // Empty alphabet slots are still solid rectangles at the endpoint; their darker
+                // fill and reduced-contrast glyph identify them as unavailable without relying on
+                // transparency.
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(cellLeftPx.roundToInt(), cellTopPx.roundToInt()) }
@@ -1068,32 +1110,24 @@ private fun AlphabetSpatialSemanticZoom(
                             with(density) { cellWidthPx.toDp() },
                             with(density) { cellHeightPx.toDp() },
                         )
-                        .zIndex(3f)
-                        .clickable(
-                            enabled = p >= .985f,
-                            onClick = { onLetterClick(letter) },
-                        )
-                        .semantics { contentDescription = "Jump to $letter" },
-                )
-            } else {
-                // No source group exists for this character. It stays disabled, but uses the same
-                // low-emphasis destination rectangle so the semantic map remains visually regular.
-                Text(
-                    text = letter,
-                    color = Color.White.copy(alpha = .34f * p),
-                    style = sourceTextStyle,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier
-                        .offset { IntOffset(target.left.roundToInt(), target.top.roundToInt()) }
-                        .zIndex(1f)
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(0f, 0f)
+                        .graphicsLayer { alpha = p }
+                        .background(disabledCellColor),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = letter,
+                        color = disabledLetterColor,
+                        style = sourceTextStyle,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.graphicsLayer {
                             scaleX = targetScale
                             scaleY = targetScale
                         },
-                )
+                    )
+                }
             }
+        }
         }
     }
 }
@@ -1236,6 +1270,28 @@ private fun AppListItem(
                 modifier = Modifier.padding(start = 5.dp, end = 2.dp),
             )
         }
+    }
+}
+
+private fun semanticAlphabetCellColor(accent: Color): Color {
+    val perceived = .2126f * accent.red + .7152f * accent.green + .0722f * accent.blue
+    return if (perceived < .10f) {
+        // A nearly-black accent disappears against the dark Apps wallpaper; lift it just enough
+        // to remain a visible solid semantic cell without becoming a bright tile.
+        Color(
+            red = accent.red + (1f - accent.red) * .18f,
+            green = accent.green + (1f - accent.green) * .18f,
+            blue = accent.blue + (1f - accent.blue) * .18f,
+            alpha = 1f,
+        )
+    } else {
+        // Windows' semantic alphabet cells are a quieter, darker form of the active accent.
+        Color(
+            red = accent.red * .58f,
+            green = accent.green * .58f,
+            blue = accent.blue * .58f,
+            alpha = 1f,
+        )
     }
 }
 
