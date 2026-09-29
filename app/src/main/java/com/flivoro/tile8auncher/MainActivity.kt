@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher
 
+import android.app.Activity
 import android.app.ActivityOptions
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
@@ -14,8 +15,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -57,6 +60,11 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.data.boundTileLaunchIntent
+import com.flivoro.tile8auncher.data.defaultTilePickerBaseIntent
+import com.flivoro.tile8auncher.data.defaultTileSemanticIntent
+import com.flivoro.tile8auncher.data.isStockDefaultTileId
+import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
@@ -91,6 +99,11 @@ enum class LauncherScreen {
     START,
     ALL_APPS
 }
+
+private data class PendingDefaultTilePick(
+    val tileId: String,
+    val bounds: Rect,
+)
 
 class MainActivity : ComponentActivity() {
 
@@ -419,14 +432,25 @@ class MainActivity : ComponentActivity() {
 
     private fun resolveLaunchIntent(tile: TileModel): Intent? {
         return try {
-            val intent = when (tile.tileType) {
+            // A user/default binding always wins. Stock tiles keep their semantic action while
+            // targeting that exact activity (camera, alarms, browser, files, etc.).
+            boundTileLaunchIntent(this, tile)?.let { return it }
+
+            if (isStockDefaultTileId(tile.id)) {
+                defaultTileSemanticIntent(tile.id)
+                    ?.takeIf { it.resolveActivity(packageManager) != null }
+                    ?.let { return it }
+            }
+
+            val fallback = when (tile.tileType) {
                 TileType.READING_LIST, TileType.MONEY, TileType.DESKTOP, TileType.SETTINGS -> null
-                TileType.INTERNET_EXPLORER -> Intent(Intent.ACTION_VIEW, Uri.parse("https://www.bing.com"))
-                TileType.STORE -> packageManager.getLaunchIntentForPackage("com.android.vending")
-                    ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.gms"))
+                TileType.INTERNET_EXPLORER ->
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/"))
+                TileType.STORE ->
+                    Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=apps"))
                 else -> tile.packageName?.let { packageManager.getLaunchIntentForPackage(it) }
             }
-            intent?.takeIf { it.resolveActivity(packageManager) != null }
+            fallback?.takeIf { it.resolveActivity(packageManager) != null }
         } catch (_: Exception) {
             null
         }
@@ -512,6 +536,66 @@ fun Tile8LauncherApp(
     var drawerResetRequest by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingDefaultTilePick by remember { mutableStateOf<PendingDefaultTilePick?>(null) }
+
+    val defaultTilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val pending = pendingDefaultTilePick
+        pendingDefaultTilePick = null
+        if (pending == null || result.resultCode != Activity.RESULT_OK) {
+            return@rememberLauncherForActivityResult
+        }
+
+        val selectedIntent = result.data
+        val component = selectedIntent?.component
+            ?: selectedIntent?.resolveActivity(context.packageManager)
+        if (component == null || component.packageName == context.packageName) {
+            Toast.makeText(context, "No app was selected for this tile", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+
+        val index = tiles.indexOfFirst { it.id == pending.tileId }
+        if (index < 0) return@rememberLauncherForActivityResult
+
+        val updated = tiles[index].copy(
+            packageName = component.packageName,
+            activityName = component.className,
+        )
+        tiles[index] = updated
+        appsRepository.savePinnedTiles(tiles.toList())
+        if (entranceReady) {
+            onTriggerFlip(updated, pending.bounds, LaunchOrigin.START)
+        }
+    }
+
+    fun bindOrPickDefaultTile(tile: TileModel, bounds: Rect): Boolean {
+        if (!isStockDefaultTileId(tile.id)) return false
+        if (boundTileLaunchIntent(context, tile) != null) return false
+
+        val automatic = resolveDefaultTileApp(context, tile.id)
+        if (automatic != null) {
+            val index = tiles.indexOfFirst { it.id == tile.id }
+            if (index >= 0) {
+                val updated = tile.copy(
+                    packageName = automatic.packageName,
+                    activityName = automatic.activityName,
+                )
+                tiles[index] = updated
+                appsRepository.savePinnedTiles(tiles.toList())
+                onTriggerFlip(updated, bounds, LaunchOrigin.START)
+                return true
+            }
+        }
+
+        pendingDefaultTilePick = PendingDefaultTilePick(tile.id, bounds)
+        val pickIntent = Intent(Intent.ACTION_PICK_ACTIVITY).apply {
+            putExtra(Intent.EXTRA_INTENT, defaultTilePickerBaseIntent(context, tile.id))
+            putExtra(Intent.EXTRA_TITLE, "Choose app for ${tile.title}")
+        }
+        defaultTilePicker.launch(pickIntent)
+        return true
+    }
     val activeCustomWallpaperUri = StartPersonalization.customWallpaperUri
     val manualStartAccentArgb = StartPersonalization.accentArgb
 
@@ -781,7 +865,9 @@ fun Tile8LauncherApp(
                         interactionEnabled = entranceReady && !showCharms && !flipState.isRunning && activeInAppTile == null,
                         appsRepository = appsRepository,
                         onTileClick = { tile, bounds ->
-                            if (entranceReady) onTriggerFlip(tile, bounds, LaunchOrigin.START)
+                            if (entranceReady && !bindOrPickDefaultTile(tile, bounds)) {
+                                onTriggerFlip(tile, bounds, LaunchOrigin.START)
+                            }
                         },
                         onTileLongClick = { tile ->
                             if (entranceReady) selectedTileForCustomization = tile
