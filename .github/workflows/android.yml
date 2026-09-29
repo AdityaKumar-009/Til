@@ -2,6 +2,9 @@ name: Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/validate-allapps-minus-perspective
 
 permissions:
   contents: read
