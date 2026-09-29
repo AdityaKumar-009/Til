@@ -879,7 +879,6 @@ private fun AlphabetSpatialSemanticZoom(
         val targetScale = .62f
         val appTargetScale = .12f
 
-        val overviewColumns = if (maxWidth < 360.dp) 5 else 6
         val letters = remember {
             buildList {
                 add("#")
@@ -887,7 +886,10 @@ private fun AlphabetSpatialSemanticZoom(
             }
         }
         val letterIndex = remember(letters) { letters.withIndex().associate { it.value to it.index } }
-        val overviewRows = (letters.size + overviewColumns - 1) / overviewColumns
+        // Windows 8.1 fills the semantic Apps headers vertically first. Keep six rows per
+        // semantic column, so A/B/C/D visibly stack downward instead of spreading across a row.
+        val overviewRows = 6
+        val overviewColumns = (letters.size + overviewRows - 1) / overviewRows
         val targetCellWidthPx =
             ((viewportWidthPx - horizontalPaddingPx * 2f) / overviewColumns).coerceAtLeast(1f)
         val targetGridHeightPx = targetCellHeightPx * overviewRows
@@ -913,8 +915,8 @@ private fun AlphabetSpatialSemanticZoom(
 
         fun targetFor(letter: String): TargetLetterGeometry? {
             val index = letterIndex[letter] ?: return null
-            val targetColumn = index % overviewColumns
-            val targetRow = index / overviewColumns
+            val targetColumn = index / overviewRows
+            val targetRow = index % overviewRows
             val measured = textMeasurer.measure(text = letter, style = sourceTextStyle).size
             val left =
                 horizontalPaddingPx +
@@ -1003,6 +1005,39 @@ private fun AlphabetSpatialSemanticZoom(
         letters.forEach { letter ->
             val target = targetFor(letter) ?: return@forEach
             val source = sources[letter]
+            val index = letterIndex.getValue(letter)
+            val targetColumn = index / overviewRows
+            val targetRow = index % overviewRows
+
+            val cellGapPx = with(density) { 3.dp.toPx() }
+            val cellLeftPx =
+                horizontalPaddingPx + targetColumn * targetCellWidthPx + cellGapPx
+            val cellTopPx =
+                targetGridTopPx + targetRow * targetCellHeightPx + cellGapPx
+            val cellWidthPx = (targetCellWidthPx - cellGapPx * 2f).coerceAtLeast(1f)
+            val cellHeightPx = (targetCellHeightPx - cellGapPx * 2f).coerceAtLeast(1f)
+            val containerProgress = ((p - .08f) / .72f).coerceIn(0f, 1f)
+            val containerAlpha = if (source != null) .24f else .10f
+
+            // Windows 8.1's zoomed-out Apps headers sit on low-emphasis rectangular accent
+            // surfaces. Fade/scale that destination surface in underneath the moving source
+            // letter so it still reads as one semantic object rather than a new screen.
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(cellLeftPx.roundToInt(), cellTopPx.roundToInt()) }
+                    .size(
+                        with(density) { cellWidthPx.toDp() },
+                        with(density) { cellHeightPx.toDp() },
+                    )
+                    .graphicsLayer {
+                        val cellScale = .90f + .10f * containerProgress
+                        scaleX = cellScale
+                        scaleY = cellScale
+                        alpha = containerProgress
+                    }
+                    .background(accentColor.copy(alpha = containerAlpha)),
+            )
+
             if (source != null) {
                 val sourceLeftPx = source.columnIndex * sourceColumnStepPx - scrollPx
                 val sourceTopPx = source.rowIndex * rowHeightPx + headerTopInsetPx
@@ -1018,6 +1053,7 @@ private fun AlphabetSpatialSemanticZoom(
                     softWrap = false,
                     modifier = Modifier
                         .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                        .zIndex(1f)
                         .graphicsLayer {
                             transformOrigin = TransformOrigin(0f, 0f)
                             scaleX = scale
@@ -1025,20 +1061,12 @@ private fun AlphabetSpatialSemanticZoom(
                         },
                 )
 
-                val index = letterIndex.getValue(letter)
-                val targetColumn = index % overviewColumns
-                val targetRow = index / overviewColumns
                 Box(
                     modifier = Modifier
-                        .offset {
-                            IntOffset(
-                                (horizontalPaddingPx + targetColumn * targetCellWidthPx).roundToInt(),
-                                (targetGridTopPx + targetRow * targetCellHeightPx).roundToInt(),
-                            )
-                        }
+                        .offset { IntOffset(cellLeftPx.roundToInt(), cellTopPx.roundToInt()) }
                         .size(
-                            with(density) { targetCellWidthPx.toDp() },
-                            with(density) { targetCellHeightPx.toDp() },
+                            with(density) { cellWidthPx.toDp() },
+                            with(density) { cellHeightPx.toDp() },
                         )
                         .zIndex(3f)
                         .clickable(
@@ -1048,16 +1076,17 @@ private fun AlphabetSpatialSemanticZoom(
                         .semantics { contentDescription = "Jump to $letter" },
                 )
             } else {
-                // There is no detailed source object for an empty section. Keep it disabled and
-                // fade only that unavailable letter into its final slot.
+                // No source group exists for this character. It stays disabled, but uses the same
+                // low-emphasis destination rectangle so the semantic map remains visually regular.
                 Text(
                     text = letter,
-                    color = Color.White.copy(alpha = .22f * p),
+                    color = Color.White.copy(alpha = .34f * p),
                     style = sourceTextStyle,
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier
                         .offset { IntOffset(target.left.roundToInt(), target.top.roundToInt()) }
+                        .zIndex(1f)
                         .graphicsLayer {
                             transformOrigin = TransformOrigin(0f, 0f)
                             scaleX = targetScale
