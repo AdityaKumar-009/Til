@@ -2,6 +2,9 @@ name: Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/validate-win81-tile-selection-ui-v3
 
 permissions:
   contents: read
