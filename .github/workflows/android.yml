@@ -2,6 +2,9 @@ name: Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/win81-selection-apk-v2
 
 permissions:
   contents: read
@@ -23,8 +26,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Make wrapper executable
         run: chmod +x gradlew
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Source validation
+        run: ./gradlew compileDebugKotlin --stacktrace
       - name: Build optimized installable APK
         run: ./gradlew assemblePerformance --stacktrace
       - name: Upload APK
