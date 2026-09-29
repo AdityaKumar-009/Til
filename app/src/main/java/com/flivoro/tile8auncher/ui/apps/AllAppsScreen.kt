@@ -148,6 +148,7 @@ fun AllAppsScreen(
     var sortMode by remember { mutableStateOf(AppSortMode.NAME) }
     var showSortChoices by remember { mutableStateOf(false) }
     var showAlphabetOverview by remember { mutableStateOf(false) }
+    var alphabetZoomAnchorLetter by remember { mutableStateOf<String?>(null) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val appTileAccent = StartPersonalization.wallpaperAccentColor
@@ -474,10 +475,14 @@ fun AllAppsScreen(
                                 .then(if (alphabetSemanticActive) Modifier else Modifier.elasticHorizontalScroll())
                                 .clipToBounds()
                                 .graphicsLayer {
-                                    // Exactly like Start semantic zoom: while the semantic layer is
-                                    // active, the normal lazy surface is geometrically stable but
-                                    // invisible. Spatial proxies below occupy its source coordinates.
-                                    alpha = if (alphabetSemanticActive) 0f else 1f
+                                    // One shared receding plane, matching Start's minus-button
+                                    // character. No row/letter gets its own delayed trajectory.
+                                    val p = alphabetOverviewProgress.coerceIn(0f, 1f)
+                                    val scale = 1f - .24f * p
+                                    scaleX = scale
+                                    scaleY = scale
+                                    transformOrigin = TransformOrigin.Center
+                                    alpha = (1f - 1.45f * p).coerceIn(0f, 1f)
                                 },
                             horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
                             verticalAlignment = Alignment.Top,
@@ -496,9 +501,10 @@ fun AllAppsScreen(
                                     appTileAccent = appTileAccent,
                                     letterColor = appTileAccent,
                                     showLetterHeader = !alphabetSemanticActive,
-                                    onLetterClick = {
+                                    onLetterClick = { letter ->
                                         if (sortMode == AppSortMode.NAME) {
                                             selectedAppForAction = null
+                                            alphabetZoomAnchorLetter = letter.uppercase(Locale.ROOT)
                                             showAlphabetOverview = true
                                         }
                                     },
@@ -516,20 +522,19 @@ fun AllAppsScreen(
                                 progress = alphabetOverviewProgress,
                                 accentColor = appTileAccent,
                                 sources = alphabetSources,
-                                columns = columns,
-                                appsRepository = appsRepository,
-                                isNewByPackage = isNewByPackage,
-                                appTileAccent = appTileAccent,
                                 columnWidth = metrics.columnWidthDp.dp,
                                 columnGap = metrics.columnGapDp.dp,
                                 rowHeight = metrics.rowHeightDp.dp,
                                 listState = listState,
+                                anchorLetter = alphabetZoomAnchorLetter,
                                 onLetterClick = { letter ->
                                     alphabetSources[letter]?.let { source ->
                                         scope.launch {
-                                            // Same handoff used by Start semantic zoom: at p == 1
-                                            // source geometry is invisible, so position the detailed
-                                            // list first and then reverse the exact spatial motion.
+                                            // At p == 1 the grid is at its neutral overview
+                                            // transform, so changing the anchor is invisible.
+                                            // Reposition underneath it, then reverse the *entire*
+                                            // plane into the chosen detailed section.
+                                            alphabetZoomAnchorLetter = letter
                                             listState.scrollToItem(source.columnIndex)
                                             showAlphabetOverview = false
                                         }
@@ -842,14 +847,11 @@ private fun AlphabetSpatialSemanticZoom(
     progress: Float,
     accentColor: Color,
     sources: Map<String, AlphabetLetterSource>,
-    columns: List<AllAppsColumnModel>,
-    appsRepository: AppsRepository,
-    isNewByPackage: Map<String, Boolean>,
-    appTileAccent: Color,
     columnWidth: Dp,
     columnGap: Dp,
     rowHeight: Dp,
     listState: LazyListState,
+    anchorLetter: String?,
     onLetterClick: (String) -> Unit,
 ) {
     BoxWithConstraints(
@@ -858,24 +860,16 @@ private fun AlphabetSpatialSemanticZoom(
             .clipToBounds()
             .zIndex(10f),
     ) {
-        if (columns.isEmpty()) return@BoxWithConstraints
+        if (sources.isEmpty()) return@BoxWithConstraints
 
         val density = LocalDensity.current
         val textMeasurer = rememberTextMeasurer()
         val p = progress.coerceIn(0f, 1f)
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val viewportHeightPx = with(density) { maxHeight.toPx() }
-        val sourceColumnWidthPx = with(density) { columnWidth.toPx() }
         val sourceColumnStepPx = with(density) { (columnWidth + columnGap).toPx() }
         val rowHeightPx = with(density) { rowHeight.toPx() }
         val headerTopInsetPx = with(density) { 10.dp.toPx() }
-
-        // Match Start's semantic zoom character: a compact centered target layout with a strong
-        // reduction in scale, not a near-1:1 cross-fade.
-        val horizontalPaddingPx = with(density) { 18.dp.toPx() }
-        val targetCellHeightPx = with(density) { 44.dp.toPx() }
-        val targetScale = .62f
-        val appTargetScale = .12f
 
         val letters = remember {
             buildList {
@@ -883,165 +877,71 @@ private fun AlphabetSpatialSemanticZoom(
                 ('A'..'Z').forEach { add(it.toString()) }
             }
         }
-        val letterIndex = remember(letters) { letters.withIndex().associate { it.value to it.index } }
-        // Windows 8.1 fills the semantic Apps headers vertically first. Keep six rows per
-        // semantic column, so A/B/C/D visibly stack downward instead of spreading across a row.
+        val letterIndex = remember(letters) {
+            letters.withIndex().associate { it.value to it.index }
+        }
+
+        // Windows 8.1 semantic Apps view is column-major.
         val overviewRows = 6
         val overviewColumns = (letters.size + overviewRows - 1) / overviewRows
+        val horizontalPaddingPx = with(density) { 18.dp.toPx() }
+        val targetCellHeightPx = with(density) { 44.dp.toPx() }
         val targetCellWidthPx =
             ((viewportWidthPx - horizontalPaddingPx * 2f) / overviewColumns).coerceAtLeast(1f)
         val targetGridHeightPx = targetCellHeightPx * overviewRows
         val targetGridTopPx = ((viewportHeightPx - targetGridHeightPx) / 2f).coerceAtLeast(0f)
-
-        // All Apps uses fixed-width columns, so this is the same world-to-viewport conversion
-        // StartSpatialSemanticZoom uses for its variable-width Start bands.
-        val scrollPx =
-            listState.firstVisibleItemIndex * sourceColumnStepPx +
-                listState.firstVisibleItemScrollOffset
-
-        // Unlike Start, All Apps can have dozens of semantic sections spread across a very long
-        // horizontal world. Feeding those raw X distances into one 260 ms tween makes distant
-        // letters cross the viewport sequentially. Stage only off-screen columns into narrow
-        // left/right bands, preserving their order and direction while giving every section a
-        // comparable travel distance. Visible columns retain their exact source coordinates.
-        val rawSourceXByColumn = remember(columns.size, scrollPx, sourceColumnStepPx) {
-            FloatArray(columns.size) { index -> index * sourceColumnStepPx - scrollPx }
-        }
-        val leftOffscreenColumns = remember(columns.size, scrollPx, sourceColumnStepPx, sourceColumnWidthPx) {
-            columns.indices.filter { index ->
-                rawSourceXByColumn[index] + sourceColumnWidthPx < 0f
-            }
-        }
-        val rightOffscreenColumns = remember(columns.size, scrollPx, sourceColumnStepPx, viewportWidthPx) {
-            columns.indices.filter { index ->
-                rawSourceXByColumn[index] > viewportWidthPx
-            }
-        }
-        val leftRank = remember(leftOffscreenColumns) {
-            leftOffscreenColumns.withIndex().associate { (rank, index) -> index to rank }
-        }
-        val rightRank = remember(rightOffscreenColumns) {
-            rightOffscreenColumns.withIndex().associate { (rank, index) -> index to rank }
-        }
-
-        fun semanticSourceX(columnIndex: Int): Float {
-            val raw = rawSourceXByColumn[columnIndex]
-            if (raw + sourceColumnWidthPx >= 0f && raw <= viewportWidthPx) return raw
-
-            if (raw < 0f) {
-                val rank = leftRank[columnIndex] ?: 0
-                val count = leftOffscreenColumns.size.coerceAtLeast(1)
-                val fraction = if (count <= 1) 1f else rank.toFloat() / (count - 1).toFloat()
-                // Farthest-left stays slightly farther out; nearest-left begins closest to the edge.
-                return -sourceColumnWidthPx * (1.25f - .58f * fraction)
-            }
-
-            val rank = rightRank[columnIndex] ?: 0
-            val count = rightOffscreenColumns.size.coerceAtLeast(1)
-            val fraction = if (count <= 1) 0f else rank.toFloat() / (count - 1).toFloat()
-            return viewportWidthPx + sourceColumnWidthPx * (.67f + .58f * fraction)
-        }
+        val cellGapPx = with(density) { 3.dp.toPx() }
+        val cellWidthPx = (targetCellWidthPx - cellGapPx * 2f).coerceAtLeast(1f)
+        val cellHeightPx = (targetCellHeightPx - cellGapPx * 2f).coerceAtLeast(1f)
 
         val sourceTextStyle = WindowsTypography.headlineMedium.copy(
             fontSize = 24.sp,
             fontWeight = FontWeight.Normal,
         )
 
-        data class TargetLetterGeometry(
-            val left: Float,
-            val top: Float,
-            val centerX: Float,
-            val centerY: Float,
-        )
+        // The final semantic letters are smaller than detailed headers. Instead of moving every
+        // letter on an independent trajectory, render the *entire alphabet grid* as one plane and
+        // start that plane at the reciprocal scale. The anchor letter therefore begins at exactly
+        // the same visual size/position as its detailed header, while every neighbour shares the
+        // same scale + translation matrix and reaches the overview on the same frame.
+        val finalLetterScale = .62f
+        val startPlaneScale = 1f / finalLetterScale
 
-        fun targetFor(letter: String): TargetLetterGeometry? {
-            val index = letterIndex[letter] ?: return null
-            val targetColumn = index / overviewRows
-            val targetRow = index % overviewRows
-            val measured = textMeasurer.measure(text = letter, style = sourceTextStyle).size
-            val left =
-                horizontalPaddingPx +
-                    targetColumn * targetCellWidthPx +
-                    (targetCellWidthPx - measured.width * targetScale) / 2f
-            val top =
-                targetGridTopPx +
-                    targetRow * targetCellHeightPx +
-                    (targetCellHeightPx - measured.height * targetScale) / 2f
-            return TargetLetterGeometry(
-                left = left,
-                top = top,
-                centerX = horizontalPaddingPx +
-                    targetColumn * targetCellWidthPx +
-                    targetCellWidthPx / 2f,
-                centerY = targetGridTopPx +
-                    targetRow * targetCellHeightPx +
-                    targetCellHeightPx / 2f,
-            )
-        }
+        val scrollPx =
+            listState.firstVisibleItemIndex * sourceColumnStepPx +
+                listState.firstVisibleItemScrollOffset
 
-        val sourceByGroupKey = remember(sources) {
-            sources.values.associateBy(AlphabetLetterSource::groupKey)
-        }
-
-        // Start's minus-button animation never lets the detailed surface merely disappear:
-        // its visible tiles become the moving semantic proxies. Do the same here. Visible Apps
-        // rows shrink toward their section letter and remain opaque for most of the travel,
-        // producing the same depth/perspective cue; they only dissolve near the final overview.
-        val firstVisible = listState.firstVisibleItemIndex.coerceIn(0, columns.lastIndex)
-        val visibleColumnCount =
-            (viewportWidthPx / sourceColumnStepPx).toInt().coerceAtLeast(1) + 3
-        val proxyStart = (firstVisible - 1).coerceAtLeast(0)
-        val proxyEnd = (firstVisible + visibleColumnCount).coerceAtMost(columns.lastIndex)
-        val appAlpha = when {
-            p <= .70f -> 1f
-            else -> (1f - ((p - .70f) / .30f)).coerceIn(0f, 1f)
-        }
-
-        if (appAlpha > .001f) {
-            for (columnIndex in proxyStart..proxyEnd) {
-                val column = columns[columnIndex]
-                column.items.forEachIndexed { rowIndex, item ->
-                    if (item !is AllAppsColumnItem.App) return@forEachIndexed
-
-                    val section = sourceByGroupKey[item.groupKey] ?: return@forEachIndexed
-                    val target = targetFor(section.letter) ?: return@forEachIndexed
-                    val sourceLeftPx = semanticSourceX(columnIndex)
-                    val sourceTopPx = rowIndex * rowHeightPx
-
-                    val targetLeftPx =
-                        target.centerX - (sourceColumnWidthPx * appTargetScale / 2f)
-                    val targetTopPx =
-                        target.centerY - (rowHeightPx * appTargetScale / 2f)
-                    val leftPx = sourceLeftPx + (targetLeftPx - sourceLeftPx) * p
-                    val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
-                    val scale = 1f + (appTargetScale - 1f) * p
-
-                    Box(
-                        modifier = Modifier
-                            .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                            .size(columnWidth, rowHeight)
-                            .graphicsLayer {
-                                transformOrigin = TransformOrigin(0f, 0f)
-                                scaleX = scale
-                                scaleY = scale
-                                alpha = appAlpha
-                                clip = true
-                            },
-                    ) {
-                        SemanticAllAppsRow(
-                            app = item.app,
-                            appsRepository = appsRepository,
-                            isNew = isNewByPackage[item.app.packageName] == true,
-                            appTileAccent = appTileAccent,
-                        )
-                    }
-                }
+        val anchor = sources[anchorLetter]
+            ?: sources.values.minByOrNull { source ->
+                kotlin.math.abs(source.columnIndex * sourceColumnStepPx - scrollPx)
             }
-        }
+            ?: return@BoxWithConstraints
+        val anchorIndex = letterIndex[anchor.letter] ?: return@BoxWithConstraints
+        val anchorTargetColumn = anchorIndex / overviewRows
+        val anchorTargetRow = anchorIndex % overviewRows
+        val anchorCellLeftPx =
+            horizontalPaddingPx + anchorTargetColumn * targetCellWidthPx + cellGapPx
+        val anchorCellTopPx =
+            targetGridTopPx + anchorTargetRow * targetCellHeightPx + cellGapPx
+        val anchorTargetCenterXPx = anchorCellLeftPx + cellWidthPx / 2f
+        val anchorTargetCenterYPx = anchorCellTopPx + cellHeightPx / 2f
 
-        // Section letters remain persistent semantic objects. On-screen letters start at their
-        // exact detailed-view headers; off-screen letters retain left/right ordering but are
-        // compressed into edge staging bands so all sections settle together in the same motion.
+        val anchorMeasured = remember(anchor.letter, sourceTextStyle) {
+            textMeasurer.measure(text = anchor.letter, style = sourceTextStyle).size
+        }
+        val anchorSourceLeftPx = anchor.columnIndex * sourceColumnStepPx - scrollPx
+        val anchorSourceTopPx = anchor.rowIndex * rowHeightPx + headerTopInsetPx
+        val anchorSourceCenterXPx = anchorSourceLeftPx + anchorMeasured.width / 2f
+        val anchorSourceCenterYPx = anchorSourceTopPx + anchorMeasured.height / 2f
+
+        val startTranslationX =
+            anchorSourceCenterXPx - anchorTargetCenterXPx * startPlaneScale
+        val startTranslationY =
+            anchorSourceCenterYPx - anchorTargetCenterYPx * startPlaneScale
+        val planeScale = startPlaneScale + (1f - startPlaneScale) * p
+        val planeTranslationX = startTranslationX * (1f - p)
+        val planeTranslationY = startTranslationY * (1f - p)
+
         val cellColor = remember(accentColor) { semanticAlphabetCellColor(accentColor) }
         val finalLetterColor = remember(cellColor) { readableAllAppsTileForeground(cellColor) }
         val disabledCellColor = remember(cellColor) {
@@ -1055,68 +955,57 @@ private fun AlphabetSpatialSemanticZoom(
         val disabledLetterColor = remember(disabledCellColor) {
             readableAllAppsTileForeground(disabledCellColor).copy(alpha = .48f)
         }
+        val containerProgress = ((p - .06f) / .72f).coerceIn(0f, 1f)
 
-        letters.forEach { letter ->
-            val target = targetFor(letter) ?: return@forEach
-            val source = sources[letter]
-            val index = letterIndex.getValue(letter)
-            val targetColumn = index / overviewRows
-            val targetRow = index % overviewRows
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    scaleX = planeScale
+                    scaleY = planeScale
+                    translationX = planeTranslationX
+                    translationY = planeTranslationY
+                },
+        ) {
+            letters.forEachIndexed { index, letter ->
+                val targetColumn = index / overviewRows
+                val targetRow = index % overviewRows
+                val cellLeftPx =
+                    horizontalPaddingPx + targetColumn * targetCellWidthPx + cellGapPx
+                val cellTopPx =
+                    targetGridTopPx + targetRow * targetCellHeightPx + cellGapPx
+                val available = sources.containsKey(letter)
+                val background = if (available) cellColor else disabledCellColor
+                val foreground = if (available) finalLetterColor else disabledLetterColor
+                val letterColor = if (available) {
+                    Color(
+                        red = accentColor.red + (foreground.red - accentColor.red) * containerProgress,
+                        green = accentColor.green + (foreground.green - accentColor.green) * containerProgress,
+                        blue = accentColor.blue + (foreground.blue - accentColor.blue) * containerProgress,
+                        alpha = 1f,
+                    )
+                } else {
+                    foreground
+                }
 
-            val cellGapPx = with(density) { 3.dp.toPx() }
-            val cellLeftPx =
-                horizontalPaddingPx + targetColumn * targetCellWidthPx + cellGapPx
-            val cellTopPx =
-                targetGridTopPx + targetRow * targetCellHeightPx + cellGapPx
-            val cellWidthPx = (targetCellWidthPx - cellGapPx * 2f).coerceAtLeast(1f)
-            val cellHeightPx = (targetCellHeightPx - cellGapPx * 2f).coerceAtLeast(1f)
-            val measured = remember(letter, sourceTextStyle) {
-                textMeasurer.measure(text = letter, style = sourceTextStyle).size
-            }
-
-            if (source != null) {
-                val sourceLeftPx = semanticSourceX(source.columnIndex)
-                val sourceTopPx = source.rowIndex * rowHeightPx + headerTopInsetPx
-                val sourceCenterXPx = sourceLeftPx + measured.width / 2f
-                val sourceCenterYPx = sourceTopPx + measured.height / 2f
-                val targetCenterXPx = cellLeftPx + cellWidthPx / 2f
-                val targetCenterYPx = cellTopPx + cellHeightPx / 2f
-                val centerXPx = sourceCenterXPx + (targetCenterXPx - sourceCenterXPx) * p
-                val centerYPx = sourceCenterYPx + (targetCenterYPx - sourceCenterYPx) * p
-                val movingCellLeftPx = centerXPx - cellWidthPx / 2f
-                val movingCellTopPx = centerYPx - cellHeightPx / 2f
-                val scale = 1f + (targetScale - 1f) * p
-                val containerProgress = ((p - .10f) / .60f).coerceIn(0f, 1f)
-                val letterColor = Color(
-                    red = accentColor.red + (finalLetterColor.red - accentColor.red) * containerProgress,
-                    green = accentColor.green + (finalLetterColor.green - accentColor.green) * containerProgress,
-                    blue = accentColor.blue + (finalLetterColor.blue - accentColor.blue) * containerProgress,
-                    alpha = 1f,
-                )
-
-                // Letter + destination rectangle are one semantic object. The rectangle follows
-                // exactly the same center path as the source letter, so the glyph never appears
-                // to slide around inside a stationary target box.
                 Box(
                     modifier = Modifier
-                        .offset {
-                            IntOffset(
-                                movingCellLeftPx.roundToInt(),
-                                movingCellTopPx.roundToInt(),
-                            )
-                        }
+                        .offset { IntOffset(cellLeftPx.roundToInt(), cellTopPx.roundToInt()) }
                         .size(
                             with(density) { cellWidthPx.toDp() },
                             with(density) { cellHeightPx.toDp() },
                         )
-                        .zIndex(2f),
+                        .graphicsLayer {
+                            alpha = if (available) 1f else containerProgress
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { alpha = containerProgress }
-                            .background(cellColor),
+                            .background(background),
                     )
                     Text(
                         text = letter,
@@ -1125,45 +1014,20 @@ private fun AlphabetSpatialSemanticZoom(
                         maxLines = 1,
                         softWrap = false,
                         modifier = Modifier.graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
+                            // This inner fixed scale + the outer reciprocal starting scale means
+                            // every letter begins at detailed-header size and zooms uniformly.
+                            scaleX = finalLetterScale
+                            scaleY = finalLetterScale
                         },
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable(
-                                enabled = p >= .985f,
+                                enabled = available && p >= .985f,
                                 onClick = { onLetterClick(letter) },
                             )
                             .semantics { contentDescription = "Jump to $letter" },
-                    )
-                }
-            } else {
-                // Empty alphabet slots are still solid rectangles at the endpoint; their darker
-                // fill and reduced-contrast glyph identify them as unavailable without relying on
-                // transparency.
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(cellLeftPx.roundToInt(), cellTopPx.roundToInt()) }
-                        .size(
-                            with(density) { cellWidthPx.toDp() },
-                            with(density) { cellHeightPx.toDp() },
-                        )
-                        .graphicsLayer { alpha = p }
-                        .background(disabledCellColor),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = letter,
-                        color = disabledLetterColor,
-                        style = sourceTextStyle,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.graphicsLayer {
-                            scaleX = targetScale
-                            scaleY = targetScale
-                        },
                     )
                 }
             }
