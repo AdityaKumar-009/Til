@@ -2,6 +2,9 @@ name: Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/validate-column-major-letter-cells
 
 permissions:
   contents: read
