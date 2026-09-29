@@ -68,6 +68,7 @@ import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
+import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
@@ -186,11 +187,23 @@ class MainActivity : ComponentActivity() {
                     onTriggerFlip = { tile, bounds, origin ->
                         if (entranceReady && !flipState.isRunning) {
                             pendingLaunchIntent = resolveLaunchIntent(tile)
-                            val icon = cachedAppIconForCurrentStyle(
-                                context = this@MainActivity,
-                                repository = appsRepository,
-                                packageName = tile.packageName,
-                            )
+                            val icon = if (origin == LaunchOrigin.ALL_APPS) {
+                                cachedAllAppsIconForCurrentStyle(
+                                    context = this@MainActivity,
+                                    repository = appsRepository,
+                                    packageName = tile.packageName,
+                                ) ?: cachedAppIconForCurrentStyle(
+                                    context = this@MainActivity,
+                                    repository = appsRepository,
+                                    packageName = tile.packageName,
+                                )
+                            } else {
+                                cachedAppIconForCurrentStyle(
+                                    context = this@MainActivity,
+                                    repository = appsRepository,
+                                    packageName = tile.packageName,
+                                )
+                            }
                             flipState = FlipAnimationState(
                                 isRunning = true,
                                 sourceTile = tile,
