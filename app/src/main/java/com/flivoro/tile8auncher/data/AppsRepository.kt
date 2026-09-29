@@ -285,11 +285,12 @@ class AppsRepository(private val context: Context) {
         val image = try {
             val drawable = packageManager.getApplicationIcon(packageName)
             val bitmap = if (monochrome) {
-                // Build the monochrome glyph at the same high resolution used by Start/launch
-                // icons, then shrink it for All Apps. Running smart plate removal directly on the
-                // tiny list thumbnail loses thin logo details and often falls back to the colored
-                // icon, which made White monochrome appear broken specifically in All Apps.
-                drawableToMonochromeBitmap(drawable).downscaleToMaxPx(maxPx)
+                // All Apps should use the authored adaptive glyph itself, not the finished adaptive
+                // icon silhouette. The composite->extraction fallback can legally return the full
+                // plate; tinting that result in Compose is what produced the white squares/circles
+                // seen in All Apps. Prefer Android's monochrome layer, otherwise the adaptive
+                // foreground layer, both rendered as vectors at high resolution for clean AA.
+                drawableToAllAppsMonochromeGlyph(drawable).downscaleToMaxPx(maxPx)
             } else {
                 drawableToBitmap(drawable, maxPx)
             }
@@ -358,6 +359,30 @@ class AppsRepository(private val context: Context) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun drawableToAllAppsMonochromeGlyph(drawable: Drawable): Bitmap {
+        if (drawable is AdaptiveIconDrawable) {
+            val glyphSource: Drawable =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    drawable.monochrome ?: drawable.foreground
+                } else {
+                    drawable.foreground
+                }
+
+            // This intentionally mirrors the older Tile8 monochrome behavior that exposed the
+            // app-authored glyph layer directly. Keeping the layer as a drawable until rasterization
+            // preserves the source vector's anti-aliasing instead of rebuilding edges from pixels.
+            return renderTintedDrawable(
+                drawable = glyphSource,
+                tint = Color.WHITE,
+                targetPx = maxCachedIconPx,
+            )
+        }
+
+        // Legacy/non-adaptive icons do not have separable foreground layers. Keep the existing
+        // smart glyph extraction for those only.
+        return drawableToMonochromeBitmap(drawable)
     }
 
     private fun drawableToMonochromeBitmap(drawable: Drawable): Bitmap =
