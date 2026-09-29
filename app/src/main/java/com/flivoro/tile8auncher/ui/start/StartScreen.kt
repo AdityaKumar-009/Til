@@ -1592,6 +1592,11 @@ fun StartScreen(
                                         val reorderTranslation = motionState.translation.value
                                         val isDragging = tile.id == draggingTileId
                                         val isSelected = tile.id in selectedTileIds
+                                        val selectionScale by animateFloatAsState(
+                                            targetValue = if (isSelected && !isDragging) 1.025f else 1f,
+                                            animationSpec = tween(110, easing = FastOutSlowInEasing),
+                                            label = "Win81TileSelectionFloat",
+                                        )
                                         val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
                                         DisposableEffect(tile.id) {
@@ -1690,6 +1695,13 @@ fun StartScreen(
                                                 .graphicsLayer {
                                                     translationX = reorderTranslation.x
                                                     translationY = reorderTranslation.y
+                                                    scaleX = selectionScale
+                                                    scaleY = selectionScale
+                                                    shadowElevation = if (isSelected && !isDragging) {
+                                                        with(dragDensity) { 8.dp.toPx() }
+                                                    } else {
+                                                        0f
+                                                    }
                                                 }
                                                 // During a drag the grid copy is only the live
                                                 // placeholder. A separate absolute proxy follows
@@ -1751,16 +1763,11 @@ fun StartScreen(
                                             }
 
                                             if (isSelected && !isDragging) {
-                                                Box(
+                                                Windows81SelectionCheck(
                                                     modifier = Modifier
                                                         .align(Alignment.TopEnd)
-                                                        .padding(5.dp)
-                                                        .size(20.dp)
-                                                        .background(Color(0xCC6E6E6E)),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                                }
+                                                        .padding(top = 4.dp, end = 4.dp),
+                                                )
                                             }
                                         }
                                     }
@@ -1881,21 +1888,11 @@ fun StartScreen(
                                     appIcon = dragIcon,
                                     modifier = Modifier.fillMaxSize(),
                                 )
-                                Box(
+                                Windows81SelectionCheck(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
-                                        .padding(5.dp)
-                                        .size(20.dp)
-                                        .background(Color(0xCC6E6E6E)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        "✓",
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
+                                        .padding(top = 4.dp, end = 4.dp),
+                                )
                             }
                         }
                     }
@@ -2276,6 +2273,29 @@ private fun distanceSquaredToRect(point: Offset, rect: Rect): Float {
         else -> 0f
     }
     return dx * dx + dy * dy
+}
+
+@Composable
+private fun Windows81SelectionCheck(
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(18.dp)) {
+        val stroke = (size.minDimension * .12f).coerceAtLeast(1.5f)
+        drawLine(
+            color = Color.White,
+            start = Offset(size.width * .12f, size.height * .52f),
+            end = Offset(size.width * .40f, size.height * .78f),
+            strokeWidth = stroke,
+            cap = androidx.compose.ui.graphics.StrokeCap.Square,
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(size.width * .40f, size.height * .78f),
+            end = Offset(size.width * .88f, size.height * .20f),
+            strokeWidth = stroke,
+            cap = androidx.compose.ui.graphics.StrokeCap.Square,
+        )
+    }
 }
 
 @Composable
