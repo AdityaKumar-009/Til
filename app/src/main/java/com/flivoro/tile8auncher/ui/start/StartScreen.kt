@@ -2008,10 +2008,9 @@ fun StartScreen(
                 showResizeChoices = showResizeChoices,
                 onToggleResizeChoices = { showResizeChoices = !showResizeChoices },
                 onResize = { size ->
-                    val selected = selectedTiles.singleOrNull() ?: return@StartCustomizationBar
                     val updated = normalizeStartTileOrder(
                         tiles.map { tile ->
-                            if (tile.id == selected.id) {
+                            if (tile.id in selectedTileIds) {
                                 tile.copy(
                                     size = size,
                                     startBand = null,
@@ -2033,6 +2032,13 @@ fun StartScreen(
                     latestOnTilesChanged.value(updated)
                     selectedTileIds = emptySet()
                     showResizeChoices = false
+                },
+                onUninstall = singlePackage?.let { packageName ->
+                    {
+                        onUninstallApp(packageName)
+                        selectedTileIds = emptySet()
+                        showResizeChoices = false
+                    }
                 },
                 onCustomize = {
                     selectedTiles.singleOrNull()?.let { latestOnTileLongClick.value(it) }
@@ -2305,6 +2311,7 @@ private fun StartCustomizationBar(
     onToggleResizeChoices: () -> Unit,
     onResize: (TileSize) -> Unit,
     onUnpin: () -> Unit,
+    onUninstall: (() -> Unit)?,
     onCustomize: () -> Unit,
     liveTileEnabled: Boolean?,
     onToggleLiveTile: (() -> Unit)?,
