@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,8 +44,10 @@ import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
+import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val settingsPurple = Color(0xFF5133AB)
@@ -53,6 +56,7 @@ private val settingsPurple = Color(0xFF5133AB)
 fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     val context = LocalContext.current
     val repository = appsRepository ?: remember(context) { AppsRepository(context.applicationContext) }
+    val scope = rememberCoroutineScope()
     var appPickerMode by remember { mutableStateOf<AppPickerMode?>(null) }
     var showIconPacks by remember { mutableStateOf(false) }
     var showIconStyles by remember { mutableStateOf(false) }
@@ -277,6 +281,19 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             onDismiss = { showIconStyles = false },
             onSelect = { style ->
                 LauncherFeatureStore.setAppIconStyle(context, style)
+                val revision = LauncherFeatureRuntime.iconsRevision
+                // Warm the newly selected style immediately while the settings surface is still
+                // alive. All Apps then re-enters with the new thumbnail generation already filling
+                // instead of waiting for a launcher restart/cold cache rebuild.
+                scope.launch {
+                    preloadAllAppsIcons(
+                        context = context.applicationContext,
+                        repository = repository,
+                        packageNames = installedApps.map(AppInfo::packageName),
+                        style = style,
+                        iconsRevision = revision,
+                    )
+                }
                 showIconStyles = false
             },
         )
