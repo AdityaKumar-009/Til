@@ -120,6 +120,7 @@ import kotlin.math.roundToInt
 
 private data class AlphabetLetterSource(
     val letter: String,
+    val groupKey: String,
     val columnIndex: Int,
     val rowIndex: Int,
 )
@@ -455,6 +456,7 @@ fun AllAppsScreen(
                                             letter,
                                             AlphabetLetterSource(
                                                 letter = letter,
+                                                groupKey = item.groupKey,
                                                 columnIndex = columnIndex,
                                                 rowIndex = rowIndex,
                                             ),
@@ -474,9 +476,10 @@ fun AllAppsScreen(
                                 .then(if (alphabetSemanticActive) Modifier else Modifier.elasticHorizontalScroll())
                                 .clipToBounds()
                                 .graphicsLayer {
-                                    // The letter proxies below own the semantic motion. The app rows
-                                    // recede without applying a second, unrelated whole-list zoom.
-                                    alpha = 1f - (alphabetOverviewProgress * 1.35f).coerceIn(0f, 1f)
+                                    // Exactly like Start semantic zoom: while the semantic layer is
+                                    // active, the normal lazy surface is geometrically stable but
+                                    // invisible. Spatial proxies below occupy its source coordinates.
+                                    alpha = if (alphabetSemanticActive) 0f else 1f
                                 },
                             horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
                             verticalAlignment = Alignment.Top,
@@ -515,6 +518,10 @@ fun AllAppsScreen(
                                 progress = alphabetOverviewProgress,
                                 accentColor = appTileAccent,
                                 sources = alphabetSources,
+                                columns = columns,
+                                appsRepository = appsRepository,
+                                isNewByPackage = isNewByPackage,
+                                appTileAccent = appTileAccent,
                                 columnWidth = metrics.columnWidthDp.dp,
                                 columnGap = metrics.columnGapDp.dp,
                                 rowHeight = metrics.rowHeightDp.dp,
@@ -837,6 +844,10 @@ private fun AlphabetSpatialSemanticZoom(
     progress: Float,
     accentColor: Color,
     sources: Map<String, AlphabetLetterSource>,
+    columns: List<AllAppsColumnModel>,
+    appsRepository: AppsRepository,
+    isNewByPackage: Map<String, Boolean>,
+    appTileAccent: Color,
     columnWidth: Dp,
     columnGap: Dp,
     rowHeight: Dp,
@@ -849,17 +860,24 @@ private fun AlphabetSpatialSemanticZoom(
             .clipToBounds()
             .zIndex(10f),
     ) {
+        if (columns.isEmpty()) return@BoxWithConstraints
+
         val density = LocalDensity.current
         val textMeasurer = rememberTextMeasurer()
         val p = progress.coerceIn(0f, 1f)
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val viewportHeightPx = with(density) { maxHeight.toPx() }
+        val sourceColumnWidthPx = with(density) { columnWidth.toPx() }
         val sourceColumnStepPx = with(density) { (columnWidth + columnGap).toPx() }
         val rowHeightPx = with(density) { rowHeight.toPx() }
         val headerTopInsetPx = with(density) { 10.dp.toPx() }
-        val horizontalPaddingPx = with(density) { 8.dp.toPx() }
-        val targetCellHeightPx = with(density) { 50.dp.toPx() }
-        val targetScale = .86f
+
+        // Match Start's semantic zoom character: a compact centered target layout with a strong
+        // reduction in scale, not a near-1:1 cross-fade.
+        val horizontalPaddingPx = with(density) { 18.dp.toPx() }
+        val targetCellHeightPx = with(density) { 44.dp.toPx() }
+        val targetScale = .62f
+        val appTargetScale = .12f
 
         val overviewColumns = if (maxWidth < 360.dp) 5 else 6
         val letters = remember {
@@ -868,14 +886,15 @@ private fun AlphabetSpatialSemanticZoom(
                 ('A'..'Z').forEach { add(it.toString()) }
             }
         }
+        val letterIndex = remember(letters) { letters.withIndex().associate { it.value to it.index } }
         val overviewRows = (letters.size + overviewColumns - 1) / overviewColumns
         val targetCellWidthPx =
             ((viewportWidthPx - horizontalPaddingPx * 2f) / overviewColumns).coerceAtLeast(1f)
         val targetGridHeightPx = targetCellHeightPx * overviewRows
         val targetGridTopPx = ((viewportHeightPx - targetGridHeightPx) / 2f).coerceAtLeast(0f)
 
-        // All Apps columns have a single fixed width and Arrangement.spacedBy(), so their
-        // scroll-world X position is deterministic just like Start's band world coordinates.
+        // All Apps uses fixed-width columns, so this is the same world-to-viewport conversion
+        // StartSpatialSemanticZoom uses for its variable-width Start bands.
         val scrollPx =
             listState.firstVisibleItemIndex * sourceColumnStepPx +
                 listState.firstVisibleItemScrollOffset
@@ -885,27 +904,110 @@ private fun AlphabetSpatialSemanticZoom(
             fontWeight = FontWeight.Normal,
         )
 
-        letters.forEachIndexed { index, letter ->
+        data class TargetLetterGeometry(
+            val left: Float,
+            val top: Float,
+            val centerX: Float,
+            val centerY: Float,
+        )
+
+        fun targetFor(letter: String): TargetLetterGeometry? {
+            val index = letterIndex[letter] ?: return null
             val targetColumn = index % overviewColumns
             val targetRow = index / overviewColumns
-            val measured = remember(letter, sourceTextStyle) {
-                textMeasurer.measure(text = letter, style = sourceTextStyle).size
-            }
-            val targetLeftPx =
+            val measured = textMeasurer.measure(text = letter, style = sourceTextStyle).size
+            val left =
                 horizontalPaddingPx +
                     targetColumn * targetCellWidthPx +
                     (targetCellWidthPx - measured.width * targetScale) / 2f
-            val targetTopPx =
+            val top =
                 targetGridTopPx +
                     targetRow * targetCellHeightPx +
                     (targetCellHeightPx - measured.height * targetScale) / 2f
+            return TargetLetterGeometry(
+                left = left,
+                top = top,
+                centerX = horizontalPaddingPx +
+                    targetColumn * targetCellWidthPx +
+                    targetCellWidthPx / 2f,
+                centerY = targetGridTopPx +
+                    targetRow * targetCellHeightPx +
+                    targetCellHeightPx / 2f,
+            )
+        }
 
+        val sourceByGroupKey = remember(sources) {
+            sources.values.associateBy(AlphabetLetterSource::groupKey)
+        }
+
+        // Start's minus-button animation never lets the detailed surface merely disappear:
+        // its visible tiles become the moving semantic proxies. Do the same here. Visible Apps
+        // rows shrink toward their section letter and remain opaque for most of the travel,
+        // producing the same depth/perspective cue; they only dissolve near the final overview.
+        val firstVisible = listState.firstVisibleItemIndex.coerceIn(0, columns.lastIndex)
+        val visibleColumnCount =
+            (viewportWidthPx / sourceColumnStepPx).toInt().coerceAtLeast(1) + 3
+        val proxyStart = (firstVisible - 1).coerceAtLeast(0)
+        val proxyEnd = (firstVisible + visibleColumnCount).coerceAtMost(columns.lastIndex)
+        val appAlpha = when {
+            p <= .70f -> 1f
+            else -> (1f - ((p - .70f) / .30f)).coerceIn(0f, 1f)
+        }
+
+        if (appAlpha > .001f) {
+            for (columnIndex in proxyStart..proxyEnd) {
+                val column = columns[columnIndex]
+                column.items.forEachIndexed { rowIndex, item ->
+                    if (item !is AllAppsColumnItem.App) return@forEachIndexed
+
+                    val section = sourceByGroupKey[item.groupKey] ?: return@forEachIndexed
+                    val target = targetFor(section.letter) ?: return@forEachIndexed
+                    val sourceLeftPx = columnIndex * sourceColumnStepPx - scrollPx
+                    val sourceTopPx = rowIndex * rowHeightPx
+
+                    val targetLeftPx =
+                        target.centerX - (sourceColumnWidthPx * appTargetScale / 2f)
+                    val targetTopPx =
+                        target.centerY - (rowHeightPx * appTargetScale / 2f)
+                    val leftPx = sourceLeftPx + (targetLeftPx - sourceLeftPx) * p
+                    val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
+                    val scale = 1f + (appTargetScale - 1f) * p
+
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                            .size(columnWidth, rowHeight)
+                            .graphicsLayer {
+                                transformOrigin = TransformOrigin(0f, 0f)
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = appAlpha
+                                clip = true
+                            },
+                    ) {
+                        SemanticAllAppsRow(
+                            app = item.app,
+                            appsRepository = appsRepository,
+                            isNew = isNewByPackage[item.app.packageName] == true,
+                            appTileAccent = appTileAccent,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section letters are the persistent semantic objects: they start at the exact header
+        // coordinates of the detailed Apps view and finish in the compact alphabet grid. Offscreen
+        // sections therefore enter from their real left/right world positions exactly as Start
+        // groups do when the minus button is pressed.
+        letters.forEach { letter ->
+            val target = targetFor(letter) ?: return@forEach
             val source = sources[letter]
             if (source != null) {
                 val sourceLeftPx = source.columnIndex * sourceColumnStepPx - scrollPx
                 val sourceTopPx = source.rowIndex * rowHeightPx + headerTopInsetPx
-                val leftPx = sourceLeftPx + (targetLeftPx - sourceLeftPx) * p
-                val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
+                val leftPx = sourceLeftPx + (target.left - sourceLeftPx) * p
+                val topPx = sourceTopPx + (target.top - sourceTopPx) * p
                 val scale = 1f + (targetScale - 1f) * p
 
                 Text(
@@ -923,6 +1025,9 @@ private fun AlphabetSpatialSemanticZoom(
                         },
                 )
 
+                val index = letterIndex.getValue(letter)
+                val targetColumn = index % overviewColumns
+                val targetRow = index / overviewColumns
                 Box(
                     modifier = Modifier
                         .offset {
@@ -935,6 +1040,7 @@ private fun AlphabetSpatialSemanticZoom(
                             with(density) { targetCellWidthPx.toDp() },
                             with(density) { targetCellHeightPx.toDp() },
                         )
+                        .zIndex(3f)
                         .clickable(
                             enabled = p >= .985f,
                             onClick = { onLetterClick(letter) },
@@ -942,9 +1048,8 @@ private fun AlphabetSpatialSemanticZoom(
                         .semantics { contentDescription = "Jump to $letter" },
                 )
             } else {
-                // Letters with no installed apps have no detailed-view source coordinate.
-                // Windows keeps them disabled in the semantic map, so fade them into their final
-                // slots while real section letters travel in spatially from left/right.
+                // There is no detailed source object for an empty section. Keep it disabled and
+                // fade only that unavailable letter into its final slot.
                 Text(
                     text = letter,
                     color = Color.White.copy(alpha = .22f * p),
@@ -952,7 +1057,7 @@ private fun AlphabetSpatialSemanticZoom(
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier
-                        .offset { IntOffset(targetLeftPx.roundToInt(), targetTopPx.roundToInt()) }
+                        .offset { IntOffset(target.left.roundToInt(), target.top.roundToInt()) }
                         .graphicsLayer {
                             transformOrigin = TransformOrigin(0f, 0f)
                             scaleX = targetScale
@@ -960,6 +1065,73 @@ private fun AlphabetSpatialSemanticZoom(
                         },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SemanticAllAppsRow(
+    app: AppInfo,
+    appsRepository: AppsRepository,
+    isNew: Boolean,
+    appTileAccent: Color,
+) {
+    val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val context = LocalContext.current
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
+    val tileForeground = readableAllAppsTileForeground(appTileAccent)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
+                .background(appTileAccent),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (icon != null) {
+                Image(
+                    bitmap = icon,
+                    contentDescription = null,
+                    colorFilter = if (iconStyle == AppIconStyle.WHITE_MONOCHROME) {
+                        ColorFilter.tint(tileForeground)
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                )
+            } else {
+                MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = app.label,
+            style = WindowsTypography.bodyMedium.copy(
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Normal,
+            ),
+            color = Color.White,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (isNew) {
+            Text(
+                text = "NEW",
+                color = appTileAccent,
+                style = WindowsTypography.labelSmall.copy(
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                modifier = Modifier.padding(start = 5.dp, end = 2.dp),
+            )
         }
     }
 }
