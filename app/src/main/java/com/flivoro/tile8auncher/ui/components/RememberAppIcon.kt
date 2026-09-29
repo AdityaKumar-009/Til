@@ -151,6 +151,31 @@ private fun cachedAllAppsIconForStyle(
     return icon
 }
 
+/**
+ * Returns the exact display-sized bitmap currently used by the All Apps row for this package.
+ *
+ * The All Apps launch animation should use this cache rather than the larger Start/launch cache;
+ * otherwise the launch face can switch glyphs or temporarily lose the icon at click time.
+ */
+fun cachedAllAppsIconForCurrentStyle(
+    context: Context,
+    repository: AppsRepository,
+    packageName: String?,
+): ImageBitmap? {
+    val name = packageName ?: return null
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val style = LauncherFeatureStore.appIconStyle(context)
+    val maxPx = allAppsIconTargetPx(context)
+    return cachedAllAppsIconForStyle(
+        context = context,
+        repository = repository,
+        packageName = name,
+        style = style,
+        maxPx = maxPx,
+        iconsRevision = iconsRevision,
+    )
+}
+
 private suspend fun resolveAllAppsIcon(
     context: Context,
     repository: AppsRepository,
