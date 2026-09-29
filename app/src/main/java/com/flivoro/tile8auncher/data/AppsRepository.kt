@@ -1164,6 +1164,7 @@ class AppsRepository(private val context: Context) {
             ?: findAppForKeywords(installed, "clock", "deskclock")
         val driveApp = resolveDefaultTileApp(context, "tile_onedrive")
             ?: findAppForKeywords(installed, "files", "file manager", "drive", "onedrive")
+        val desktopApp = resolveDefaultTileApp(context, "tile_desktop") ?: driveApp
         val mapsApp = resolveDefaultTileApp(context, "tile_maps")
             ?: findAppForKeywords(installed, "maps", "map")
         val musicApp = resolveDefaultTileApp(context, "tile_music")
@@ -1172,6 +1173,9 @@ class AppsRepository(private val context: Context) {
             ?: findAppForKeywords(installed, "youtube", "video", "movies")
         val gamesApp = findAppForKeywords(installed, "play games", "games", "gaming")
         val newsApp = findAppForKeywords(installed, "news")
+            ?: resolveDefaultTileApp(context, "tile_news")
+        val moneyApp = resolveDefaultTileApp(context, "tile_money")
+        val readingListApp = resolveDefaultTileApp(context, "tile_reading_list")
 
         fun tile(
             id: String,
@@ -1223,7 +1227,7 @@ class AppsRepository(private val context: Context) {
             ),
             tile(
                 "tile_desktop", "Desktop", connect, TileSize.MEDIUM, WindowsColors.DesktopBlue,
-                TileType.DESKTOP, "desktop",
+                TileType.DESKTOP, "desktop", desktopApp,
             ),
             tile(
                 "tile_weather", "Weather", connect, TileSize.WIDE, WindowsColors.WeatherCyan,
@@ -1282,7 +1286,7 @@ class AppsRepository(private val context: Context) {
             ),
             tile(
                 "tile_money", "Money", explore, TileSize.MEDIUM, WindowsColors.MoneyGreen,
-                TileType.MONEY, "money",
+                TileType.MONEY, "money", moneyApp,
             ),
             tile(
                 "tile_maps", "Maps", explore, TileSize.MEDIUM, WindowsColors.Purple,
@@ -1290,7 +1294,7 @@ class AppsRepository(private val context: Context) {
             ),
             tile(
                 "tile_reading_list", "Reading List", explore, TileSize.MEDIUM,
-                WindowsColors.ReadingListCrimson, TileType.READING_LIST, "reading_list",
+                WindowsColors.ReadingListCrimson, TileType.READING_LIST, "reading_list", readingListApp,
             ),
             tile(
                 "tile_store", "Store", explore, TileSize.MEDIUM, WindowsColors.StoreGreen,
