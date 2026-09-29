@@ -148,6 +148,7 @@ fun AllAppsScreen(
     var sortMode by remember { mutableStateOf(AppSortMode.NAME) }
     var showSortChoices by remember { mutableStateOf(false) }
     var showAlphabetOverview by remember { mutableStateOf(false) }
+    var alphabetZoomAnchorLetter by remember { mutableStateOf<String?>(null) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val appTileAccent = StartPersonalization.wallpaperAccentColor
@@ -474,10 +475,14 @@ fun AllAppsScreen(
                                 .then(if (alphabetSemanticActive) Modifier else Modifier.elasticHorizontalScroll())
                                 .clipToBounds()
                                 .graphicsLayer {
-                                    // Exactly like Start semantic zoom: while the semantic layer is
-                                    // active, the normal lazy surface is geometrically stable but
-                                    // invisible. Spatial proxies below occupy its source coordinates.
-                                    alpha = if (alphabetSemanticActive) 0f else 1f
+                                    // One shared receding plane, matching Start's minus-button
+                                    // character. No row/letter gets its own delayed trajectory.
+                                    val p = alphabetOverviewProgress.coerceIn(0f, 1f)
+                                    val scale = 1f - .24f * p
+                                    scaleX = scale
+                                    scaleY = scale
+                                    transformOrigin = TransformOrigin.Center
+                                    alpha = (1f - 1.45f * p).coerceIn(0f, 1f)
                                 },
                             horizontalArrangement = Arrangement.spacedBy(metrics.columnGapDp.dp),
                             verticalAlignment = Alignment.Top,
@@ -496,9 +501,10 @@ fun AllAppsScreen(
                                     appTileAccent = appTileAccent,
                                     letterColor = appTileAccent,
                                     showLetterHeader = !alphabetSemanticActive,
-                                    onLetterClick = {
+                                    onLetterClick = { letter ->
                                         if (sortMode == AppSortMode.NAME) {
                                             selectedAppForAction = null
+                                            alphabetZoomAnchorLetter = letter.uppercase(Locale.ROOT)
                                             showAlphabetOverview = true
                                         }
                                     },
@@ -516,20 +522,19 @@ fun AllAppsScreen(
                                 progress = alphabetOverviewProgress,
                                 accentColor = appTileAccent,
                                 sources = alphabetSources,
-                                columns = columns,
-                                appsRepository = appsRepository,
-                                isNewByPackage = isNewByPackage,
-                                appTileAccent = appTileAccent,
                                 columnWidth = metrics.columnWidthDp.dp,
                                 columnGap = metrics.columnGapDp.dp,
                                 rowHeight = metrics.rowHeightDp.dp,
                                 listState = listState,
+                                anchorLetter = alphabetZoomAnchorLetter,
                                 onLetterClick = { letter ->
                                     alphabetSources[letter]?.let { source ->
                                         scope.launch {
-                                            // Same handoff used by Start semantic zoom: at p == 1
-                                            // source geometry is invisible, so position the detailed
-                                            // list first and then reverse the exact spatial motion.
+                                            // At p == 1 the grid is at its neutral overview
+                                            // transform, so changing the anchor is invisible.
+                                            // Reposition underneath it, then reverse the *entire*
+                                            // plane into the chosen detailed section.
+                                            alphabetZoomAnchorLetter = letter
                                             listState.scrollToItem(source.columnIndex)
                                             showAlphabetOverview = false
                                         }
