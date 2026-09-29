@@ -63,7 +63,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
@@ -86,7 +85,6 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
-import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
@@ -901,6 +899,49 @@ private fun AlphabetSpatialSemanticZoom(
             listState.firstVisibleItemIndex * sourceColumnStepPx +
                 listState.firstVisibleItemScrollOffset
 
+        // Unlike Start, All Apps can have dozens of semantic sections spread across a very long
+        // horizontal world. Feeding those raw X distances into one 260 ms tween makes distant
+        // letters cross the viewport sequentially. Stage only off-screen columns into narrow
+        // left/right bands, preserving their order and direction while giving every section a
+        // comparable travel distance. Visible columns retain their exact source coordinates.
+        val rawSourceXByColumn = remember(columns.size, scrollPx, sourceColumnStepPx) {
+            FloatArray(columns.size) { index -> index * sourceColumnStepPx - scrollPx }
+        }
+        val leftOffscreenColumns = remember(columns.size, scrollPx, sourceColumnStepPx, sourceColumnWidthPx) {
+            columns.indices.filter { index ->
+                rawSourceXByColumn[index] + sourceColumnWidthPx < 0f
+            }
+        }
+        val rightOffscreenColumns = remember(columns.size, scrollPx, sourceColumnStepPx, viewportWidthPx) {
+            columns.indices.filter { index ->
+                rawSourceXByColumn[index] > viewportWidthPx
+            }
+        }
+        val leftRank = remember(leftOffscreenColumns) {
+            leftOffscreenColumns.withIndex().associate { (rank, index) -> index to rank }
+        }
+        val rightRank = remember(rightOffscreenColumns) {
+            rightOffscreenColumns.withIndex().associate { (rank, index) -> index to rank }
+        }
+
+        fun semanticSourceX(columnIndex: Int): Float {
+            val raw = rawSourceXByColumn[columnIndex]
+            if (raw + sourceColumnWidthPx >= 0f && raw <= viewportWidthPx) return raw
+
+            if (raw < 0f) {
+                val rank = leftRank[columnIndex] ?: 0
+                val count = leftOffscreenColumns.size.coerceAtLeast(1)
+                val fraction = if (count <= 1) 1f else rank.toFloat() / (count - 1).toFloat()
+                // Farthest-left stays slightly farther out; nearest-left begins closest to the edge.
+                return -sourceColumnWidthPx * (1.25f - .58f * fraction)
+            }
+
+            val rank = rightRank[columnIndex] ?: 0
+            val count = rightOffscreenColumns.size.coerceAtLeast(1)
+            val fraction = if (count <= 1) 0f else rank.toFloat() / (count - 1).toFloat()
+            return viewportWidthPx + sourceColumnWidthPx * (.67f + .58f * fraction)
+        }
+
         val sourceTextStyle = WindowsTypography.headlineMedium.copy(
             fontSize = 24.sp,
             fontWeight = FontWeight.Normal,
@@ -964,7 +1005,7 @@ private fun AlphabetSpatialSemanticZoom(
 
                     val section = sourceByGroupKey[item.groupKey] ?: return@forEachIndexed
                     val target = targetFor(section.letter) ?: return@forEachIndexed
-                    val sourceLeftPx = columnIndex * sourceColumnStepPx - scrollPx
+                    val sourceLeftPx = semanticSourceX(columnIndex)
                     val sourceTopPx = rowIndex * rowHeightPx
 
                     val targetLeftPx =
@@ -998,10 +1039,9 @@ private fun AlphabetSpatialSemanticZoom(
             }
         }
 
-        // Section letters are the persistent semantic objects: they start at the exact header
-        // coordinates of the detailed Apps view and finish in the compact alphabet grid. Offscreen
-        // sections therefore enter from their real left/right world positions exactly as Start
-        // groups do when the minus button is pressed.
+        // Section letters remain persistent semantic objects. On-screen letters start at their
+        // exact detailed-view headers; off-screen letters retain left/right ordering but are
+        // compressed into edge staging bands so all sections settle together in the same motion.
         val cellColor = remember(accentColor) { semanticAlphabetCellColor(accentColor) }
         val finalLetterColor = remember(cellColor) { readableAllAppsTileForeground(cellColor) }
         val disabledCellColor = remember(cellColor) {
@@ -1035,7 +1075,7 @@ private fun AlphabetSpatialSemanticZoom(
             }
 
             if (source != null) {
-                val sourceLeftPx = source.columnIndex * sourceColumnStepPx - scrollPx
+                val sourceLeftPx = semanticSourceX(source.columnIndex)
                 val sourceTopPx = source.rowIndex * rowHeightPx + headerTopInsetPx
                 val sourceCenterXPx = sourceLeftPx + measured.width / 2f
                 val sourceCenterYPx = sourceTopPx + measured.height / 2f
@@ -1139,9 +1179,6 @@ private fun SemanticAllAppsRow(
     appTileAccent: Color,
 ) {
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
-    val context = LocalContext.current
-    val iconsRevision = LauncherFeatureRuntime.iconsRevision
-    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
     val tileForeground = readableAllAppsTileForeground(appTileAccent)
 
     Row(
@@ -1160,11 +1197,6 @@ private fun SemanticAllAppsRow(
                 Image(
                     bitmap = icon,
                     contentDescription = null,
-                    colorFilter = if (iconStyle == AppIconStyle.WHITE_MONOCHROME) {
-                        ColorFilter.tint(tileForeground)
-                    } else {
-                        null
-                    },
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
                 )
             } else {
@@ -1211,9 +1243,6 @@ private fun AppListItem(
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
-    val context = LocalContext.current
-    val iconsRevision = LauncherFeatureRuntime.iconsRevision
-    val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
     val tileForeground = readableAllAppsTileForeground(appTileAccent)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1240,11 +1269,6 @@ private fun AppListItem(
                 Image(
                     bitmap = icon,
                     contentDescription = app.label,
-                    colorFilter = if (iconStyle == AppIconStyle.WHITE_MONOCHROME) {
-                        ColorFilter.tint(tileForeground)
-                    } else {
-                        null
-                    },
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
                 )
             } else {
