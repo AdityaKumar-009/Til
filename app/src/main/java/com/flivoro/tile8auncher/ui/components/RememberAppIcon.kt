@@ -141,8 +141,6 @@ private fun cachedAllAppsIconForStyle(
     AppIconStyle.WHITE_MONOCHROME ->
         repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = true)
             ?: repository.getCachedMonochromeAppIcon(packageName)
-            ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
-            ?: repository.getCachedAppIcon(packageName)
     }
 
     if (icon != null) {
@@ -206,7 +204,6 @@ private suspend fun resolveAllAppsIcon(
 
         AppIconStyle.WHITE_MONOCHROME ->
             repository.loadAllAppsIcon(packageName, maxPx, monochrome = true)
-                ?: repository.loadAllAppsIcon(packageName, maxPx, monochrome = false)
     }
 
     if (resolved != null) {

@@ -1041,7 +1041,9 @@ class AppsRepository(private val context: Context) {
         if (generation >= DEFAULT_LAYOUT_GENERATION) return tiles
 
         val ids = tiles.mapTo(linkedSetOf()) { it.id }
-        val isLegacyStockSet = ids == LEGACY_DEFAULT_TILE_IDS
+        val isLegacyStockSet =
+            ids == LEGACY_DEFAULT_TILE_IDS ||
+                ids == STOCK_DEFAULT_TILE_IDS
 
         val result = if (isLegacyStockSet) {
             // One-time migration for the old 18-tile demo set. The exact stock ID set is narrow
@@ -1136,23 +1138,44 @@ class AppsRepository(private val context: Context) {
     fun getDefaultTiles(): List<TileModel> {
         val installed = getInstalledApps()
 
-        val mailApp = findAppForKeywords(installed, "mail", "gmail", "outlook")
-        val calendarApp = findAppForKeywords(installed, "calendar")
-        val peopleApp = findAppForKeywords(installed, "contact", "people", "dialer")
-        val chatApp = findAppForKeywords(installed, "skype", "whatsapp", "telegram", "message")
-        val weatherApp = findAppForKeywords(installed, "weather")
-        val browserApp = findAppForKeywords(installed, "chrome", "browser", "firefox", "edge")
-        val storeApp = findAppForKeywords(installed, "vending", "store", "play")
-        val photosApp = findAppForKeywords(installed, "gallery", "photos", "photo")
-        val settingsApp = findAppForKeywords(installed, "settings")
-        val cameraApp = findAppForKeywords(installed, "camera")
-        val clockApp = findAppForKeywords(installed, "clock", "deskclock")
-        val driveApp = findAppForKeywords(installed, "onedrive", "drive")
-        val mapsApp = findAppForKeywords(installed, "maps", "map")
-        val musicApp = findAppForKeywords(installed, "music", "spotify", "audio")
-        val videoApp = findAppForKeywords(installed, "youtube", "video", "movies")
+        // Prefer Android platform semantics/defaults first; package-name keyword matching is
+        // only a fallback for OEM apps that do not advertise the standard category.
+        val mailApp = resolveDefaultTileApp(context, "tile_mail")
+            ?: findAppForKeywords(installed, "mail", "gmail", "outlook")
+        val calendarApp = resolveDefaultTileApp(context, "tile_calendar")
+            ?: findAppForKeywords(installed, "calendar")
+        val peopleApp = resolveDefaultTileApp(context, "tile_people")
+            ?: findAppForKeywords(installed, "contact", "people", "dialer")
+        val chatApp = resolveDefaultTileApp(context, "tile_skype")
+            ?: findAppForKeywords(installed, "message", "messages", "whatsapp", "telegram", "skype")
+        val weatherApp = resolveDefaultTileApp(context, "tile_weather")
+            ?: findAppForKeywords(installed, "weather")
+        val browserApp = resolveDefaultTileApp(context, "tile_ie")
+            ?: findAppForKeywords(installed, "chrome", "browser", "firefox", "edge")
+        val storeApp = resolveDefaultTileApp(context, "tile_store")
+            ?: findAppForKeywords(installed, "vending", "store", "play")
+        val photosApp = resolveDefaultTileApp(context, "tile_photos")
+            ?: findAppForKeywords(installed, "gallery", "photos", "photo")
+        val settingsApp = resolveDefaultTileApp(context, "tile_settings")
+            ?: findAppForKeywords(installed, "settings")
+        val cameraApp = resolveDefaultTileApp(context, "tile_camera")
+            ?: findAppForKeywords(installed, "camera")
+        val clockApp = resolveDefaultTileApp(context, "tile_clock")
+            ?: findAppForKeywords(installed, "clock", "deskclock")
+        val driveApp = resolveDefaultTileApp(context, "tile_onedrive")
+            ?: findAppForKeywords(installed, "files", "file manager", "drive", "onedrive")
+        val desktopApp = resolveDefaultTileApp(context, "tile_desktop") ?: driveApp
+        val mapsApp = resolveDefaultTileApp(context, "tile_maps")
+            ?: findAppForKeywords(installed, "maps", "map")
+        val musicApp = resolveDefaultTileApp(context, "tile_music")
+            ?: findAppForKeywords(installed, "music", "spotify", "audio")
+        val videoApp = resolveDefaultTileApp(context, "tile_video")
+            ?: findAppForKeywords(installed, "youtube", "video", "movies")
         val gamesApp = findAppForKeywords(installed, "play games", "games", "gaming")
         val newsApp = findAppForKeywords(installed, "news")
+            ?: resolveDefaultTileApp(context, "tile_news")
+        val moneyApp = resolveDefaultTileApp(context, "tile_money")
+        val readingListApp = resolveDefaultTileApp(context, "tile_reading_list")
 
         fun tile(
             id: String,
@@ -1204,7 +1227,7 @@ class AppsRepository(private val context: Context) {
             ),
             tile(
                 "tile_desktop", "Desktop", connect, TileSize.MEDIUM, WindowsColors.DesktopBlue,
-                TileType.DESKTOP, "desktop",
+                TileType.DESKTOP, "desktop", desktopApp,
             ),
             tile(
                 "tile_weather", "Weather", connect, TileSize.WIDE, WindowsColors.WeatherCyan,
@@ -1263,7 +1286,7 @@ class AppsRepository(private val context: Context) {
             ),
             tile(
                 "tile_money", "Money", explore, TileSize.MEDIUM, WindowsColors.MoneyGreen,
-                TileType.MONEY, "money",
+                TileType.MONEY, "money", moneyApp,
             ),
             tile(
                 "tile_maps", "Maps", explore, TileSize.MEDIUM, WindowsColors.Purple,
@@ -1271,7 +1294,7 @@ class AppsRepository(private val context: Context) {
             ),
             tile(
                 "tile_reading_list", "Reading List", explore, TileSize.MEDIUM,
-                WindowsColors.ReadingListCrimson, TileType.READING_LIST, "reading_list",
+                WindowsColors.ReadingListCrimson, TileType.READING_LIST, "reading_list", readingListApp,
             ),
             tile(
                 "tile_store", "Store", explore, TileSize.MEDIUM, WindowsColors.StoreGreen,
@@ -1418,7 +1441,7 @@ class AppsRepository(private val context: Context) {
         const val START_SCROLL_INDEX = "start_scroll_index"
         const val START_SCROLL_OFFSET_PX = "start_scroll_offset_px"
         const val DEFAULT_LAYOUT_GENERATION_KEY = "default_start_layout_generation"
-        const val DEFAULT_LAYOUT_GENERATION = 2
+        const val DEFAULT_LAYOUT_GENERATION = 3
 
         val LEGACY_DEFAULT_TILE_IDS = linkedSetOf(
             "tile_mail",
