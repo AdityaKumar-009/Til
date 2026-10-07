@@ -41,6 +41,8 @@ class AppsRepository(private val context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("tile8_launcher_prefs_v2", Context.MODE_PRIVATE)
+    private val visualPrefs: SharedPreferences =
+        context.getSharedPreferences("tile8_app_visual_cache_v1", Context.MODE_PRIVATE)
     private val packageManager: PackageManager = context.packageManager
 
     /**
@@ -83,6 +85,8 @@ class AppsRepository(private val context: Context) {
     private val failedAllAppsThumbnailKeys = ConcurrentHashMap.newKeySet<String>()
 
     private val appAccentCache = ConcurrentHashMap<String, Long>()
+    private val visualCachePruneLock = Any()
+    @Volatile private var lastVisualCachePruneMillis = 0L
     private val failedIcons = ConcurrentHashMap.newKeySet<String>()
     private val iconLoadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlightIconLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
@@ -423,40 +427,50 @@ class AppsRepository(private val context: Context) {
         "$APP_ACCENT_STAMP_PREFIX$packageName"
 
     private fun isPersistedAccentFresh(packageName: String): Boolean =
-        prefs.getLong(appAccentStampKey(packageName), -1L) == packageUpdateStamp(packageName)
+        visualPrefs.getLong(appAccentStampKey(packageName), -1L) == packageUpdateStamp(packageName)
 
     private fun persistAppAccent(packageName: String, color: Long) {
         appAccentCache[packageName] = color
         val stamp = packageUpdateStamp(packageName)
         if (
-            prefs.getLong(appAccentColorKey(packageName), NO_CACHED_ACCENT) == color &&
-            prefs.getLong(appAccentStampKey(packageName), -1L) == stamp
+            visualPrefs.getLong(appAccentColorKey(packageName), NO_CACHED_ACCENT) == color &&
+            visualPrefs.getLong(appAccentStampKey(packageName), -1L) == stamp
         ) {
             return
         }
-        prefs.edit {
+        visualPrefs.edit {
             putLong(appAccentColorKey(packageName), color)
             putLong(appAccentStampKey(packageName), stamp)
         }
     }
 
-    @Synchronized
     private fun prunePersistentVisualCache() {
-        val dir = File(context.filesDir, APP_VISUAL_CACHE_DIR)
-        val files = dir.listFiles()?.filter(File::isFile).orEmpty()
-        var total = files.sumOf(File::length)
-        if (total <= APP_VISUAL_CACHE_MAX_BYTES) return
+        val now = System.currentTimeMillis()
+        if (now - lastVisualCachePruneMillis < VISUAL_CACHE_PRUNE_INTERVAL_MS) return
 
-        for (file in files.sortedBy(File::lastModified)) {
-            if (total <= APP_VISUAL_CACHE_TARGET_BYTES) break
-            val size = file.length()
-            if (file.delete()) total -= size
+        synchronized(visualCachePruneLock) {
+            val checkedAt = System.currentTimeMillis()
+            if (checkedAt - lastVisualCachePruneMillis < VISUAL_CACHE_PRUNE_INTERVAL_MS) {
+                return
+            }
+            lastVisualCachePruneMillis = checkedAt
+
+            val dir = File(context.filesDir, APP_VISUAL_CACHE_DIR)
+            val files = dir.listFiles()?.filter(File::isFile).orEmpty()
+            var total = files.sumOf(File::length)
+            if (total <= APP_VISUAL_CACHE_MAX_BYTES) return
+
+            for (file in files.sortedBy(File::lastModified)) {
+                if (total <= APP_VISUAL_CACHE_TARGET_BYTES) break
+                val size = file.length()
+                if (file.delete()) total -= size
+            }
         }
     }
 
     fun getCachedAppAccentColor(packageName: String): Long? {
         appAccentCache[packageName]?.let { return it }
-        val persisted = prefs.getLong(appAccentColorKey(packageName), NO_CACHED_ACCENT)
+        val persisted = visualPrefs.getLong(appAccentColorKey(packageName), NO_CACHED_ACCENT)
             .takeIf { it != NO_CACHED_ACCENT }
             ?: return null
         appAccentCache[packageName] = persisted
@@ -1614,6 +1628,7 @@ class AppsRepository(private val context: Context) {
         const val APP_VISUAL_CACHE_DIR = "app_visual_cache_v1"
         const val APP_VISUAL_CACHE_MAX_BYTES = 64L * 1024L * 1024L
         const val APP_VISUAL_CACHE_TARGET_BYTES = 48L * 1024L * 1024L
+        const val VISUAL_CACHE_PRUNE_INTERVAL_MS = 30_000L
         const val LAUNCH_TIMING_DURATION = "launch_timing_duration_millis"
         const val LAUNCH_TIMING_CURVE = "launch_timing_curve"
         const val LAUNCH_TIMING_CUSTOM_X1 = "launch_timing_custom_x1"
