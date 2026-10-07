@@ -64,6 +64,9 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var showStartGroupHeadings by remember {
         mutableStateOf(LauncherFeatureStore.showStartGroupHeadings(context))
     }
+    var useAppAccentColorsInAllApps by remember {
+        mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
+    }
 
     LaunchedEffect(Unit) {
         LiveTileRuntime.requestReconnect(context)
@@ -177,6 +180,16 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         description = "Style: ${LauncherFeatureStore.appIconStyle(context).displayName()}",
         glyph = "app",
     ) { showIconStyles = true }
+
+    SettingsToggleRow(
+        title = "App colors in All Apps",
+        description = "Use each app's extracted accent color for its All Apps tile, matching the color Tile8 uses when that app is pinned to Start.",
+        checked = useAppAccentColorsInAllApps,
+        onCheckedChange = { enabled ->
+            useAppAccentColorsInAllApps = enabled
+            LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
+        },
+    )
 
     SettingsActionRow(
         title = "Icon pack",
