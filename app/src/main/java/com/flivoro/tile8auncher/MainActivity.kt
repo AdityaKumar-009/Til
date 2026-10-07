@@ -66,6 +66,7 @@ import com.flivoro.tile8auncher.data.defaultTileSemanticIntent
 import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.LiveTileRuntime
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -906,7 +907,12 @@ fun Tile8LauncherApp(
                                     title = app.label,
                                     packageName = app.packageName,
                                     activityName = app.activityName,
-                                    colorValue = StartPersonalization.wallpaperAccentArgb,
+                                    colorValue = if (LauncherFeatureStore.useAppAccentColorsInAllApps(context)) {
+                                        appsRepository.getCachedAppAccentColor(app.packageName)
+                                            ?: StartPersonalization.wallpaperAccentArgb
+                                    } else {
+                                        StartPersonalization.wallpaperAccentArgb
+                                    },
                                     size = TileSize.MEDIUM,
                                 )
                                 onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
