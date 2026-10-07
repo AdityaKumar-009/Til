@@ -66,6 +66,7 @@ import com.flivoro.tile8auncher.data.defaultTileSemanticIntent
 import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.LiveTileRuntime
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
@@ -79,6 +80,7 @@ import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
+import com.flivoro.tile8auncher.ui.components.preloadStartIcons
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
 import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
@@ -752,10 +754,24 @@ fun Tile8LauncherApp(
     }
 
     LaunchedEffect(Unit) {
+        val iconStyle = LauncherFeatureStore.appIconStyle(context)
+        val iconsRevision = LauncherFeatureRuntime.iconsRevision
         val pinned = withContext(Dispatchers.IO) {
             val loaded = appsRepository.loadPinnedTiles()
             appsRepository.refreshAutomaticAppAccentTiles(loaded)
         }
+
+        // Start stays hidden while persisted colors and the exact selected icon style are restored.
+        // After the first successful resolution, later launcher restarts normally hit Tile8's
+        // on-disk visual cache instead of flashing fallback glyphs/colors before async decoding.
+        preloadStartIcons(
+            context = context.applicationContext,
+            repository = appsRepository,
+            packageNames = pinned.mapNotNull(TileModel::packageName),
+            style = iconStyle,
+            iconsRevision = iconsRevision,
+        )
+
         tiles.clear()
         tiles.addAll(pinned)
         tilesLoaded = true
