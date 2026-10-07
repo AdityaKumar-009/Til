@@ -152,6 +152,10 @@ fun AllAppsScreen(
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val appTileAccent = StartPersonalization.wallpaperAccentColor
+    val allAppsAppearanceRevision = LauncherFeatureRuntime.allAppsAppearanceRevision
+    val useAppAccentColors = remember(allAppsAppearanceRevision) {
+        LauncherFeatureStore.useAppAccentColorsInAllApps(context)
+    }
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
@@ -389,6 +393,7 @@ fun AllAppsScreen(
                         onAppLongClick = { selectedAppForAction = it },
                         onUniversalClick = { launchUniversalResult(context, it) },
                         appTileAccent = appTileAccent,
+                        useAppAccentColors = useAppAccentColors,
                     )
                 } else {
                     val metrics = calculateAllAppsColumnMetrics(
@@ -499,6 +504,7 @@ fun AllAppsScreen(
                                     rowHeight = metrics.rowHeightDp.dp,
                                     isNewByPackage = isNewByPackage,
                                     appTileAccent = appTileAccent,
+                                    useAppAccentColors = useAppAccentColors,
                                     letterColor = appTileAccent,
                                     showLetterHeader = !alphabetSemanticActive,
                                     onLetterClick = { letter ->
@@ -659,6 +665,7 @@ private fun UniversalSearchPanel(
     onAppLongClick: (AppInfo) -> Unit,
     onUniversalClick: (UniversalSearchResult) -> Unit,
     appTileAccent: Color,
+    useAppAccentColors: Boolean,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -680,6 +687,7 @@ private fun UniversalSearchPanel(
                     rowHeight = 52.dp,
                     isNew = isNewByPackage[app.packageName] == true,
                     appTileAccent = appTileAccent,
+                    useAppAccentColors = useAppAccentColors,
                     onClick = { onAppClick(app, it) },
                     onLongClick = { onAppLongClick(app) },
                 )
@@ -780,6 +788,7 @@ private fun AllAppsColumn(
     rowHeight: Dp,
     isNewByPackage: Map<String, Boolean>,
     appTileAccent: Color,
+    useAppAccentColors: Boolean,
     letterColor: Color,
     showLetterHeader: Boolean,
     onLetterClick: (String) -> Unit,
@@ -806,6 +815,7 @@ private fun AllAppsColumn(
                         rowHeight = rowHeight,
                         isNew = isNewByPackage[item.app.packageName] == true,
                         appTileAccent = appTileAccent,
+                        useAppAccentColors = useAppAccentColors,
                         onClick = { onAppClick(item.app, it) },
                         onLongClick = { onLongClick(item.app) },
                     )
@@ -1054,7 +1064,7 @@ private fun SemanticAllAppsRow(
         Box(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
-                .background(appTileAccent),
+                .background(effectiveTileAccent),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
@@ -1102,12 +1112,31 @@ private fun AppListItem(
     rowHeight: Dp,
     isNew: Boolean,
     appTileAccent: Color,
+    useAppAccentColors: Boolean,
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
-    val tileForeground = readableAllAppsTileForeground(appTileAccent)
+    val effectiveTileAccent by produceState(
+        initialValue = if (useAppAccentColors) {
+            appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+        } else {
+            appTileAccent
+        },
+        app.packageName,
+        appTileAccent,
+        useAppAccentColors,
+    ) {
+        value = if (useAppAccentColors) {
+            withContext(Dispatchers.IO) {
+                appsRepository.loadAppAccentColor(app.packageName).toTileColor()
+            }
+        } else {
+            appTileAccent
+        }
+    }
+    val tileForeground = readableAllAppsTileForeground(effectiveTileAccent)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1152,7 +1181,7 @@ private fun AppListItem(
         if (isNew) {
             Text(
                 text = "NEW",
-                color = appTileAccent,
+                color = effectiveTileAccent,
                 style = WindowsTypography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.SemiBold),
                 modifier = Modifier.padding(start = 5.dp, end = 2.dp),
             )
