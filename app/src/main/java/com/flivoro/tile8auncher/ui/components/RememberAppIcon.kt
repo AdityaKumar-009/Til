@@ -264,6 +264,65 @@ fun rememberAllAppsIcon(
     return icon
 }
 
+private suspend fun resolveStartAppIcon(
+    context: Context,
+    repository: AppsRepository,
+    packageName: String,
+    style: AppIconStyle,
+    iconsRevision: Int,
+): ImageBitmap? {
+    ResolvedStartIconCache.ensureRevision(iconsRevision)
+    ResolvedStartIconCache.get(packageName, style, iconsRevision)?.let { return it }
+
+    val resolved = when (style) {
+        AppIconStyle.DEFAULT -> {
+            val override = withContext(Dispatchers.IO) {
+                IconPackManager.loadOverride(context.applicationContext, packageName)
+            }
+            override ?: repository.loadAppIcon(packageName)
+        }
+        AppIconStyle.ANDROID_ADAPTIVE -> repository.loadAppIcon(packageName)
+        AppIconStyle.WHITE_MONOCHROME -> repository.loadMonochromeAppIcon(packageName)
+    }
+
+    if (resolved != null) {
+        ResolvedStartIconCache.ensureRevision(iconsRevision)
+        ResolvedStartIconCache.put(packageName, style, iconsRevision, resolved)
+    }
+    return resolved
+}
+
+/**
+ * Pre-resolves the persisted Start visuals before the Start surface is revealed.
+ *
+ * On a warm/cold launcher restart this normally reads Tile8's small on-disk icon cache; on the
+ * first run it falls back to the package/icon-pack resolver and populates that cache for next time.
+ */
+suspend fun preloadStartIcons(
+    context: Context,
+    repository: AppsRepository,
+    packageNames: List<String>,
+    style: AppIconStyle,
+    iconsRevision: Int,
+) {
+    ResolvedStartIconCache.ensureRevision(iconsRevision)
+    packageNames.distinct().chunked(6).forEach { batch ->
+        coroutineScope {
+            batch.map { packageName ->
+                async(Dispatchers.IO) {
+                    resolveStartAppIcon(
+                        context = context,
+                        repository = repository,
+                        packageName = packageName,
+                        style = style,
+                        iconsRevision = iconsRevision,
+                    )
+                }
+            }.awaitAll()
+        }
+    }
+}
+
 /**
  * Start tiles are horizontally recycled by LazyRow. Keep every icon that has already been resolved
  * for the pinned Start surface in a process-resident style/revision cache so returning to a band
@@ -298,27 +357,13 @@ fun rememberStartAppIcon(
 
     LaunchedEffect(repository, packageName, iconsRevision, iconStyle) {
         val name = packageName ?: return@LaunchedEffect
-        ResolvedStartIconCache.get(name, iconStyle, iconsRevision)?.let {
-            icon = it
-            return@LaunchedEffect
-        }
-
-        val resolved = when (iconStyle) {
-            AppIconStyle.DEFAULT -> {
-                val override = withContext(Dispatchers.IO) {
-                    IconPackManager.loadOverride(context.applicationContext, name)
-                }
-                override ?: repository.loadAppIcon(name)
-            }
-            AppIconStyle.ANDROID_ADAPTIVE -> repository.loadAppIcon(name)
-            AppIconStyle.WHITE_MONOCHROME -> repository.loadMonochromeAppIcon(name)
-        }
-
-        if (resolved != null) {
-            ResolvedStartIconCache.ensureRevision(iconsRevision)
-            ResolvedStartIconCache.put(name, iconStyle, iconsRevision, resolved)
-        }
-        icon = resolved
+        icon = resolveStartAppIcon(
+            context = context,
+            repository = repository,
+            packageName = name,
+            style = iconStyle,
+            iconsRevision = iconsRevision,
+        )
     }
 
     return icon
