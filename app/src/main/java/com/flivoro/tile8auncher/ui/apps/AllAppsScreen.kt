@@ -1064,7 +1064,7 @@ private fun SemanticAllAppsRow(
         Box(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
-                .background(effectiveTileAccent),
+                .background(appTileAccent),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
@@ -1155,7 +1155,7 @@ private fun AppListItem(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
                 .onGloballyPositioned { iconCoordinates.coordinates = it }
-                .background(appTileAccent),
+                .background(effectiveTileAccent),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
