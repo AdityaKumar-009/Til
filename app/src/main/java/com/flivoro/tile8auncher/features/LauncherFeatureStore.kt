@@ -33,6 +33,8 @@ object LauncherFeatureRuntime {
         private set
     var startAppearanceRevision by mutableIntStateOf(0)
         private set
+    var allAppsAppearanceRevision by mutableIntStateOf(0)
+        private set
 
     fun notifyPinnedTilesChanged() {
         pinnedTilesRevision++
@@ -48,6 +50,10 @@ object LauncherFeatureRuntime {
 
     fun notifyStartAppearanceChanged() {
         startAppearanceRevision++
+    }
+
+    fun notifyAllAppsAppearanceChanged() {
+        allAppsAppearanceRevision++
     }
 }
 
@@ -65,6 +71,7 @@ object LauncherFeatureStore {
     private const val LIVE_TILE_DISABLED_PACKAGES = "feature_live_tile_disabled_packages"
     private const val ICON_PACK_PACKAGE = "feature_icon_pack_package"
     private const val APP_ICON_STYLE = "feature_app_icon_style"
+    private const val ALL_APPS_APP_ACCENT_COLORS = "feature_all_apps_app_accent_colors"
     private const val CUSTOM_ICON_PREFIX = "feature_custom_icon_uri_"
     private const val DOUBLE_TAP_ACTION = "feature_start_double_tap_action"
     private const val START_GROUP_HEADINGS = "feature_start_group_headings"
@@ -116,6 +123,14 @@ object LauncherFeatureStore {
     fun setAppIconStyle(context: Context, style: AppIconStyle) {
         prefs(context).edit { putString(APP_ICON_STYLE, style.name) }
         LauncherFeatureRuntime.notifyIconsChanged()
+    }
+
+    fun useAppAccentColorsInAllApps(context: Context): Boolean =
+        prefs(context).getBoolean(ALL_APPS_APP_ACCENT_COLORS, false)
+
+    fun setUseAppAccentColorsInAllApps(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(ALL_APPS_APP_ACCENT_COLORS, enabled) }
+        LauncherFeatureRuntime.notifyAllAppsAppearanceChanged()
     }
 
     fun setSelectedIconPack(context: Context, packageName: String?) {
