@@ -43,6 +43,7 @@ import com.flivoro.tile8auncher.ui.animation.AllAppsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -408,6 +409,9 @@ private fun PCSettingsAppContent(
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository?.getWallpaperParallaxEnabled() ?: true)
     }
+    var useAppAccentColorsInAllApps by remember {
+        mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
+    }
 
     fun updateWallpaperParallax(enabled: Boolean) {
         wallpaperParallaxEnabled = enabled
@@ -536,6 +540,49 @@ private fun PCSettingsAppContent(
             Switch(
                 checked = wallpaperParallaxEnabled,
                 onCheckedChange = ::updateWallpaperParallax,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFD0D0D0))
+                .background(Color.White)
+                .clickable {
+                    val enabled = !useAppAccentColorsInAllApps
+                    useAppAccentColorsInAllApps = enabled
+                    LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
+                }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "App colors in All Apps",
+                    style = WindowsTypography.titleMedium.copy(
+                        color = Color(0xFF222222),
+                        fontSize = 15.sp,
+                    ),
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "Use each app's extracted accent color for its square in All Apps, matching the automatic color used when the app is pinned to Start.",
+                    style = WindowsTypography.bodyMedium.copy(
+                        color = Color(0xFF666666),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    ),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = useAppAccentColorsInAllApps,
+                onCheckedChange = { enabled ->
+                    useAppAccentColorsInAllApps = enabled
+                    LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
+                },
             )
         }
 
