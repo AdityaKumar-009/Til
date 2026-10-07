@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
@@ -26,6 +27,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
@@ -193,7 +197,7 @@ class AppsRepository(private val context: Context) {
         val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
             try {
                 iconDecodePermits.withPermit {
-                    decodeAndCacheAppIcon(packageName)
+                    restorePersistedAppIcon(packageName) ?: decodeAndCacheAppIcon(packageName)
                 }
             } finally {
                 inFlightIconLoads.remove(packageName)
@@ -227,7 +231,8 @@ class AppsRepository(private val context: Context) {
         val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
             try {
                 iconDecodePermits.withPermit {
-                    decodeAndCacheMonochromeAppIcon(packageName)
+                    restorePersistedMonochromeAppIcon(packageName)
+                        ?: decodeAndCacheMonochromeAppIcon(packageName)
                 }
             } finally {
                 inFlightMonochromeLoads.remove(packageName)
@@ -265,6 +270,7 @@ class AppsRepository(private val context: Context) {
             try {
                 allAppsDecodePermits.withPermit {
                     getCachedAllAppsIcon(packageName, safePx, monochrome)
+                        ?: restorePersistedAllAppsIcon(packageName, safePx, monochrome)
                         ?: decodeAndCacheAllAppsIcon(packageName, safePx, monochrome)
                 }
             } finally {
@@ -293,6 +299,11 @@ class AppsRepository(private val context: Context) {
             } else {
                 drawableToBitmap(drawable, maxPx)
             }
+            persistVisualBitmap(
+                packageName = packageName,
+                variant = allAppsPersistentVariant(maxPx, monochrome),
+                bitmap = bitmap,
+            )
             bitmap.asImageBitmap()
         } catch (_: Exception) {
             null
@@ -315,12 +326,155 @@ class AppsRepository(private val context: Context) {
         monochrome: Boolean,
     ): String = "${if (monochrome) "mono" else "normal"}:$packageName:$maxPx"
 
-    fun getCachedAppAccentColor(packageName: String): Long? = appAccentCache[packageName]
+    private fun startPersistentVariant(monochrome: Boolean): String =
+        "start_${if (monochrome) "mono" else "color"}_$maxCachedIconPx"
+
+    private fun allAppsPersistentVariant(maxPx: Int, monochrome: Boolean): String =
+        "allapps_${if (monochrome) "mono" else "color"}_$maxPx"
+
+    private fun packageUpdateStamp(packageName: String): Long =
+        runCatching {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+        }.getOrDefault(0L)
+
+    private fun visualCacheFile(packageName: String, variant: String): File {
+        val source = "$packageName:$variant:${packageUpdateStamp(packageName)}"
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(source.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return File(File(context.filesDir, APP_VISUAL_CACHE_DIR), "$digest.png")
+    }
+
+    private fun readPersistedVisualBitmap(packageName: String, variant: String): Bitmap? =
+        runCatching {
+            val file = visualCacheFile(packageName, variant)
+            if (!file.isFile || file.length() <= 0L) return@runCatching null
+            BitmapFactory.decodeFile(
+                file.absolutePath,
+                BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
+            )?.also { file.setLastModified(System.currentTimeMillis()) }
+        }.getOrNull()
+
+    private fun persistVisualBitmap(packageName: String, variant: String, bitmap: Bitmap) {
+        runCatching {
+            val file = visualCacheFile(packageName, variant)
+            file.parentFile?.mkdirs()
+            val temp = File(file.parentFile, "${file.name}.tmp")
+            FileOutputStream(temp).use { output ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+            if (!temp.renameTo(file)) {
+                FileOutputStream(file).use { output ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                }
+                temp.delete()
+            }
+            file.setLastModified(System.currentTimeMillis())
+            prunePersistentVisualCache()
+        }
+    }
+
+    private fun restorePersistedAppIcon(packageName: String): ImageBitmap? {
+        val bitmap = readPersistedVisualBitmap(
+            packageName,
+            startPersistentVariant(monochrome = false),
+        ) ?: return null
+
+        if (!isPersistedAccentFresh(packageName)) {
+            persistAppAccent(packageName, extractAppAccentColor(bitmap))
+        }
+        val image = bitmap.asImageBitmap()
+        synchronized(iconCacheLock) { iconCache.put(packageName, image) }
+        failedIcons.remove(packageName)
+        return image
+    }
+
+    private fun restorePersistedMonochromeAppIcon(packageName: String): ImageBitmap? {
+        val bitmap = readPersistedVisualBitmap(
+            packageName,
+            startPersistentVariant(monochrome = true),
+        ) ?: return null
+        val image = bitmap.asImageBitmap()
+        synchronized(monochromeIconCacheLock) { monochromeIconCache.put(packageName, image) }
+        return image
+    }
+
+    private fun restorePersistedAllAppsIcon(
+        packageName: String,
+        maxPx: Int,
+        monochrome: Boolean,
+    ): ImageBitmap? {
+        val bitmap = readPersistedVisualBitmap(
+            packageName,
+            allAppsPersistentVariant(maxPx, monochrome),
+        ) ?: return null
+        val image = bitmap.asImageBitmap()
+        val key = allAppsThumbnailKey(packageName, maxPx, monochrome)
+        synchronized(allAppsThumbnailCacheLock) { allAppsThumbnailCache.put(key, image) }
+        failedAllAppsThumbnailKeys.remove(key)
+        return image
+    }
+
+    private fun appAccentColorKey(packageName: String): String =
+        "$APP_ACCENT_COLOR_PREFIX$packageName"
+
+    private fun appAccentStampKey(packageName: String): String =
+        "$APP_ACCENT_STAMP_PREFIX$packageName"
+
+    private fun isPersistedAccentFresh(packageName: String): Boolean =
+        prefs.getLong(appAccentStampKey(packageName), -1L) == packageUpdateStamp(packageName)
+
+    private fun persistAppAccent(packageName: String, color: Long) {
+        appAccentCache[packageName] = color
+        val stamp = packageUpdateStamp(packageName)
+        if (
+            prefs.getLong(appAccentColorKey(packageName), NO_CACHED_ACCENT) == color &&
+            prefs.getLong(appAccentStampKey(packageName), -1L) == stamp
+        ) {
+            return
+        }
+        prefs.edit {
+            putLong(appAccentColorKey(packageName), color)
+            putLong(appAccentStampKey(packageName), stamp)
+        }
+    }
+
+    @Synchronized
+    private fun prunePersistentVisualCache() {
+        val dir = File(context.filesDir, APP_VISUAL_CACHE_DIR)
+        val files = dir.listFiles()?.filter(File::isFile).orEmpty()
+        var total = files.sumOf(File::length)
+        if (total <= APP_VISUAL_CACHE_MAX_BYTES) return
+
+        for (file in files.sortedBy(File::lastModified)) {
+            if (total <= APP_VISUAL_CACHE_TARGET_BYTES) break
+            val size = file.length()
+            if (file.delete()) total -= size
+        }
+    }
+
+    fun getCachedAppAccentColor(packageName: String): Long? {
+        appAccentCache[packageName]?.let { return it }
+        val persisted = prefs.getLong(appAccentColorKey(packageName), NO_CACHED_ACCENT)
+            .takeIf { it != NO_CACHED_ACCENT }
+            ?: return null
+        appAccentCache[packageName] = persisted
+        return persisted
+    }
 
     suspend fun loadAppAccentColor(packageName: String): Long {
-        appAccentCache[packageName]?.let { return it }
+        val cached = getCachedAppAccentColor(packageName)
+        if (cached != null && isPersistedAccentFresh(packageName)) return cached
+
+        // loadAppIcon first checks the persistent icon cache. If the app was updated, the
+        // update-stamped icon file misses and the fresh package icon is decoded exactly once.
         loadAppIcon(packageName)
-        return appAccentCache[packageName] ?: WindowsColors.Purple
+        val resolved = appAccentCache[packageName] ?: cached ?: WindowsColors.Purple
+        if (resolved != WindowsColors.Purple || cached != null) {
+            persistAppAccent(packageName, resolved)
+        }
+        return resolved
     }
 
     private fun decodeAndCacheAppIcon(packageName: String): ImageBitmap? {
@@ -330,7 +484,12 @@ class AppsRepository(private val context: Context) {
         val bitmap = try {
             val drawable = packageManager.getApplicationIcon(packageName)
             val androidBitmap = drawableToBitmap(drawable)
-            appAccentCache[packageName] = extractAppAccentColor(androidBitmap)
+            persistAppAccent(packageName, extractAppAccentColor(androidBitmap))
+            persistVisualBitmap(
+                packageName = packageName,
+                variant = startPersistentVariant(monochrome = false),
+                bitmap = androidBitmap,
+            )
             androidBitmap.asImageBitmap()
         } catch (e: Exception) {
             failedIcons.add(packageName)
@@ -350,7 +509,13 @@ class AppsRepository(private val context: Context) {
         getCachedMonochromeAppIcon(packageName)?.let { return it }
         return try {
             val drawable = packageManager.getApplicationIcon(packageName)
-            val bitmap = drawableToMonochromeBitmap(drawable).asImageBitmap()
+            val androidBitmap = drawableToMonochromeBitmap(drawable)
+            persistVisualBitmap(
+                packageName = packageName,
+                variant = startPersistentVariant(monochrome = true),
+                bitmap = androidBitmap,
+            )
+            val bitmap = androidBitmap.asImageBitmap()
             synchronized(monochromeIconCacheLock) {
                 monochromeIconCache.put(packageName, bitmap)
             }
@@ -938,18 +1103,33 @@ class AppsRepository(private val context: Context) {
 
         fun accentsFor(packageName: String): Pair<Long, Long>? =
             accentPairs.getOrPut(packageName) {
+                if (!allowLegacyRecognition) {
+                    val cached = getCachedAppAccentColor(packageName)
+                    if (cached != null && isPersistedAccentFresh(packageName)) {
+                        return@getOrPut cached to cached
+                    }
+                }
+
                 val drawable = runCatching { packageManager.getApplicationIcon(packageName) }.getOrNull()
                     ?: return null
                 val bitmap = drawableToBitmap(drawable)
                 val current = extractAppAccentColor(bitmap)
-                val legacy = extractLegacyAppAccentColor(bitmap)
-                appAccentCache[packageName] = current
+                val legacy = if (allowLegacyRecognition) extractLegacyAppAccentColor(bitmap) else current
+                persistAppAccent(packageName, current)
+                persistVisualBitmap(
+                    packageName = packageName,
+                    variant = startPersistentVariant(monochrome = false),
+                    bitmap = bitmap,
+                )
                 current to legacy
             }
 
         val refreshed = tiles.map { tile ->
             val packageName = tile.packageName
             if (packageName.isNullOrBlank() || tile.tileType != TileType.APP) {
+                return@map tile
+            }
+            if (!tile.usesAppAccent && !allowLegacyRecognition) {
                 return@map tile
             }
 
@@ -1428,6 +1608,12 @@ class AppsRepository(private val context: Context) {
         const val ICON_CACHE_MAX_PX = 384
         const val APP_ACCENT_ALGORITHM_VERSION_KEY = "app_accent_algorithm_version"
         const val APP_ACCENT_ALGORITHM_VERSION = 2
+        const val APP_ACCENT_COLOR_PREFIX = "app_visual_accent_color:"
+        const val APP_ACCENT_STAMP_PREFIX = "app_visual_accent_stamp:"
+        const val NO_CACHED_ACCENT = Long.MIN_VALUE
+        const val APP_VISUAL_CACHE_DIR = "app_visual_cache_v1"
+        const val APP_VISUAL_CACHE_MAX_BYTES = 64L * 1024L * 1024L
+        const val APP_VISUAL_CACHE_TARGET_BYTES = 48L * 1024L * 1024L
         const val LAUNCH_TIMING_DURATION = "launch_timing_duration_millis"
         const val LAUNCH_TIMING_CURVE = "launch_timing_curve"
         const val LAUNCH_TIMING_CUSTOM_X1 = "launch_timing_custom_x1"
