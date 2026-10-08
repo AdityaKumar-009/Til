@@ -16,7 +16,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -74,6 +73,7 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.ui.animation.metroTilePress
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
@@ -615,8 +615,6 @@ private fun PhoneTile(
     onLongClick: () -> Unit,
 ) {
     val progress = remember(tile.id, mode, entranceGeneration) { Animatable(0f) }
-    var pressed by remember(tile.id) { mutableStateOf(false) }
-    var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
     LaunchedEffect(tile.id, mode, entranceGeneration) {
         delay((index.coerceAtMost(18) * if (mode == LauncherUiMode.PHONE_8) 24 else 13).toLong())
         progress.animateTo(1f, tween(if (mode == LauncherUiMode.PHONE_8) 390 else 280,
@@ -628,22 +626,17 @@ private fun PhoneTile(
         appIcon = icon,
         backgroundAlpha = tileOpacity,
         modifier = modifier
-            .onGloballyPositioned { bounds = it.boundsInWindow() }
             .graphicsLayer {
                 alpha = progress.value
                 transformOrigin = TransformOrigin(0f, .5f)
                 rotationY = if (mode == LauncherUiMode.PHONE_8) -72f * (1f - progress.value) else 0f
                 translationY = if (mode == LauncherUiMode.MOBILE_10) 45f * (1f - progress.value) else 0f
-                scaleX = if (pressed) .955f else 1f
-                scaleY = if (pressed) .955f else 1f
                 cameraDistance = 16f * density
             }
-            .pointerInput(tile.id) {
-                detectTapGestures(
-                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick(bounds) },
-                    onLongPress = { onLongClick() },
-                )
-            },
+            .metroTilePress(
+                tileSize = tile.size,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     )
 }
