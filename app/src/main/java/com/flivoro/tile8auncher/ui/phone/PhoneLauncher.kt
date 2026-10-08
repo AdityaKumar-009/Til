@@ -161,6 +161,7 @@ fun PhoneLauncherSurface(
     sections: List<AppSection>,
     appsRepository: AppsRepository,
     homeRequest: Int,
+    entranceRequest: Int,
     wallpaperStyle: Int,
     onLaunch: (TileModel, Rect) -> Unit,
     onOpenSettings: () -> Unit,
@@ -292,6 +293,7 @@ fun PhoneLauncherSurface(
                         PhoneStartGrid(
                             tiles = phoneTiles,
                             columns = columns,
+                            entranceGeneration = entranceRequest + homeRequest,
                             mode = mode,
                             tileOpacity = tileOpacity,
                             appsRepository = appsRepository,
@@ -527,6 +529,7 @@ fun PhoneLauncherSurface(
 private fun PhoneStartGrid(
     tiles: List<TileModel>,
     columns: Int,
+    entranceGeneration: Int,
     mode: LauncherUiMode,
     tileOpacity: Float,
     appsRepository: AppsRepository,
@@ -544,7 +547,9 @@ private fun PhoneStartGrid(
                 val pos = slots[index]
                 key(tile.id) {
                     PhoneTile(
-                        tile = tile, mode = mode, index = index, tileOpacity = tileOpacity, repository = appsRepository,
+                        tile = tile, mode = mode, index = index,
+                        entranceGeneration = entranceGeneration,
+                        tileOpacity = tileOpacity, repository = appsRepository,
                         modifier = Modifier
                             .offset(x = side + (cell + gap) * pos.column,
                                     y = (cell + gap) * pos.row)
@@ -564,16 +569,17 @@ private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
     index: Int,
+    entranceGeneration: Int,
     tileOpacity: Float,
     repository: AppsRepository,
     modifier: Modifier,
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val progress = remember(tile.id, mode) { Animatable(0f) }
+    val progress = remember(tile.id, mode, entranceGeneration) { Animatable(0f) }
     var pressed by remember(tile.id) { mutableStateOf(false) }
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
-    LaunchedEffect(tile.id, mode) {
+    LaunchedEffect(tile.id, mode, entranceGeneration) {
         delay((index.coerceAtMost(18) * if (mode == LauncherUiMode.PHONE_8) 24 else 13).toLong())
         progress.animateTo(1f, tween(if (mode == LauncherUiMode.PHONE_8) 390 else 280,
             easing = FastOutSlowInEasing))
