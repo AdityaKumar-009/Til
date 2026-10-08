@@ -68,6 +68,8 @@ import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -800,6 +802,93 @@ fun Tile8LauncherApp(
 
     val charmsAvailable = entranceReady && !flipState.isRunning && !showPowerDialog &&
         !showPinAppsDialog && selectedTileForCustomization == null
+
+    // Dedicated phone surfaces do not touch Desktop's horizontal Start layout or its animations.
+    // Switching the setting recomposes immediately; saved desktop tile positions remain intact.
+    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val launcherMode = remember(launcherModeRevision) {
+        LauncherFeatureStore.launcherUiMode(context)
+    }
+    if (launcherMode != LauncherUiMode.DESKTOP) {
+        val launchProgress = remember { Animatable(0f) }
+        LaunchedEffect(flipState.isRunning, flipState.sourceTile?.id, flipState.direction, launcherMode) {
+            launchProgress.snapTo(0f)
+            if (flipState.isRunning) {
+                if (flipState.direction == FlipAnimationDirection.FORWARD) {
+                    launchProgress.animateTo(
+                        1f, tween(
+                            durationMillis = if (launcherMode == LauncherUiMode.PHONE_8) 310 else 220,
+                            easing = FastOutSlowInEasing,
+                        )
+                    )
+                    flipState.sourceTile?.let { tile ->
+                        if (!flipLaunchDispatched) {
+                            flipLaunchDispatched = true
+                            onLaunchTile(tile)
+                        }
+                    }
+                    onDismissFlip()
+                } else {
+                    launchProgress.animateTo(0f, tween(175))
+                    onDismissFlip()
+                }
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val p = if (flipState.isRunning) launchProgress.value else 0f
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f)
+                rotationY = if (launcherMode == LauncherUiMode.PHONE_8) -55f * p else 0f
+                translationY = if (launcherMode == LauncherUiMode.MOBILE_10) -75f * p else 0f
+                alpha = if (entranceReady) 1f - .75f * p else 0f
+                cameraDistance = 16f * density
+            }) {
+                if (tilesLoaded) {
+                    PhoneLauncherSurface(
+                        mode = launcherMode,
+                        tiles = tiles,
+                        sections = categorizedApps,
+                        appsRepository = appsRepository,
+                        homeRequest = homeRequest,
+                        onLaunch = { tile, bounds ->
+                            if (entranceReady && !flipState.isRunning &&
+                                !bindOrPickDefaultTile(tile, bounds)
+                            ) {
+                                onTriggerFlip(tile, bounds, LaunchOrigin.START)
+                            }
+                        },
+                        onOpenSettings = { openLauncherSettings() },
+                        onOpenAppInfo = { onOpenAppInfo(it) },
+                    )
+                }
+            }
+            if (flipState.isRunning) {
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    alpha = launchProgress.value * .65f
+                }.then(Modifier.background(androidx.compose.ui.graphics.Color.Black)))
+            }
+            if (entranceReady && activeInAppTile != null) {
+                WindowsAppView(
+                    tile = activeInAppTile,
+                    appsRepository = appsRepository,
+                    onClose = { closeInAppTileAndRetriggerEntrance() },
+                    onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
+                    onWallpaperStyleChanged = { wallpaperStyle = it },
+                )
+            }
+            if (entranceReady &&
+                WindowsLockScreenRuntime.pending &&
+                WindowsLockScreenPreferences.isEnabled(context)
+            ) {
+                Windows81LockScreen(
+                    cameraGestureEnabled = WindowsLockScreenPreferences.isCameraGestureEnabled(context),
+                    onDismiss = { WindowsLockScreenRuntime.dismiss() },
+                )
+            }
+        }
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()
         .charmsEdgeGesture(enabled = charmsAvailable && !showCharms) { showCharms = true }
         .semantics {
