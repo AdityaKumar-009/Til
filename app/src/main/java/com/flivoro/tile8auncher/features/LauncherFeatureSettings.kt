@@ -62,6 +62,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var showIconStyles by remember { mutableStateOf(false) }
     var showLauncherModePicker by remember { mutableStateOf(false) }
     var showPhoneColumnsPicker by remember { mutableStateOf(false) }
+    var showPhoneTransparencyPicker by remember { mutableStateOf(false) }
     val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
     val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
@@ -165,6 +166,13 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             description = "${LauncherFeatureStore.phoneSmallColumns(context, launcherMode)} small tiles across. Adjusts only ${launcherMode.title}.",
             glyph = "app",
         ) { showPhoneColumnsPicker = true }
+    }
+    if (launcherMode == LauncherUiMode.MOBILE_10) {
+        SettingsActionRow(
+            title = "Live tile opacity",
+            description = "${(LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt()}% — 0% is transparent and 100% is solid.",
+            glyph = "photos",
+        ) { showPhoneTransparencyPicker = true }
     }
     Spacer(Modifier.height(22.dp))
     Text("Launcher features", color = settingsPurple, fontSize = 20.sp)
@@ -336,6 +344,24 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                         onClick = {
                             LauncherFeatureStore.setPhoneSmallColumns(context, launcherMode, n)
                             showPhoneColumnsPicker = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showPhoneTransparencyPicker) {
+        Dialog(onDismissRequest = { showPhoneTransparencyPicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Windows 10 Mobile tile opacity", fontSize = 20.sp, color = settingsPurple)
+                listOf(0, 25, 50, 75, 82, 100).forEach { value ->
+                    ChoiceRow(
+                        label = "$value%",
+                        selected = (LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt() == value,
+                        onClick = {
+                            LauncherFeatureStore.setPhoneTileOpacity(context, value)
+                            showPhoneTransparencyPicker = false
                         },
                     )
                 }
