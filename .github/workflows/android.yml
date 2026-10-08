@@ -28,6 +28,8 @@ jobs:
       - name: Make wrapper executable
         run: chmod +x gradlew
       - name: Unit tests
+        id: unit_tests
+        continue-on-error: true
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Build optimized installable APK
         run: ./gradlew assemblePerformance --stacktrace
@@ -38,3 +40,8 @@ jobs:
           path: app/build/outputs/apk/performance/*.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Fail if unit tests failed
+        if: steps.unit_tests.outcome == 'failure'
+        run: |
+          echo "::error::APK built, but unit tests failed; inspect the Unit tests step before merging."
+          exit 1
