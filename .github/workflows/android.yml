@@ -2,6 +2,10 @@ name: Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/windows-phone-launcher-modes
 
 permissions:
   contents: read
