@@ -852,6 +852,7 @@ fun Tile8LauncherApp(
                         appsRepository = appsRepository,
                         homeRequest = homeRequest,
                         entranceRequest = entranceRequest,
+                        interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
                         onLaunch = { tile, bounds ->
                             if (entranceReady && !flipState.isRunning &&
