@@ -77,6 +77,7 @@ import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.util.Locale
 
@@ -159,6 +160,7 @@ fun PhoneLauncherSurface(
     sections: List<AppSection>,
     appsRepository: AppsRepository,
     homeRequest: Int,
+    wallpaperStyle: Int,
     onLaunch: (TileModel, Rect) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAppInfo: (String) -> Unit,
@@ -205,7 +207,7 @@ fun PhoneLauncherSurface(
         )
     }
 
-    val phoneTiles = remember(order, tiles, catalog, phoneRevision) { order.mapNotNull(::tileFor) }
+    val phoneTiles = remember(order, tiles, catalog, phoneRevision) { order.mapNotNull { id -> tileFor(id) } }
 
     fun saveOrder(next: List<String>) {
         order = next.distinct()
@@ -249,7 +251,7 @@ fun PhoneLauncherSurface(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (isTen) {
-            WindowsWallpaper(wallpaperStyle = 0, enabled = false, scrollOffsetPx = { 0f })
+            WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -260,7 +262,7 @@ fun PhoneLauncherSurface(
             ) {
                 Text(if (isTen) "▰  Wi-Fi  ▴  ▾" else "▰  ▴  ▾",
                     color = Color.White, fontSize = 12.sp,
-                    modifier = Modifier.clickable { actionCenterOpen = !actionCenterOpen })
+                    modifier = Modifier.clickable(enabled = isTen) { actionCenterOpen = !actionCenterOpen })
             }
             AnimatedContent(
                 targetState = showApps,
@@ -406,7 +408,7 @@ fun PhoneLauncherSurface(
             }
         }
 
-        if (actionCenterOpen) {
+        if (actionCenterOpen && isTen) {
             Column(Modifier.fillMaxWidth().statusBarsPadding()
                 .background(Color(0xFF212121)).padding(horizontal = 18.dp, vertical = 14.dp)) {
                 Text(if (isTen) "Expand  ⌄" else "action center",
@@ -518,7 +520,7 @@ private fun PhoneStartGrid(
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
-        Box(Modifier.fillMaxWidth().height(heightRows * (cell + gap))) {
+        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
             tiles.forEachIndexed { index, tile ->
                 val pos = slots[index]
                 key(tile.id) {
