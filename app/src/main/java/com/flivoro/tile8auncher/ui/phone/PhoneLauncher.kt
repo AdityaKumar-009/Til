@@ -78,7 +78,6 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
-import com.flivoro.tile8auncher.ui.animation.metroTilePress
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
@@ -696,8 +695,7 @@ private fun PhoneTile(
                 transformOrigin = TransformOrigin(motion.pivotX, pivotY)
                 cameraDistance = 16f * density
             }
-            .metroTilePress(
-                tileSize = tile.size,
+            .phoneToolkitTilePress(
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
