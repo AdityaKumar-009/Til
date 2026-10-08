@@ -612,6 +612,19 @@ private fun PhoneStartGrid(
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
+    // All tiles share one master clock. A separate coroutine per tile can drift and jank on
+    // mid-range Android hardware, defeating the synchronised Microsoft feather cascade.
+    val phase = when {
+        isLaunching -> PhoneMotionPhase.FORWARD_OUT
+        entranceGeneration <= 0 -> PhoneMotionPhase.FORWARD_IN
+        else -> PhoneMotionPhase.BACKWARD_IN
+    }
+    val clock = remember(mode, entranceGeneration, phase) { Animatable(0f) }
+    LaunchedEffect(mode, entranceGeneration, phase) {
+        clock.snapTo(0f)
+        val duration = PhoneMotionTimeline.totalMillis(mode, phase, 6)
+        clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+    }
     val gap = 4.dp
     val side = 10.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -623,8 +636,8 @@ private fun PhoneStartGrid(
                 key(tile.id) {
                     PhoneTile(
                         tile = tile, mode = mode, index = index,
-                        entranceGeneration = entranceGeneration,
-                        isLaunching = isLaunching,
+                        phase = phase,
+                        elapsedMillis = { clock.value.roundToInt() },
                         selectedTile = launchingTileId == tile.id,
                         tileOpacity = tileOpacity, repository = appsRepository,
                         modifier = Modifier
@@ -646,8 +659,8 @@ private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
     index: Int,
-    entranceGeneration: Int,
-    isLaunching: Boolean,
+    phase: PhoneMotionPhase,
+    elapsedMillis: () -> Int,
     selectedTile: Boolean,
     tileOpacity: Float,
     repository: AppsRepository,
@@ -655,23 +668,9 @@ private fun PhoneTile(
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    // Microsoft Toolkit turnstile feather uses 350/250 ms and 40/50 ms stagger.
-    // Compose renders at vsync; the evaluator is deterministic at any millisecond.
-    val phase = when {
-        isLaunching -> PhoneMotionPhase.FORWARD_OUT
-        entranceGeneration <= 0 -> PhoneMotionPhase.FORWARD_IN
-        else -> PhoneMotionPhase.BACKWARD_IN
-    }
+    // The motion curve is evaluated in the drawing layer to avoid re-composing every
+    // individual tile on each vsync. The original 40/50ms sequence stays deterministic.
     val ordinal = index.coerceAtMost(6)
-    val clock = remember(tile.id, mode, entranceGeneration, phase) { Animatable(0f) }
-    LaunchedEffect(tile.id, mode, entranceGeneration, phase) {
-        clock.snapTo(0f)
-        val duration = PhoneMotionTimeline.totalMillis(mode, phase, ordinal)
-        clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
-    }
-    val motion = PhoneMotionTimeline.sample(
-        mode, phase, clock.value.roundToInt(), ordinal, selectedTile,
-    )
     val configuration = LocalConfiguration.current
     val pageCenterYPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() / 2f }
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
@@ -683,6 +682,9 @@ private fun PhoneTile(
         modifier = modifier
             .onGloballyPositioned { bounds = it.boundsInWindow() }
             .graphicsLayer {
+                val motion = PhoneMotionTimeline.sample(
+                    mode, phase, elapsedMillis(), ordinal, selectedTile,
+                )
                 alpha = motion.alpha
                 rotationY = motion.rotationY
                 translationY = motion.offsetYPx
