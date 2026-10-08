@@ -116,7 +116,12 @@ internal fun Modifier.phoneToolkitTilePress(
         .graphicsLayer {
             rotationX = rotX.value
             rotationY = rotY.value
-            translationZ = -depth.value
-            cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+            val camera = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+            // Compose's GraphicsLayerScope exposes cameraDistance but not translationZ.
+            // Projecting a depressed plane backward shrinks it by d/(d+depression).
+            val perspectiveScale = camera / (camera + depth.value)
+            scaleX = perspectiveScale
+            scaleY = perspectiveScale
+            cameraDistance = camera
         }
 }
