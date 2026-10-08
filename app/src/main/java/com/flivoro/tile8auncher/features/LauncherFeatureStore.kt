@@ -82,6 +82,7 @@ object LauncherFeatureStore {
 
     private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
     private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
+    private const val PHONE_TILE_OPACITY = "phone_tile_opacity"
     private const val HIDDEN_PACKAGES = "feature_hidden_packages"
     private const val PRIVATE_PACKAGES = "feature_private_packages"
     private const val LIVE_TILE_DISABLED_PACKAGES = "feature_live_tile_disabled_packages"
@@ -118,6 +119,14 @@ object LauncherFeatureStore {
     fun setPhoneSmallColumns(context: Context, mode: LauncherUiMode, columns: Int) {
         require(columns == 4 || columns == 6)
         prefs(context).edit { putInt(PHONE_SMALL_COLUMNS + mode.name, columns) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    fun phoneTileOpacity(context: Context): Float =
+        prefs(context).getInt(PHONE_TILE_OPACITY, 82).coerceIn(0, 100) / 100f
+
+    fun setPhoneTileOpacity(context: Context, percent: Int) {
+        prefs(context).edit { putInt(PHONE_TILE_OPACITY, percent.coerceIn(0, 100)) }
         LauncherFeatureRuntime.notifyLauncherModeChanged()
     }
 
