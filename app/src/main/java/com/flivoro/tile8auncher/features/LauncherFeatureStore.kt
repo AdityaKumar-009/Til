@@ -17,6 +17,13 @@ enum class StartDoubleTapAction {
     LOCK_DEVICE,
 }
 
+/** Independent launch surfaces; DESKTOP deliberately retains all previous rendering defaults. */
+enum class LauncherUiMode(val title: String, val detail: String) {
+    DESKTOP("Windows 8.1 Desktop", "Original horizontal Start and desktop motion"),
+    PHONE_8("Windows Phone 8", "Classic Metro phone Start and turnstile motion"),
+    MOBILE_10("Windows 10 Mobile", "Phone Start, translucent tiles and modern motion"),
+}
+
 enum class AppIconStyle {
     DEFAULT,
     ANDROID_ADAPTIVE,
@@ -25,6 +32,13 @@ enum class AppIconStyle {
 
 /** Process-local signals for feature changes that visible launcher surfaces should re-read. */
 object LauncherFeatureRuntime {
+    var launcherModeRevision by mutableIntStateOf(0)
+        private set
+
+    fun notifyLauncherModeChanged() {
+        launcherModeRevision++
+    }
+
     var pinnedTilesRevision by mutableIntStateOf(0)
         private set
     var iconsRevision by mutableIntStateOf(0)
@@ -66,6 +80,8 @@ object LauncherFeatureRuntime {
 object LauncherFeatureStore {
     const val PREFS_NAME = "tile8_launcher_prefs_v2"
 
+    private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
+    private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
     private const val HIDDEN_PACKAGES = "feature_hidden_packages"
     private const val PRIVATE_PACKAGES = "feature_private_packages"
     private const val LIVE_TILE_DISABLED_PACKAGES = "feature_live_tile_disabled_packages"
@@ -83,6 +99,27 @@ object LauncherFeatureStore {
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    fun launcherUiMode(context: Context): LauncherUiMode {
+        val saved = prefs(context).getString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+        return LauncherUiMode.entries.firstOrNull { it.name == saved } ?: LauncherUiMode.DESKTOP
+    }
+
+    fun setLauncherUiMode(context: Context, mode: LauncherUiMode) {
+        if (launcherUiMode(context) == mode) return
+        prefs(context).edit { putString(LAUNCHER_UI_MODE, mode.name) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    fun phoneSmallColumns(context: Context, mode: LauncherUiMode): Int =
+        prefs(context).getInt(PHONE_SMALL_COLUMNS + mode.name, if (mode == LauncherUiMode.PHONE_8) 4 else 6)
+            .let { if (it == 4) 4 else 6 }
+
+    fun setPhoneSmallColumns(context: Context, mode: LauncherUiMode, columns: Int) {
+        require(columns == 4 || columns == 6)
+        prefs(context).edit { putInt(PHONE_SMALL_COLUMNS + mode.name, columns) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
 
     fun hiddenPackages(context: Context): Set<String> =
         prefs(context).getStringSet(HIDDEN_PACKAGES, emptySet()).orEmpty().toSet()
