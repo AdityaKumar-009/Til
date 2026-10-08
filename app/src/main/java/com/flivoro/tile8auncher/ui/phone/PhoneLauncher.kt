@@ -164,6 +164,7 @@ fun PhoneLauncherSurface(
     appsRepository: AppsRepository,
     homeRequest: Int,
     entranceRequest: Int,
+    interactionEnabled: Boolean,
     wallpaperStyle: Int,
     onLaunch: (TileModel, Rect) -> Unit,
     onOpenSettings: () -> Unit,
@@ -231,7 +232,7 @@ fun PhoneLauncherSurface(
         }
     }
 
-    BackHandler(showApps || alphabetOpen || actionCenterOpen || editing != null) {
+    BackHandler(interactionEnabled && (showApps || alphabetOpen || actionCenterOpen || editing != null)) {
         when {
             editing != null -> editing = null
             alphabetOpen -> alphabetOpen = false
