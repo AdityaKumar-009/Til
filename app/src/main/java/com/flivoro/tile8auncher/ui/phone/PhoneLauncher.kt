@@ -138,7 +138,8 @@ internal object PhoneLayoutStore {
 
     fun size(context: Context, mode: LauncherUiMode, tile: TileModel): TileSize {
         val name = prefs(context).getString(key(mode, "size_${tile.id}"), tile.size.name)
-        return TileSize.entries.firstOrNull { it.name == name } ?: tile.size
+        val chosen = TileSize.entries.firstOrNull { it.name == name } ?: tile.size
+        return if (mode == LauncherUiMode.PHONE_8 && chosen == TileSize.LARGE) TileSize.WIDE else chosen
     }
 
     fun saveSize(context: Context, mode: LauncherUiMode, tileId: String, size: TileSize) {
@@ -180,6 +181,9 @@ fun PhoneLauncherSurface(
     var phoneRevision by remember(mode) { mutableStateOf(0) }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
+    val tileOpacity = remember(mode, densityRevision) {
+        if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
+    }
     val appsState = rememberLazyListState()
     val hidden = LauncherFeatureStore.hiddenPackages(context) + LauncherFeatureStore.privatePackages(context)
     val visibleApps = remember(catalog, hidden) {
@@ -288,6 +292,7 @@ fun PhoneLauncherSurface(
                             tiles = phoneTiles,
                             columns = columns,
                             mode = mode,
+                            tileOpacity = tileOpacity,
                             appsRepository = appsRepository,
                             onClick = onLaunch,
                             onLongClick = { editing = it },
@@ -464,7 +469,8 @@ fun PhoneLauncherSurface(
                         } else {
                             Text("Resize", color = Color.White, fontSize = 17.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TileSize.entries.forEach { size ->
+                                TileSize.entries.filter { mode != LauncherUiMode.PHONE_8 || it != TileSize.LARGE }
+                                    .forEach { size ->
                                     Text(size.name.take(1), color = if (size == tile.size) accent else Color.White,
                                         modifier = Modifier.clickable {
                                             PhoneLayoutStore.saveSize(context, mode, id, size)
@@ -510,6 +516,7 @@ private fun PhoneStartGrid(
     tiles: List<TileModel>,
     columns: Int,
     mode: LauncherUiMode,
+    tileOpacity: Float,
     appsRepository: AppsRepository,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
@@ -525,7 +532,7 @@ private fun PhoneStartGrid(
                 val pos = slots[index]
                 key(tile.id) {
                     PhoneTile(
-                        tile = tile, mode = mode, index = index, repository = appsRepository,
+                        tile = tile, mode = mode, index = index, tileOpacity = tileOpacity, repository = appsRepository,
                         modifier = Modifier
                             .offset(x = side + (cell + gap) * pos.column,
                                     y = (cell + gap) * pos.row)
@@ -545,6 +552,7 @@ private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
     index: Int,
+    tileOpacity: Float,
     repository: AppsRepository,
     modifier: Modifier,
     onClick: (Rect) -> Unit,
@@ -562,7 +570,7 @@ private fun PhoneTile(
     WindowsTileFace(
         tile = tile,
         appIcon = icon,
-        backgroundAlpha = if (mode == LauncherUiMode.MOBILE_10) .82f else 1f,
+        backgroundAlpha = tileOpacity,
         modifier = modifier
             .onGloballyPositioned { bounds = it.boundsInWindow() }
             .graphicsLayer {
