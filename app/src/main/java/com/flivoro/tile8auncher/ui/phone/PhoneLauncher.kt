@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +59,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +87,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /** Phone Start coordinates are independent from Desktop's horizontal tile-group coordinates. */
 internal data class PhoneTileSlot(val column: Int, val row: Int, val columns: Int, val rows: Int)
@@ -167,6 +171,8 @@ fun PhoneLauncherSurface(
     appsRepository: AppsRepository,
     homeRequest: Int,
     entranceRequest: Int,
+    launchingTileId: String?,
+    isLaunching: Boolean,
     interactionEnabled: Boolean,
     wallpaperStyle: Int,
     onLaunch: (TileModel, Rect) -> Unit,
@@ -193,6 +199,15 @@ fun PhoneLauncherSurface(
         if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
     }
     val appsState = rememberLazyListState()
+    val listPhase = if (isLaunching) PhoneMotionPhase.FORWARD_OUT else PhoneMotionPhase.FORWARD_IN
+    val appsTimeline = remember(mode, showApps, isLaunching) { Animatable(0f) }
+    LaunchedEffect(mode, showApps, isLaunching) {
+        if (showApps) {
+            appsTimeline.snapTo(0f)
+            val duration = PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
+            appsTimeline.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+        }
+    }
     val hidden = LauncherFeatureStore.hiddenPackages(context) + LauncherFeatureStore.privatePackages(context)
     val visibleApps = remember(catalog, hidden) {
         catalog.filter { it.packageName !in hidden }.sortedWith(
@@ -300,6 +315,8 @@ fun PhoneLauncherSurface(
                             tiles = phoneTiles,
                             columns = columns,
                             entranceGeneration = entranceRequest + homeRequest,
+                            launchingTileId = launchingTileId,
+                            isLaunching = isLaunching,
                             mode = mode,
                             tileOpacity = tileOpacity,
                             appsRepository = appsRepository,
@@ -369,11 +386,25 @@ fun PhoneLauncherSurface(
                                         modifier = Modifier.clickable { alphabetOpen = true }
                                             .padding(vertical = 10.dp, horizontal = 2.dp))
                                 }
-                                items(groupApps, key = { it.packageName }) { app ->
+                                itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
+                                    val ordinal = ((positions[letter] ?: 0) + appIndex).coerceAtMost(6)
+                                    val rowMotion = PhoneMotionTimeline.sample(
+                                        mode, listPhase, appsTimeline.value.roundToInt(),
+                                        ordinal, selectedTile = launchingTileId == "phone_app_${app.packageName}",
+                                    )
                                     Row(
                                         Modifier.fillMaxWidth().height(60.dp)
+                                            .graphicsLayer {
+                                                alpha = rowMotion.alpha
+                                                rotationY = rowMotion.rotationY
+                                                translationY = rowMotion.offsetYPx
+                                                scaleX = rowMotion.scale
+                                                scaleY = rowMotion.scale
+                                                transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
+                                                cameraDistance = 16f * density
+                                            }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
                                             .combinedClickable(
                                                 onClick = { onLaunch(appTile(app), bounds) },
@@ -573,6 +604,8 @@ private fun PhoneStartGrid(
     tiles: List<TileModel>,
     columns: Int,
     entranceGeneration: Int,
+    launchingTileId: String?,
+    isLaunching: Boolean,
     mode: LauncherUiMode,
     tileOpacity: Float,
     appsRepository: AppsRepository,
@@ -592,6 +625,8 @@ private fun PhoneStartGrid(
                     PhoneTile(
                         tile = tile, mode = mode, index = index,
                         entranceGeneration = entranceGeneration,
+                        isLaunching = isLaunching,
+                        selectedTile = launchingTileId == tile.id,
                         tileOpacity = tileOpacity, repository = appsRepository,
                         modifier = Modifier
                             .offset(x = side + (cell + gap) * pos.column,
@@ -613,29 +648,52 @@ private fun PhoneTile(
     mode: LauncherUiMode,
     index: Int,
     entranceGeneration: Int,
+    isLaunching: Boolean,
+    selectedTile: Boolean,
     tileOpacity: Float,
     repository: AppsRepository,
     modifier: Modifier,
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val progress = remember(tile.id, mode, entranceGeneration) { Animatable(0f) }
-    LaunchedEffect(tile.id, mode, entranceGeneration) {
-        delay((index.coerceAtMost(18) * if (mode == LauncherUiMode.PHONE_8) 24 else 13).toLong())
-        progress.animateTo(1f, tween(if (mode == LauncherUiMode.PHONE_8) 390 else 280,
-            easing = FastOutSlowInEasing))
+    // Microsoft Toolkit turnstile feather uses 350/250 ms and 40/50 ms stagger.
+    // Compose renders at vsync; the evaluator is deterministic at any millisecond.
+    val phase = when {
+        isLaunching -> PhoneMotionPhase.FORWARD_OUT
+        entranceGeneration <= 0 -> PhoneMotionPhase.FORWARD_IN
+        else -> PhoneMotionPhase.BACKWARD_IN
     }
+    val ordinal = index.coerceAtMost(6)
+    val clock = remember(tile.id, mode, entranceGeneration, phase) { Animatable(0f) }
+    LaunchedEffect(tile.id, mode, entranceGeneration, phase) {
+        clock.snapTo(0f)
+        val duration = PhoneMotionTimeline.totalMillis(mode, phase, ordinal)
+        clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+    }
+    val motion = PhoneMotionTimeline.sample(
+        mode, phase, clock.value.roundToInt(), ordinal, selectedTile,
+    )
+    val configuration = LocalConfiguration.current
+    val pageCenterYPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() / 2f }
+    var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
     val icon = rememberAppIcon(repository, tile.packageName)
     WindowsTileFace(
         tile = tile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
         modifier = modifier
+            .onGloballyPositioned { bounds = it.boundsInWindow() }
             .graphicsLayer {
-                alpha = progress.value
-                transformOrigin = TransformOrigin(0f, .5f)
-                rotationY = if (mode == LauncherUiMode.PHONE_8) -72f * (1f - progress.value) else 0f
-                translationY = if (mode == LauncherUiMode.MOBILE_10) 45f * (1f - progress.value) else 0f
+                alpha = motion.alpha
+                rotationY = motion.rotationY
+                translationY = motion.offsetYPx
+                scaleX = motion.scale
+                scaleY = motion.scale
+                // Approximate the original Page projection's shared vanishing point.
+                val pivotY = if (mode == LauncherUiMode.PHONE_8 && bounds.height > 1f) {
+                    ((pageCenterYPx - bounds.top) / bounds.height).coerceIn(-8f, 8f)
+                } else .5f
+                transformOrigin = TransformOrigin(motion.pivotX, pivotY)
                 cameraDistance = 16f * density
             }
             .metroTilePress(

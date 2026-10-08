@@ -71,6 +71,8 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
+import com.flivoro.tile8auncher.ui.phone.PhoneMotionPhase
+import com.flivoro.tile8auncher.ui.phone.PhoneMotionTimeline
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -811,38 +813,32 @@ fun Tile8LauncherApp(
         LauncherFeatureStore.launcherUiMode(context)
     }
     if (launcherMode != LauncherUiMode.DESKTOP) {
-        val launchProgress = remember { Animatable(0f) }
+        val phoneLaunchActive = flipState.isRunning &&
+            flipState.direction == FlipAnimationDirection.FORWARD
         LaunchedEffect(flipState.isRunning, flipState.sourceTile?.id, flipState.direction, launcherMode) {
-            launchProgress.snapTo(0f)
-            if (flipState.isRunning) {
-                if (flipState.direction == FlipAnimationDirection.FORWARD) {
-                    launchProgress.animateTo(
-                        1f, tween(
-                            durationMillis = if (launcherMode == LauncherUiMode.PHONE_8) 310 else 220,
-                            easing = FastOutSlowInEasing,
-                        )
-                    )
-                    flipState.sourceTile?.let { tile ->
-                        if (!flipLaunchDispatched) {
-                            flipLaunchDispatched = true
-                            onLaunchTile(tile)
-                        }
+            if (!flipState.isRunning) return@LaunchedEffect
+            if (flipState.direction == FlipAnimationDirection.FORWARD) {
+                // Let per-element feathering finish before handing off to Android apps.
+                delay(PhoneMotionTimeline.totalMillis(
+                    launcherMode, PhoneMotionPhase.FORWARD_OUT, 6,
+                ).toLong())
+                flipState.sourceTile?.let { tile ->
+                    if (!flipLaunchDispatched) {
+                        flipLaunchDispatched = true
+                        onLaunchTile(tile)
                     }
-                    onDismissFlip()
-                } else {
-                    launchProgress.animateTo(0f, tween(175))
-                    onDismissFlip()
                 }
+                onDismissFlip()
+            } else {
+                delay(PhoneMotionTimeline.durationMillis(
+                    launcherMode, PhoneMotionPhase.BACKWARD_OUT,
+                ).toLong())
+                onDismissFlip()
             }
         }
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().graphicsLayer {
-                val p = if (flipState.isRunning) launchProgress.value else 0f
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f)
-                rotationY = if (launcherMode == LauncherUiMode.PHONE_8) -55f * p else 0f
-                translationY = if (launcherMode == LauncherUiMode.MOBILE_10) -75f * p else 0f
-                alpha = if (entranceReady) 1f - .75f * p else 0f
-                cameraDistance = 16f * density
+                alpha = if (entranceReady) 1f else 0f
             }) {
                 if (tilesLoaded) {
                     PhoneLauncherSurface(
@@ -851,7 +847,9 @@ fun Tile8LauncherApp(
                         sections = categorizedApps,
                         appsRepository = appsRepository,
                         homeRequest = homeRequest,
-                        entranceRequest = entranceRequest,
+                        entranceRequest = startEntranceRequest,
+                        launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
+                        isLaunching = phoneLaunchActive,
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
                         onLaunch = { tile, bounds ->
@@ -865,11 +863,6 @@ fun Tile8LauncherApp(
                         onOpenAppInfo = { onOpenAppInfo(it) },
                     )
                 }
-            }
-            if (flipState.isRunning) {
-                Box(Modifier.fillMaxSize().graphicsLayer {
-                    alpha = launchProgress.value * .65f
-                }.then(Modifier.background(androidx.compose.ui.graphics.Color.Black)))
             }
             if (entranceReady && activeInAppTile != null) {
                 WindowsAppView(
