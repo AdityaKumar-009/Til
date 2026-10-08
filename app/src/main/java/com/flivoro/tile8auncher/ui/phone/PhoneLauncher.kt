@@ -139,7 +139,7 @@ internal object PhoneLayoutStore {
     fun size(context: Context, mode: LauncherUiMode, tile: TileModel): TileSize {
         val name = prefs(context).getString(key(mode, "size_${tile.id}"), tile.size.name)
         val chosen = TileSize.entries.firstOrNull { it.name == name } ?: tile.size
-        return if (mode == LauncherUiMode.PHONE_8 && chosen == TileSize.LARGE) TileSize.WIDE else chosen
+        return if (chosen == TileSize.LARGE) TileSize.WIDE else chosen
     }
 
     fun saveSize(context: Context, mode: LauncherUiMode, tileId: String, size: TileSize) {
@@ -178,6 +178,7 @@ fun PhoneLauncherSurface(
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
     var search by remember(mode) { mutableStateOf("") }
+    var phone8SearchVisible by remember(mode) { mutableStateOf(false) }
     var phoneRevision by remember(mode) { mutableStateOf(0) }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
@@ -259,14 +260,14 @@ fun PhoneLauncherSurface(
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            Row(
-                Modifier.fillMaxWidth().height(32.dp).padding(start = 18.dp, end = 18.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(if (isTen) "▰  Wi-Fi  ▴  ▾" else "▰  ▴  ▾",
-                    color = Color.White, fontSize = 12.sp,
-                    modifier = Modifier.clickable(enabled = isTen) { actionCenterOpen = !actionCenterOpen })
+            // Android provides real cellular/Wi-Fi/battery status in its system status bar.
+            // Do not draw invented signal icons immediately beneath those real indicators.
+            if (isTen) {
+                Row(Modifier.fillMaxWidth().height(22.dp).padding(end = 18.dp),
+                    horizontalArrangement = Arrangement.End) {
+                    Text("⌄", color = Color.White, fontSize = 20.sp,
+                        modifier = Modifier.clickable { actionCenterOpen = !actionCenterOpen })
+                }
             }
             AnimatedContent(
                 targetState = showApps,
@@ -308,11 +309,15 @@ fun PhoneLauncherSurface(
                     }
                 } else {
                     Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)) {
-                        Text(if (isTen) "All apps" else "apps",
-                            fontSize = if (isTen) 30.sp else 45.sp,
-                            fontWeight = FontWeight.Light, color = Color.White,
-                            modifier = Modifier.padding(top = if (isTen) 16.dp else 26.dp, bottom = 12.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (!isTen && !phone8SearchVisible) {
+                            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
+                                Text("⌕", color = Color.White, fontSize = 30.sp,
+                                    modifier = Modifier.clickable { phone8SearchVisible = true }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
+                        }
+                        if (isTen || phone8SearchVisible) {
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.foundation.text.BasicTextField(
                                 value = search, onValueChange = { search = it },
                                 textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 17.sp),
@@ -328,6 +333,7 @@ fun PhoneLauncherSurface(
                             )
                             Text("⚙", color = Color.White, fontSize = 26.sp,
                                 modifier = Modifier.clickable(onClick = onOpenSettings).padding(9.dp))
+                        }
                         }
                         Spacer(Modifier.height(12.dp))
                         val filtered = remember(visibleApps, search) {
@@ -405,7 +411,13 @@ fun PhoneLauncherSurface(
             Row(Modifier.fillMaxWidth().height(48.dp).background(Color.Black),
                 horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Text("‹", fontSize = 36.sp, color = Color.White,
-                    modifier = Modifier.clickable { if (showApps) showApps = false else onOpenSettings() }.padding(horizontal = 25.dp))
+                    modifier = Modifier.clickable {
+                        when {
+                            alphabetOpen -> alphabetOpen = false
+                            showApps -> showApps = false
+                            editing != null -> editing = null
+                        }
+                    }.padding(horizontal = 25.dp))
                 Text("⊞", fontSize = 29.sp, color = Color.White,
                     modifier = Modifier.clickable { showApps = false; actionCenterOpen = false }.padding(horizontal = 25.dp))
                 Text("⌕", fontSize = 28.sp, color = Color.White,
@@ -469,7 +481,7 @@ fun PhoneLauncherSurface(
                         } else {
                             Text("Resize", color = Color.White, fontSize = 17.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TileSize.entries.filter { mode != LauncherUiMode.PHONE_8 || it != TileSize.LARGE }
+                                TileSize.entries.filter { it != TileSize.LARGE }
                                     .forEach { size ->
                                     Text(size.name.take(1), color = if (size == tile.size) accent else Color.White,
                                         modifier = Modifier.clickable {
