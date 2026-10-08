@@ -36,7 +36,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: tile8-windows81-apk
+          name: til-three-windows-modes-apk
           path: app/build/outputs/apk/performance/*.apk
           if-no-files-found: error
           retention-days: 14
