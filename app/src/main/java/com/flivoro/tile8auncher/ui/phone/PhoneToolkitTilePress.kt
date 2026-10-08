@@ -117,6 +117,6 @@ internal fun Modifier.phoneToolkitTilePress(
             rotationX = rotX.value
             rotationY = rotY.value
             translationZ = -depth.value
-            cameraDistance = 16f * density
+            cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
         }
 }

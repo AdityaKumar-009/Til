@@ -402,7 +402,7 @@ fun PhoneLauncherSurface(
                                                 scaleX = rowMotion.scale
                                                 scaleY = rowMotion.scale
                                                 transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
-                                                cameraDistance = 16f * density
+                                                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                             }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
                                             .combinedClickable(
@@ -695,7 +695,7 @@ private fun PhoneTile(
                     ((pageCenterYPx - bounds.top) / bounds.height).coerceIn(-8f, 8f)
                 } else .5f
                 transformOrigin = TransformOrigin(motion.pivotX, pivotY)
-                cameraDistance = 16f * density
+                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
             }
             .phoneToolkitTilePress(
                 onClick = onClick,
