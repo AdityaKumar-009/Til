@@ -14,7 +14,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -156,6 +158,7 @@ internal object PhoneLayoutStore {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhoneLauncherSurface(
     mode: LauncherUiMode,
@@ -372,7 +375,10 @@ fun PhoneLauncherSurface(
                                     Row(
                                         Modifier.fillMaxWidth().height(60.dp)
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
-                                            .clickable { onLaunch(appTile(app), bounds) }
+                                            .combinedClickable(
+                                                onClick = { onLaunch(appTile(app), bounds) },
+                                                onLongClick = { editing = "app:${app.packageName}" },
+                                            )
                                             .padding(vertical = 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
@@ -384,9 +390,6 @@ fun PhoneLauncherSurface(
                                         Text(app.label, color = Color.White, fontSize = 18.sp,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f).padding(start = 14.dp))
-                                        Text("⋯", color = Color.LightGray, fontSize = 25.sp,
-                                            modifier = Modifier.clickable { editing = "app:${app.packageName}" }
-                                                .padding(horizontal = 9.dp))
                                     }
                                 }
                             }
@@ -432,7 +435,8 @@ fun PhoneLauncherSurface(
 
         if (actionCenterOpen && isTen) {
             Column(Modifier.fillMaxWidth().statusBarsPadding()
-                .background(Color(0xFF212121)).padding(horizontal = 18.dp, vertical = 14.dp)) {
+                .background(Color(0xFF212121)).verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 14.dp)) {
                 Text("ACTION CENTER  ⌄",
                     color = Color.White, fontSize = 23.sp,
                     modifier = Modifier.clickable { actionCenterOpen = false })
