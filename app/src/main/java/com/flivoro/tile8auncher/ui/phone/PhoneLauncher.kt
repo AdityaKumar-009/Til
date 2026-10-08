@@ -69,6 +69,8 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
+import com.flivoro.tile8auncher.features.LiveTileNotificationStore
+import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
@@ -430,7 +432,7 @@ fun PhoneLauncherSurface(
         if (actionCenterOpen && isTen) {
             Column(Modifier.fillMaxWidth().statusBarsPadding()
                 .background(Color(0xFF212121)).padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Text(if (isTen) "Expand  ⌄" else "action center",
+                Text("ACTION CENTER  ⌄",
                     color = Color.White, fontSize = 23.sp,
                     modifier = Modifier.clickable { actionCenterOpen = false })
                 Spacer(Modifier.height(15.dp))
@@ -449,9 +451,45 @@ fun PhoneLauncherSurface(
                             }.padding(vertical = 16.dp, horizontal = 5.dp))
                     }
                 }
-                Text("Android notifications are available in the system notification shade.",
-                    color = Color.LightGray, fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 18.dp, bottom = 10.dp))
+                Spacer(Modifier.height(10.dp))
+                val activeNotifications = LiveTileNotificationStore.current()
+                    .filter { it.packageName !in hidden }
+                    .take(8)
+                if (!LiveTileRuntime.hasNotificationAccess(context)) {
+                    Text("Enable notification access to see Android messages here.",
+                        color = Color.White, fontSize = 14.sp,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            }
+                        }.padding(vertical = 16.dp))
+                } else if (activeNotifications.isEmpty()) {
+                    Text("No new notifications", color = Color.LightGray,
+                        fontSize = 15.sp, modifier = Modifier.padding(vertical = 16.dp))
+                } else {
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        activeNotifications.forEach { notice ->
+                            Column(Modifier.fillMaxWidth().background(Color(0xFF333333))
+                                .clickable {
+                                    actionCenterOpen = false
+                                    runCatching {
+                                        context.packageManager.getLaunchIntentForPackage(notice.packageName)
+                                            ?.let(context::startActivity)
+                                    }
+                                }.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Text(notice.title.ifBlank { notice.packageName },
+                                    color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (notice.text.isNotBlank()) {
+                                    Text(notice.text, color = Color.LightGray, fontSize = 13.sp,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Text("Close  ⌃", color = Color.White, modifier = Modifier.clickable {
                     actionCenterOpen = false
                 }.padding(8.dp))
