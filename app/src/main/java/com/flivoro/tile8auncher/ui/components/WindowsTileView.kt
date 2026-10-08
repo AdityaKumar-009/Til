@@ -98,6 +98,7 @@ internal fun WindowsTileFace(
     appIcon: ImageBitmap?,
     modifier: Modifier = Modifier,
     logoModifier: Modifier = Modifier,
+    backgroundAlpha: Float = 1f,
 ) {
     val context = LocalContext.current
     val tileColor = tile.colorValue.toTileColor()
@@ -112,7 +113,7 @@ internal fun WindowsTileFace(
     }
 
     Box(
-        modifier = modifier.background(tileColor),
+        modifier = modifier.background(tileColor.copy(alpha = backgroundAlpha.coerceIn(0f, 1f))),
     ) {
         if (tile.size == TileSize.SMALL) {
             // Compact Windows-style templates keep glanceable built-in information usable even
