@@ -25,6 +25,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -850,6 +851,7 @@ fun Tile8LauncherApp(
                         sections = categorizedApps,
                         appsRepository = appsRepository,
                         homeRequest = homeRequest,
+                        wallpaperStyle = wallpaperStyle,
                         onLaunch = { tile, bounds ->
                             if (entranceReady && !flipState.isRunning &&
                                 !bindOrPickDefaultTile(tile, bounds)
