@@ -18,6 +18,12 @@ class PhoneStartChoreographyTest {
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
+    @Test fun classicDepthOffsetProjectsAgainstTheReferenceCameraDistance() {
+        assertEquals(1f, PhoneStartChoreography.projectedDepthScale(0f, 3000f, 3f), .001f)
+        assertEquals(1000f / 880f,
+            PhoneStartChoreography.projectedDepthScale(120f, 3000f, 3f), .001f)
+    }
+
     @Test fun classicExitUsesReverseVisibleOrderAndSelectedTileDelay() {
         assertEquals(0, PhoneStartChoreography.delayMillis(eight, true, 0f, height))
         assertEquals(200, PhoneStartChoreography.delayMillis(eight, true, 1f, height))

@@ -396,12 +396,17 @@ fun PhoneLauncherSurface(
                                         viewportWidthCssPx = widthCss,
                                         tileLeftCssPx = leftCss,
                                     )
+                                    val cameraDistancePx = 1000f * densityScale
+                                    val depthScale = PhoneStartChoreography.projectedDepthScale(
+                                        bannerMotion.translationZPx, cameraDistancePx, densityScale,
+                                    )
                                     alpha = bannerMotion.alpha
                                     rotationY = bannerMotion.rotationY
-                                    translationX = bannerMotion.translationXPx * densityScale
-                                    translationZ = bannerMotion.translationZPx * densityScale
+                                    translationX = bannerMotion.translationXPx * densityScale * depthScale
+                                    scaleX = depthScale
+                                    scaleY = depthScale
                                     transformOrigin = TransformOrigin(bannerMotion.pivotX, .5f)
-                                    cameraDistance = maxOf(1000f * densityScale, 2f * size.width, 2f * size.height)
+                                    cameraDistance = cameraDistancePx
                                 } else {
                                     alpha = if (isTen) MobileStartMotion.wallpaperAlpha(
                                         isLaunching, motionClock.value.roundToInt(),
@@ -544,7 +549,6 @@ fun PhoneLauncherSurface(
                                                     rotationY = rowMotion.rotationY
                                                     translationX = rowMotion.translationXPx * densityScale
                                                     translationY = 0f
-                                                    translationZ = 0f
                                                     scaleX = 1f
                                                     scaleY = 1f
                                                     transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
@@ -556,7 +560,6 @@ fun PhoneLauncherSurface(
                                                     rotationY = 0f
                                                     translationX = 0f
                                                     translationY = 0f
-                                                    translationZ = 0f
                                                     scaleX = 1f
                                                     scaleY = 1f
                                                     val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
@@ -571,10 +574,9 @@ fun PhoneLauncherSurface(
                                                     scaleY = rowMotion.scale
                                                     transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
                                                 }
-                                                cameraDistance = maxOf(
-                                                    if (mode == LauncherUiMode.PHONE_8) 1000f * densityScale else 900f,
-                                                    2f * bounds.width, 2f * bounds.height,
-                                                )
+                                                cameraDistance = if (mode == LauncherUiMode.PHONE_8) {
+                                                    1000f * densityScale
+                                                } else maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                             }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
                                             .combinedClickable(
@@ -892,7 +894,7 @@ private fun PhoneTile(
             rotationY = inner.rotationY
             translationX = inner.translationXPx
             transformOrigin = TransformOrigin.Center
-            cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+            cameraDistance = 1000f * density
         } else Modifier,
         modifier = modifier
             .onGloballyPositioned {
@@ -917,16 +919,19 @@ private fun PhoneTile(
                 alpha = motion.alpha
                 rotationY = motion.rotationY
                 val unitScale = if (mode == LauncherUiMode.MOBILE_10) 1f else density
-                translationX = motion.translationXPx * unitScale
+                val cameraDistancePx = if (mode == LauncherUiMode.PHONE_8) 1000f * density else
+                    maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+                val depthScale = if (mode == LauncherUiMode.PHONE_8) {
+                    PhoneStartChoreography.projectedDepthScale(
+                        motion.translationZPx, cameraDistancePx, density,
+                    )
+                } else 1f
+                translationX = motion.translationXPx * unitScale * depthScale
                 translationY = motion.translationYPx * unitScale
-                translationZ = motion.translationZPx * unitScale
-                scaleX = motion.scale
-                scaleY = motion.scale
+                scaleX = motion.scale * depthScale
+                scaleY = motion.scale * depthScale
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                cameraDistance = maxOf(
-                    if (mode == LauncherUiMode.PHONE_8) 1000f * density else 900f,
-                    2f * bounds.width, 2f * bounds.height,
-                )
+                cameraDistance = cameraDistancePx
             }
             .phoneToolkitTilePress(
                 enabled = interactionEnabled && !exiting,

@@ -24,7 +24,8 @@ as DiscoLauncher does.
 | Start return, outer face | 500 ms; delay `index × 200 ms × baseScale`; `cubic-bezier(.3, 1, .2, 1)` | 70° combined left-edge turn to face-on; forward-resume distance is zero |
 | Start return, inner content | 350 ms; same per-tile delay; `cubic-bezier(.2, .25, .25, 1)` | Icon/text begins 60 px to the right and at 45°, independently of the tile background |
 
-The exit matrix is folded into equivalent Compose Y rotation and X/Z offsets;
+The exit matrix is folded into equivalent Compose Y rotation, X travel, and
+camera-projected depth scale;
 the entrance keeps the tile face and inner content on separate layers. The old
 guessed 84° right-edge hinge and 15 ms spatial rank have been removed.
 

@@ -47,6 +47,13 @@ internal object PhoneStartChoreography {
     fun appTransitionScale(viewportHeightCssPx: Float): Float =
         (viewportHeightCssPx / REFERENCE_VIEWPORT_HEIGHT / 2f + .5f).coerceAtLeast(.5f)
 
+    /** Emulates CSS perspective's scale from a per-layer Z offset in Compose. */
+    fun projectedDepthScale(depthCssPx: Float, cameraDistancePx: Float, density: Float): Float {
+        val denominator = (cameraDistancePx - depthCssPx * density)
+            .coerceAtLeast(cameraDistancePx * .1f)
+        return (cameraDistancePx / denominator).coerceIn(.25f, 4f)
+    }
+
     private fun delayMillis(index: Float, viewportHeightCssPx: Float): Int =
         (index.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx))
             .roundToInt()
@@ -128,7 +135,7 @@ internal object PhoneStartChoreography {
 
         if (exiting) {
             // appTransition.scss: translateX(-25vw), then the -30°/-10° compound
-            // turn. Compose folds the same matrix into rotation and x/z offsets.
+            // turn. Compose folds the same matrix into Y rotation, X travel and depth scale.
             val progress = cubicBezier(raw, .75f, 0f, 1f, 0f)
             val angle = 30f * progress * DEG_TO_RAD
             val offset = tileLeftCssPx * progress
