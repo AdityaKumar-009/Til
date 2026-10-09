@@ -85,12 +85,13 @@ class PhoneMotionRenderTest {
         compose.mainClock.advanceTimeByFrame() // recompose the state change
         compose.mainClock.advanceTimeByFrame() // animation's first frame is t=0
         capture("exit-000")
-        repeat(12) { frame ->
+        repeat(19) { frame ->
             compose.mainClock.advanceTimeBy(32)
             capture("exit-${((frame + 1) * 32).toString().padStart(3, '0')}")
+            if (frame == 11) compose.runOnIdle {
+                assertEquals("App opened before wallpaper had faded", 0, completions)
+            }
         }
-        compose.runOnIdle { assertEquals("App opened before wallpaper had faded", 0, completions) }
-        compose.mainClock.advanceTimeBy(224)
         val finalExit = capture("exit-608-handoff")
         compose.runOnIdle { assertEquals("Expected one completed handoff", 1, completions) }
         assertTrue("Start content must be black at handoff", centralBrightness(finalExit) < .01)

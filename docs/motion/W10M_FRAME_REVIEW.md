@@ -69,6 +69,18 @@ reflecting 30 fps sampling, repeated frames and lossy resizing. For example, the
 new exit sends MixRadio towards the measured lower-right location; the previous
 model sent it upwards and reduced its opacity almost immediately.
 
+For the seven stored Store-exit samples, the current model's position residual
+is 6.07 px RMS (12.63 px maximum) in the 508 px-wide crop; maximum absolute scale
+error is 0.063. The seven Settings-return samples give 3.45 px RMS (6.45 px
+maximum), with scale error at most 0.027. These use fitted origins 7.665 s and
+18.780 s, respectively. They quantify this fit on those samples, not on the
+whole recording or on a user's Android device.
+
+`PhoneMotionRenderTest` exercises the actual Compose surface with a manual
+clock, exporting a PNG every 32 ms across the complete exit and return. It
+checks the Apps panorama round trip, delayed completion, held final pose and
+restored resting layout. CI exports these as `phone-motion-render-evidence`.
+
 The Android launcher can reproduce its own Start choreography. It cannot control
 another app's live window, loading time or system splash, or globally replace an
 OEM's Home/Recents transition. This patch does not claim 100% pixel or timing
