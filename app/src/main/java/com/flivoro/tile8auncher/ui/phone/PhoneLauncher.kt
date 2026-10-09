@@ -49,16 +49,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -78,11 +83,13 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.util.Locale
@@ -174,7 +181,8 @@ fun PhoneLauncherSurface(
     isLaunching: Boolean,
     interactionEnabled: Boolean,
     wallpaperStyle: Int,
-    onLaunch: (TileModel, Rect) -> Unit,
+    onLaunch: (TileModel, Rect, LaunchOrigin) -> Unit,
+    onExitFinished: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAppInfo: (String) -> Unit,
 ) {
@@ -187,14 +195,6 @@ fun PhoneLauncherSurface(
     var order by remember(mode) { mutableStateOf(PhoneLayoutStore.order(context, mode, tiles)) }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
     var showApps by remember(mode) { mutableStateOf(false) }
-    // A horizontal pane swipe must not also replay the per-tile Start turnstile.
-    var returningFromApps by remember(mode) { mutableStateOf(false) }
-    LaunchedEffect(showApps) {
-        if (showApps) returningFromApps = true
-    }
-    LaunchedEffect(entranceRequest) {
-        if (entranceRequest > 0) returningFromApps = false
-    }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
     var search by remember(mode) { mutableStateOf("") }
@@ -207,13 +207,25 @@ fun PhoneLauncherSurface(
     }
     val appsState = rememberLazyListState()
     val startScroll = rememberScrollState()
-    val listPhase = if (isLaunching) PhoneMotionPhase.FORWARD_OUT else PhoneMotionPhase.FORWARD_IN
-    val appsTimeline = remember(mode, showApps, isLaunching) { Animatable(0f) }
-    LaunchedEffect(mode, showApps, isLaunching) {
-        if (showApps && isLaunching) {
-            appsTimeline.snapTo(0f)
-            val duration = PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
-            appsTimeline.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+    var surfaceBounds by remember(mode) { mutableStateOf(Rect.Zero) }
+    var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
+    val listPhase = PhoneMotionPhase.FORWARD_OUT
+    // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
+    // can expire before Compose has even presented the first animation frame.
+    val duration = if (isLaunching && showApps) {
+        maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
+            if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
+    } else PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
+    val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching) { Animatable(0f) }
+    val exitTileId = remember(isLaunching) { launchingTileId }
+    val latestExitFinished by rememberUpdatedState(onExitFinished)
+    LaunchedEffect(mode, entranceRequest, homeRequest, isLaunching) {
+        snapshotFlow { paneBounds.width > 0f && surfaceBounds.height > 0f }.first { it }
+        motionClock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+        if (isLaunching) {
+            // Let the completed pose be submitted before the external Activity is requested.
+            withFrameNanos { }
+            latestExitFinished()
         }
     }
     val hidden = LauncherFeatureStore.hiddenPackages(context) + LauncherFeatureStore.privatePackages(context)
@@ -268,7 +280,8 @@ fun PhoneLauncherSurface(
     }
 
     var horizontalDistance by remember { mutableStateOf(0f) }
-    val gestureModifier = Modifier.pointerInput(mode, showApps) {
+    val gestureModifier = Modifier.pointerInput(mode, showApps, interactionEnabled, isLaunching) {
+        if (!interactionEnabled || isLaunching) return@pointerInput
         detectHorizontalDragGestures(
             onDragStart = { horizontalDistance = 0f },
             onHorizontalDrag = { change, amount ->
@@ -284,10 +297,15 @@ fun PhoneLauncherSurface(
         )
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(Color.Black)
+        .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
         if (isTen) {
-            WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = MobileStartMotion.wallpaperAlpha(isLaunching, motionClock.value.roundToInt())
+            }) {
+                WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
+            }
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             // Android provides real cellular/Wi-Fi/battery status in its system status bar.
@@ -301,7 +319,8 @@ fun PhoneLauncherSurface(
             }
             AnimatedContent(
                 targetState = showApps,
-                modifier = Modifier.weight(1f).fillMaxWidth().then(gestureModifier),
+                modifier = Modifier.weight(1f).fillMaxWidth()
+                    .onGloballyPositioned { paneBounds = it.boundsInWindow() }.then(gestureModifier),
                 transitionSpec = {
                     // 60fps reference 1000197576.mp4, 134.90–135.17s:
                     // the entire Start/Apps panorama moves horizontally, with no
@@ -321,20 +340,22 @@ fun PhoneLauncherSurface(
                 label = "Phone start apps pivot",
             ) { apps ->
                 if (!apps) {
-                    Column(Modifier.fillMaxSize().verticalScroll(startScroll)) {
+                    Column(Modifier.fillMaxSize().verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
                         PhoneStartGrid(
                             tiles = phoneTiles,
                             columns = columns,
-                            entranceGeneration = entranceRequest + homeRequest,
                             scrollOffsetPx = startScroll.value,
-                            suppressEntrance = returningFromApps,
-                            launchingTileId = launchingTileId,
+                            elapsedMillis = { motionClock.value.roundToInt() },
+                            surfaceBounds = surfaceBounds,
+                            viewportHeightPx = paneBounds.height,
+                            interactionEnabled = interactionEnabled,
+                            launchingTileId = exitTileId,
                             isLaunching = isLaunching,
                             mode = mode,
                             tileOpacity = tileOpacity,
                             appsRepository = appsRepository,
-                            onClick = onLaunch,
+                            onClick = { tile, bounds -> onLaunch(tile, bounds, LaunchOrigin.START) },
                             onLongClick = { editing = it },
                         )
                         Spacer(Modifier.height(30.dp))
@@ -343,11 +364,15 @@ fun PhoneLauncherSurface(
                             horizontalArrangement = Arrangement.End,
                         ) {
                             Text("→", color = Color.White, fontSize = 34.sp,
-                                modifier = Modifier.clickable { showApps = true }.padding(10.dp))
+                                modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(10.dp))
                         }
                     }
                 } else {
-                    Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)) {
+                    Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)
+                        .graphicsLayer {
+                            alpha = if (isLaunching && motionClock.value >=
+                                PhoneMotionTimeline.totalMillis(mode, listPhase, 6)) 0f else 1f
+                        }) {
                         if (!isTen && !phone8SearchVisible) {
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
                                 Text("⌕", color = Color.White, fontSize = 30.sp,
@@ -393,7 +418,8 @@ fun PhoneLauncherSurface(
                             }
                         }
                         val scope = androidx.compose.runtime.rememberCoroutineScope()
-                        LazyColumn(state = appsState, modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(state = appsState, modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = interactionEnabled && !isLaunching) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
                                     Text(letter, color = accent, fontSize = 29.sp, fontWeight = FontWeight.Light,
@@ -403,7 +429,8 @@ fun PhoneLauncherSurface(
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
-                                    val ordinal = ((positions[letter] ?: 0) + appIndex).coerceAtMost(6)
+                                    val ordinal = ((positions[letter] ?: 0) + appIndex + 1 -
+                                        appsState.firstVisibleItemIndex).coerceIn(0, 6)
                                     // The app list is stationary within its horizontally
                                     // moving pane; only actual app launch feathers the rows.
                                     Row(
@@ -412,12 +439,12 @@ fun PhoneLauncherSurface(
                                                 // Draw-layer read avoids relaying every animation
                                                 // tick through lazy-row recomposition.
                                                 val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
-                                                    mode, listPhase, appsTimeline.value.roundToInt(),
-                                                    ordinal, selectedTile = launchingTileId == "phone_app_${app.packageName}",
+                                                    mode, listPhase, motionClock.value.roundToInt(),
+                                                    ordinal, selectedTile = exitTileId == "phone_app_${app.packageName}",
                                                 ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
                                                 alpha = rowMotion.alpha
                                                 rotationY = rowMotion.rotationY
-                                                translationY = rowMotion.offsetYPx
+                                                translationY = rowMotion.offsetYPx * density
                                                 scaleX = rowMotion.scale
                                                 scaleY = rowMotion.scale
                                                 transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
@@ -425,7 +452,8 @@ fun PhoneLauncherSurface(
                                             }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
                                             .combinedClickable(
-                                                onClick = { onLaunch(appTile(app), bounds) },
+                                                enabled = interactionEnabled && !isLaunching,
+                                                onClick = { onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS) },
                                                 onLongClick = { editing = "app:${app.packageName}" },
                                             )
                                             .padding(vertical = 5.dp),
@@ -468,7 +496,7 @@ fun PhoneLauncherSurface(
             Row(Modifier.fillMaxWidth().height(48.dp).background(Color.Black),
                 horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Text("‹", fontSize = 36.sp, color = Color.White,
-                    modifier = Modifier.clickable {
+                    modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) {
                         when {
                             alphabetOpen -> alphabetOpen = false
                             showApps -> showApps = false
@@ -476,9 +504,9 @@ fun PhoneLauncherSurface(
                         }
                     }.padding(horizontal = 25.dp))
                 Text("⊞", fontSize = 29.sp, color = Color.White,
-                    modifier = Modifier.clickable { showApps = false; actionCenterOpen = false }.padding(horizontal = 25.dp))
+                    modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = false; actionCenterOpen = false }.padding(horizontal = 25.dp))
                 Text("⌕", fontSize = 28.sp, color = Color.White,
-                    modifier = Modifier.clickable { showApps = true }.padding(horizontal = 25.dp))
+                    modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(horizontal = 25.dp))
             }
         }
 
@@ -621,9 +649,11 @@ fun PhoneLauncherSurface(
 private fun PhoneStartGrid(
     tiles: List<TileModel>,
     columns: Int,
-    entranceGeneration: Int,
     scrollOffsetPx: Int,
-    suppressEntrance: Boolean,
+    elapsedMillis: () -> Int,
+    surfaceBounds: Rect,
+    viewportHeightPx: Float,
+    interactionEnabled: Boolean,
     launchingTileId: String?,
     isLaunching: Boolean,
     mode: LauncherUiMode,
@@ -633,40 +663,37 @@ private fun PhoneStartGrid(
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
-    // Start has different frame-measured choreography from app-page turnstile.
-    // All tiles share a single vsync-synchronized timebase to avoid drift.
-    val duration = PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
-    // Ensure the very FIRST draw of an Apps->Start pane is already fully opaque.
-    // An effect-time snap alone can flash invisible tiles for one vsync.
-    val clock = remember(mode, entranceGeneration, isLaunching, suppressEntrance) {
-        Animatable(if (suppressEntrance && !isLaunching) duration.toFloat() else 0f)
-    }
-    LaunchedEffect(mode, entranceGeneration, isLaunching, suppressEntrance) {
-        if (suppressEntrance && !isLaunching) {
-            // Apps->Start uses the pane slide, not a second tile-by-tile entrance.
-            clock.snapTo(duration.toFloat())
-        } else {
-            clock.snapTo(0f)
-            clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
-        }
-    }
     val gap = 4.dp
     val side = 10.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
         val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
+        val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 18.dp).toPx() }
+        val visibleTops = slots.mapNotNull { slot ->
+            val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
+            if (top + slot.rows * cellStepPx > 0f && top < viewportHeightPx) top else null
+        }
+        val firstVisibleTop = visibleTops.minOrNull() ?: 0f
+        val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
             tiles.forEachIndexed { index, tile ->
                 val pos = slots[index]
+                val rowFraction = MobileStartMotion.rowFraction(
+                    topInsetPx + pos.row * cellStepPx - scrollOffsetPx,
+                    firstVisibleTop, lastVisibleTop,
+                )
                 key(tile.id) {
                     PhoneTile(
                         tile = tile, mode = mode,
-                        screenRow = (pos.row - scrollOffsetPx / cellStepPx).roundToInt(),
+                        screenRow = (rowFraction * 5f).roundToInt(),
+                        visibleRowFraction = rowFraction,
+                        surfaceBounds = surfaceBounds,
+                        interactionEnabled = interactionEnabled,
                         column = pos.column,
                         columns = columns,
                         exiting = isLaunching,
-                        elapsedMillis = { clock.value.roundToInt() },
+                        elapsedMillis = elapsedMillis,
                         selectedTile = launchingTileId == tile.id,
                         tileOpacity = tileOpacity, repository = appsRepository,
                         modifier = Modifier
@@ -688,6 +715,9 @@ private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
     screenRow: Int,
+    visibleRowFraction: Float,
+    surfaceBounds: Rect,
+    interactionEnabled: Boolean,
     column: Int,
     columns: Int,
     exiting: Boolean,
@@ -708,23 +738,33 @@ private fun PhoneTile(
         appIcon = icon,
         backgroundAlpha = tileOpacity,
         modifier = modifier
-            .onGloballyPositioned { bounds = it.boundsInWindow() }
+            .onGloballyPositioned {
+                // boundsInWindow clips partially visible tiles, moving their apparent centre.
+                // The zoom anchor must use the full, untransformed tile geometry.
+                bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
+            }
             .graphicsLayer {
-                val motion = PhoneStartChoreography.sample(
+                val motion = if (mode == LauncherUiMode.MOBILE_10) MobileStartMotion.sample(
+                    exiting, elapsedMillis(), visibleRowFraction,
+                    bounds.center.x, bounds.center.y,
+                    surfaceBounds.center.x, surfaceBounds.center.y, selectedTile,
+                ) else PhoneStartChoreography.sample(
                     mode = mode, exiting = exiting, elapsedMillis = elapsedMillis(),
                     screenRow = screenRow, column = column, columns = columns,
                     selected = selectedTile,
                 )
                 alpha = motion.alpha
                 rotationY = motion.rotationY
-                translationX = motion.translationXPx * density
-                translationY = motion.translationYPx * density
+                val unitScale = if (mode == LauncherUiMode.MOBILE_10) 1f else density
+                translationX = motion.translationXPx * unitScale
+                translationY = motion.translationYPx * unitScale
                 scaleX = motion.scale
                 scaleY = motion.scale
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
                 cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
             }
             .phoneToolkitTilePress(
+                enabled = interactionEnabled && !exiting,
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),

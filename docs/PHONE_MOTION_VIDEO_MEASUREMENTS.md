@@ -1,5 +1,8 @@
 # Frame-derived phone Start transitions
 
+**Superseded for Windows 10 Mobile:** see [the measured correction](motion/W10M_FRAME_REVIEW.md).
+The earlier upward-shift interpretation and 332 ms handoff below are retained as historical notes, not the current model.
+
 These notes describe the user's **uploaded reference footage**, not Microsoft's
 private Windows 10 Mobile animation engine. All three recordings were decoded locally,
 and motion frames were compared with the prior Tilt launcher implementation.

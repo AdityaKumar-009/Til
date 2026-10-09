@@ -71,9 +71,6 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
-import com.flivoro.tile8auncher.ui.phone.PhoneStartChoreography
-import com.flivoro.tile8auncher.ui.phone.PhoneMotionPhase
-import com.flivoro.tile8auncher.ui.phone.PhoneMotionTimeline
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -816,35 +813,17 @@ fun Tile8LauncherApp(
     if (launcherMode != LauncherUiMode.DESKTOP) {
         // Keep the completed exit drawn while Android asynchronously starts the target app.
         // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
-        var phoneHandoffHeld by remember(launcherMode) { mutableStateOf(false) }
-        LaunchedEffect(startEntranceRequest, homeRequest) {
-            // Lifecycle resume, internal app close or Home requests a new Start entrance.
-            phoneHandoffHeld = false
+        var phoneHandoffHeld by remember(launcherMode, startEntranceRequest, homeRequest) {
+            mutableStateOf(false)
         }
         val phoneLaunchActive = flipState.isRunning &&
             flipState.direction == FlipAnimationDirection.FORWARD
         val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
-        LaunchedEffect(flipState.isRunning, flipState.sourceTile?.id, flipState.direction, launcherMode) {
-            if (!flipState.isRunning) return@LaunchedEffect
-            if (flipState.direction == FlipAnimationDirection.FORWARD) {
-                // Let per-element feathering finish before handing off to Android apps.
-                // Match the spatial Start departure measured in the user's WP8.1/W10M video.
-                delay(PhoneStartChoreography.totalMillis(launcherMode, exiting = true).toLong())
-                flipState.sourceTile?.let { tile ->
-                    if (!flipLaunchDispatched) {
-                        // Latch before dispatch, otherwise dismissing the flip resets
-                        // PhoneStartGrid to its entering state before the OS swaps windows.
-                        phoneHandoffHeld = true
-                        flipLaunchDispatched = true
-                        onLaunchTile(tile)
-                    }
-                }
+        LaunchedEffect(flipState.isRunning, flipState.direction, launcherMode) {
+            if (flipState.isRunning && flipState.direction == FlipAnimationDirection.REVERSE) {
+                phoneHandoffHeld = false
                 onDismissFlip()
-            } else {
-                delay(PhoneMotionTimeline.durationMillis(
-                    launcherMode, PhoneMotionPhase.BACKWARD_OUT,
-                ).toLong())
-                onDismissFlip()
+                localStartEntranceRequest++
             }
         }
         Box(Modifier.fillMaxSize()) {
@@ -863,11 +842,23 @@ fun Tile8LauncherApp(
                         isLaunching = phoneExitActive,
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
-                        onLaunch = { tile, bounds ->
+                        onLaunch = { tile, bounds, origin ->
                             if (entranceReady && !flipState.isRunning &&
                                 !bindOrPickDefaultTile(tile, bounds)
                             ) {
-                                onTriggerFlip(tile, bounds, LaunchOrigin.START)
+                                onTriggerFlip(tile, bounds, origin)
+                            }
+                        },
+                        onExitFinished = {
+                            // The compositor reports completion after submitting its final frame.
+                            // Preserve the exit pose and selected ID through Android's window swap.
+                            if (phoneLaunchActive && !flipLaunchDispatched) {
+                                flipState.sourceTile?.let { tile ->
+                                    phoneHandoffHeld = true
+                                    flipLaunchDispatched = true
+                                    onLaunchTile(tile)
+                                }
+                                onDismissFlip()
                             }
                         },
                         onOpenSettings = { openLauncherSettings() },

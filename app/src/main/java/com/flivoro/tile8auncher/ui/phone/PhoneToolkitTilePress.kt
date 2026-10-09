@@ -66,6 +66,7 @@ private val PhoneReleaseEase = Easing { t ->
 }
 
 internal fun Modifier.phoneToolkitTilePress(
+    enabled: Boolean = true,
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
 ): Modifier = composed {
@@ -95,7 +96,8 @@ internal fun Modifier.phoneToolkitTilePress(
     }
     this
         .onGloballyPositioned { bounds = it.boundsInWindow() }
-        .pointerInput(Unit) {
+        .pointerInput(enabled) {
+            if (!enabled) return@pointerInput
             detectTapGestures(
                 onPress = { point ->
                     target = PhoneToolkitTilt.at(
@@ -114,12 +116,12 @@ internal fun Modifier.phoneToolkitTilePress(
             )
         }
         .graphicsLayer {
-            rotationX = rotX.value
-            rotationY = rotY.value
+            rotationX = if (enabled) rotX.value else 0f
+            rotationY = if (enabled) rotY.value else 0f
             val camera = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
             // Compose's GraphicsLayerScope exposes cameraDistance but not translationZ.
             // Projecting a depressed plane backward shrinks it by d/(d+depression).
-            val perspectiveScale = camera / (camera + depth.value)
+            val perspectiveScale = if (enabled) camera / (camera + depth.value) else 1f
             scaleX = perspectiveScale
             scaleY = perspectiveScale
             cameraDistance = camera

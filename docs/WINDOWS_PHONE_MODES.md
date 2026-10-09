@@ -39,8 +39,8 @@ push providers cannot be supplied by an ordinary Android launcher. W10 action ce
 visual approximation; use the Android notification shade for real notifications. Native
 Android app transitions may vary with Android/OEM policy.
 
-The screen entry animations here are **historically inspired**, not frame-measured
-against original Lumia recordings. Do not describe these as a bit-for-bit pixel perfect
+The phone Start animations are now fitted to the supplied recordings; see
+[the current frame review](motion/W10M_FRAME_REVIEW.md). Other phone surfaces remain approximations. Do not describe these as a bit-for-bit pixel perfect
 Windows ROM clone.
 
 ## Research used as references

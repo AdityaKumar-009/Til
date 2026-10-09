@@ -12,7 +12,7 @@ class PhoneStartChoreographyTest {
     @Test fun calibratedEndTimesFollowRecordedThirtyFpsWindows() {
         // Reference: versus MP4 144.75s-145.18s, 29.975fps.
         assertEquals(270, PhoneStartChoreography.totalMillis(eight, true))
-        assertEquals(332, PhoneStartChoreography.totalMillis(ten, true))
+        assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
     @Test fun phoneEightExitsLowerRightBeforeUpperLeft() {
@@ -36,15 +36,12 @@ class PhoneStartChoreographyTest {
         assertEquals(0f, PhoneStartChoreography.sample(eight, false, 90, 0, 0, 4).alpha, 0f)
     }
 
-    @Test fun mobileExposesWallpaperByFadingTilesWithoutRotation() {
-        val initial = PhoneStartChoreography.sample(ten, true, 0, 0, 0, 4)
-        val middle = PhoneStartChoreography.sample(ten, true, 133, 0, 0, 4)
-        val final = PhoneStartChoreography.sample(ten, true, 332, 5, 3, 4)
-        assertEquals(1f, initial.alpha, 0f)
-        assertTrue(middle.alpha < .5f)
-        assertEquals(0f, final.alpha, .00001f)
-        assertEquals(0f, middle.rotationY, .00001f)
-        assertTrue(middle.translationYPx < 0f)
+    @Test fun selectedClassicTileIsRetainedUntilTheLastUpperTileLeaves() {
+        val selected = PhoneStartChoreography.sample(eight, true, 95, 5, 3, 4, true)
+        assertEquals(1f, selected.alpha, 0f)
+        assertEquals(0f, selected.rotationY, 0f)
+        assertEquals(1f, selected.pivotX, 0f)
+        assertEquals(0f, PhoneStartChoreography.sample(eight, true, 270, 5, 3, 4, true).alpha, 0f)
     }
 
     @Test fun frameSamplesEveryTenMillisecondsAreFiniteAndReachRestStates() {
@@ -65,9 +62,10 @@ class PhoneStartChoreographyTest {
         }
     }
 
-    @Test fun selectedMobileTileHasMoreDrillInThanOtherTiles() {
-        val a = PhoneStartChoreography.sample(ten, true, 230, 0, 0, 4, true)
-        val b = PhoneStartChoreography.sample(ten, true, 230, 0, 0, 4, false)
-        assertTrue(a.scale > b.scale)
+    @Test fun selectedMobileTileDelaysTheSameZoomInsteadOfUsingAnotherScale() {
+        val selected = PhoneStartChoreography.sample(ten, true, 167, 0, 0, 4, true)
+        val other = PhoneStartChoreography.sample(ten, true, 100, 0, 0, 4, false)
+        assertEquals(other.scale, selected.scale, .00001f)
+        assertEquals(other.alpha, selected.alpha, .00001f)
     }
 }

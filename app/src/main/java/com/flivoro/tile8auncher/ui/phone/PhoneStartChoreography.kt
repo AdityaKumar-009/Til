@@ -7,7 +7,7 @@ import com.flivoro.tile8auncher.features.LauncherUiMode
  *
  * Video 1000197577.mp4, ~144.75-145.18s (29.98fps):
  * - WP8.1 clears bottom/right tiles first, finishing upper/left tiles after ~0.30s.
- * - W10M retains the background image while tiles rise/fade, completing over ~0.33s.
+ * - W10M uses screen-centred row zoom and a separate wallpaper fade (MobileStartMotion).
  * These are measured presentation-frame observations, not claims about private OS source.
  *
  * The archived Windows Phone Toolkit's 250/350ms turnstile curves still apply to app
@@ -26,8 +26,8 @@ internal object PhoneStartChoreography {
     private const val WP81_EXIT_TILE_MS = 90
     private const val WP81_ENTRY_TILE_MS = 280
     private const val WP81_STAGGER_MS = 15
-    private const val MOBILE_EXIT_TILE_MS = 230
-    private const val MOBILE_ENTRY_TILE_MS = 300
+    private const val MOBILE_EXIT_TILE_MS = MobileStartMotion.EXIT_TILE_MS
+    private const val MOBILE_ENTRY_TILE_MS = MobileStartMotion.ENTRY_TILE_MS
 
     private fun spatialRank(screenRow: Int, column: Int, columns: Int): Int {
         val row = screenRow.coerceIn(0, 5)
@@ -42,9 +42,9 @@ internal object PhoneStartChoreography {
             if (exiting) 12 * WP81_STAGGER_MS + WP81_EXIT_TILE_MS
             else 12 * WP81_STAGGER_MS + WP81_ENTRY_TILE_MS
         } else if (exiting) {
-            5 * 18 + 2 * 6 + MOBILE_EXIT_TILE_MS
+            MobileStartMotion.EXIT_TOTAL_MS
         } else {
-            5 * 16 + 2 * 6 + MOBILE_ENTRY_TILE_MS
+            MobileStartMotion.ENTRY_TOTAL_MS
         }
 
     internal fun delayMillis(
@@ -61,9 +61,7 @@ internal object PhoneStartChoreography {
             return rank * WP81_STAGGER_MS
         }
         val row = screenRow.coerceIn(0, 5)
-        val col = (column.coerceIn(0, columns.coerceAtLeast(1) - 1) * 3 /
-            columns.coerceAtLeast(1)).coerceIn(0, 2)
-        return row * (if (exiting) 18 else 16) + col * 6
+        return MobileStartMotion.delayMillis(exiting, row / 5f)
     }
 
     fun sample(
@@ -75,7 +73,12 @@ internal object PhoneStartChoreography {
         columns: Int,
         selected: Boolean = false,
     ): PhoneStartMotionFrame {
-        val delay = delayMillis(mode, exiting, screenRow, column, columns)
+        if (mode == LauncherUiMode.MOBILE_10) return MobileStartMotion.sample(
+            exiting, elapsedMillis, screenRow.coerceIn(0, 5) / 5f,
+            0f, 0f, 0f, 0f, selected,
+        )
+        val delay = if (exiting && selected) 12 * WP81_STAGGER_MS
+            else delayMillis(mode, exiting, screenRow, column, columns)
         val tileDuration = when {
             mode == LauncherUiMode.PHONE_8 && exiting -> WP81_EXIT_TILE_MS
             mode == LauncherUiMode.PHONE_8 -> WP81_ENTRY_TILE_MS
@@ -95,22 +98,12 @@ internal object PhoneStartChoreography {
                     if (elapsedMillis < delay) 0f else 1f
                 },
                 rotationY = if (exiting) 84f * rotated else -80f * (1f - rotated),
-                translationXPx = if (exiting) 32f * rotated else -24f * (1f - rotated),
+                translationXPx = 0f,
                 translationYPx = 0f,
                 scale = 1f,
-                pivotX = -.2f,
+                pivotX = 1f,
             )
         }
-        // Measured W10M Start departure exposes persistent wallpaper underneath the
-        // tiles; no unsupported 8.1-era 3D turnstile.
-        return PhoneStartMotionFrame(
-            alpha = if (exiting) 1f - ease else if (elapsedMillis < delay) 0f else ease,
-            rotationY = 0f,
-            translationXPx = 0f,
-            translationYPx = if (exiting) -74f * ease else 52f * (1f - ease),
-            scale = if (exiting) 1f + (if (selected) .105f else .03f) * ease
-                    else .97f + .03f * ease,
-            pivotX = .5f,
-        )
+        error("Start choreography requires a phone mode")
     }
 }
