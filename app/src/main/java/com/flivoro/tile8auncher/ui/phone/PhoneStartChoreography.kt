@@ -56,7 +56,9 @@ internal object PhoneStartChoreography {
     ): Int {
         val rank = spatialRank(screenRow, column, columns)
         if (mode == LauncherUiMode.PHONE_8) {
-            return (if (exiting) rank else 12 - rank) * WP81_STAGGER_MS
+            // The 60fps classic-phone clip at 47.8s also reveals lower tiles first
+            // on entrance; reversing the direction was a visible prior mismatch.
+            return rank * WP81_STAGGER_MS
         }
         val row = screenRow.coerceIn(0, 5)
         val col = (column.coerceIn(0, columns.coerceAtLeast(1) - 1) * 3 /

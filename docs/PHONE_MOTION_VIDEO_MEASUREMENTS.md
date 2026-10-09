@@ -10,6 +10,15 @@ and motion frames were compared with the prior Tilt launcher implementation.
 | 1000197576.mp4 | 308.71 seconds | ~16.7 ms (60fps) | Classic Start, app list, settings and in-app navigation |
 | 1000197577.mp4 | 178.72 seconds | ~33.4 ms (29.98fps) | WP8.1 (left) and Windows 10 Mobile (right) in parallel |
 
+## Additional classic 60fps animation evidence
+
+- 1000197575.mp4, 47.80–48.30s: a 3D Start entrance shows lower
+  tiles facing the viewer while upper tiles are still mostly edge-on.
+  Entrance therefore also uses a bottom-to-top, right-to-left spatial cascade.
+- 1000197576.mp4, 88.00–88.50s: People tile animates its **own inner face**
+  while other Start tiles remain fixed. Do not conflate live-tile flips with
+  app/page navigation, which is handled by a different motion subsystem.
+
 ## Annotated event: side-by-side Start departure, 144.65–145.18 seconds
 
 Frames were read at their native ~33.4ms capture intervals.

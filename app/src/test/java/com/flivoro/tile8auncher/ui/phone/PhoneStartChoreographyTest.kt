@@ -25,6 +25,17 @@ class PhoneStartChoreographyTest {
         assertEquals(0f, PhoneStartChoreography.sample(eight, true, 270, 0, 0, 4).alpha, 0f)
     }
 
+    @Test fun classicSixtyFpsEntranceAlsoRevealsLowerTilesBeforeUpperTiles() {
+        // 1000197575.mp4, 47.80-48.30s: lower tiles have turned face-forward
+        // before the larger upper-left phone tile rotates fully into view.
+        val lower = PhoneStartChoreography.delayMillis(eight, false, 5, 3, 4)
+        val upper = PhoneStartChoreography.delayMillis(eight, false, 0, 0, 4)
+        assertEquals(0, lower)
+        assertEquals(180, upper)
+        assertEquals(1f, PhoneStartChoreography.sample(eight, false, 90, 5, 3, 4).alpha, 0f)
+        assertEquals(0f, PhoneStartChoreography.sample(eight, false, 90, 0, 0, 4).alpha, 0f)
+    }
+
     @Test fun mobileExposesWallpaperByFadingTilesWithoutRotation() {
         val initial = PhoneStartChoreography.sample(ten, true, 0, 0, 0, 4)
         val middle = PhoneStartChoreography.sample(ten, true, 133, 0, 0, 4)
