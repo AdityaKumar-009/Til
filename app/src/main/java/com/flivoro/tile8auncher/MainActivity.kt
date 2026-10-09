@@ -817,8 +817,8 @@ fun Tile8LauncherApp(
         // Keep the completed exit drawn while Android asynchronously starts the target app.
         // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
         var phoneHandoffHeld by remember(launcherMode) { mutableStateOf(false) }
-        LaunchedEffect(entranceRequest, homeRequest) {
-            // Lifecycle resume or Home requests an explicitly new Start entrance.
+        LaunchedEffect(startEntranceRequest, homeRequest) {
+            // Lifecycle resume, internal app close or Home requests a new Start entrance.
             phoneHandoffHeld = false
         }
         val phoneLaunchActive = flipState.isRunning &&
