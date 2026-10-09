@@ -4,6 +4,7 @@ import com.flivoro.tile8auncher.features.LauncherUiMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.exp
 
 class PhoneMotionTimelineTest {
     private val phone = LauncherUiMode.PHONE_8
@@ -49,7 +50,8 @@ class PhoneMotionTimelineTest {
         }
         assertEquals(0f, PhoneMotionTimeline.exponentialEaseOut6(0f), .0001f)
         assertEquals(1f, PhoneMotionTimeline.exponentialEaseOut6(1f), .0001f)
-        assertEquals(7f / 63f, PhoneMotionTimeline.exponentialEaseIn6(.5f), .0001f)
+        assertEquals(((exp(3.0) - 1.0) / (exp(6.0) - 1.0)).toFloat(),
+            PhoneMotionTimeline.exponentialEaseIn6(.5f), .0001f)
     }
 
     @Test fun opacitySnapsOnElementStartInsteadOfCrossFading() {

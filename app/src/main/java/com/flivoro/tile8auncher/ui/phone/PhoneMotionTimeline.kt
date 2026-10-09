@@ -1,7 +1,7 @@
 package com.flivoro.tile8auncher.ui.phone
 
 import com.flivoro.tile8auncher.features.LauncherUiMode
-import kotlin.math.pow
+import kotlin.math.exp
 
 /**
  * Timeline model expressed in milliseconds; Compose only provides the vsync presentation clock.
@@ -57,12 +57,12 @@ internal object PhoneMotionTimeline {
         delayMillis(mode, phase, ordinal) + durationMillis(mode, phase)
 
     /**
-     * Microsoft's ExponentialEase with exponent 6, normalized to exactly 0 and 1.
+     * Microsoft's source-defined ExponentialEase exponent 6, using natural e, not base 2.
      * Do not substitute Compose's FastOutSlowInEasing (the old implementation did).
      */
     internal fun exponentialEaseIn6(progress: Float): Float {
         val p = progress.coerceIn(0f, 1f)
-        return ((2.0.pow(6.0 * p) - 1.0) / 63.0).toFloat()
+        return ((exp(6.0 * p) - 1.0) / (exp(6.0) - 1.0)).toFloat()
     }
 
     internal fun exponentialEaseOut6(progress: Float): Float =

@@ -66,3 +66,22 @@ video compression. Animation equivalence requires capturing the APK on a real
 Android device and comparing at equivalent screen sizes/frame rates.
 
 No updates to the Windows 8.1 Desktop UI/animation system.
+
+## Regression analysis from installed APK recording 1000197579.mp4
+
+- The uploaded capture is 2400×1080, 4055 frames at approximately 61.17fps, 66.29 seconds.
+- Near 7.55–7.68s the orange People tile occupies approximately 29,925 orange pixels.
+- By 7.746s that tile has exited and the orange pixel count reaches zero.
+- At 7.91–8.02s the full orange tile returns for roughly 130ms while Android starts another Activity.
+- At 8.04s the Android target's white launch surface finally covers the launcher.
+- Cause: after startActivity() the launcher immediately called onDismissFlip(), resetting the
+  phone's tile exit, so the tiles painted again during Android's asynchronous window swap.
+- Fix: the phone compositor now latches its completed exit until the launcher receives an
+  entrance/Home request; Windows 8.1 Desktop branch is untouched.
+- Official Microsoft WPF ExponentialEase.EaseInCore code computes
+  (exp(exponent * t) - 1)/(exp(exponent) - 1). The earlier code incorrectly
+  implemented base-two exponential instead of exp (natural base e).
+
+A different Android app's system splash, frame rate and first-frame timing are outside
+an ordinary launcher's control. Same-device follow-up filming is necessary to validate
+these source-code fixes and quantify remaining visual error.
