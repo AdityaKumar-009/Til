@@ -814,8 +814,16 @@ fun Tile8LauncherApp(
         LauncherFeatureStore.launcherUiMode(context)
     }
     if (launcherMode != LauncherUiMode.DESKTOP) {
+        // Keep the completed exit drawn while Android asynchronously starts the target app.
+        // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
+        var phoneHandoffHeld by remember(launcherMode) { mutableStateOf(false) }
+        LaunchedEffect(entranceRequest, homeRequest) {
+            // Lifecycle resume or Home requests an explicitly new Start entrance.
+            phoneHandoffHeld = false
+        }
         val phoneLaunchActive = flipState.isRunning &&
             flipState.direction == FlipAnimationDirection.FORWARD
+        val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
         LaunchedEffect(flipState.isRunning, flipState.sourceTile?.id, flipState.direction, launcherMode) {
             if (!flipState.isRunning) return@LaunchedEffect
             if (flipState.direction == FlipAnimationDirection.FORWARD) {
@@ -824,6 +832,9 @@ fun Tile8LauncherApp(
                 delay(PhoneStartChoreography.totalMillis(launcherMode, exiting = true).toLong())
                 flipState.sourceTile?.let { tile ->
                     if (!flipLaunchDispatched) {
+                        // Latch before dispatch, otherwise dismissing the flip resets
+                        // PhoneStartGrid to its entering state before the OS swaps windows.
+                        phoneHandoffHeld = true
                         flipLaunchDispatched = true
                         onLaunchTile(tile)
                     }
@@ -849,7 +860,7 @@ fun Tile8LauncherApp(
                         homeRequest = homeRequest,
                         entranceRequest = startEntranceRequest,
                         launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
-                        isLaunching = phoneLaunchActive,
+                        isLaunching = phoneExitActive,
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
                         onLaunch = { tile, bounds ->
