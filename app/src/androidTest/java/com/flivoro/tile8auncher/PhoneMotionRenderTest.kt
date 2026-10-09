@@ -1,7 +1,10 @@
 package com.flivoro.tile8auncher
 
 import android.content.Context
+import android.content.ContentValues
 import android.graphics.Bitmap
+import android.os.Build
+import android.provider.MediaStore
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -113,8 +116,27 @@ class PhoneMotionRenderTest {
         compose.waitForIdle() // Android draw is separate from the manual Compose clock.
         val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val directory = File(context.getExternalFilesDir(null), "motion-frames").apply { mkdirs() }
-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // AGP uninstalls the test target after connected tests and removes its
+            // private external files. Export evidence through MediaStore so it
+            // survives that cleanup; this requires no broad storage permission.
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Til-motion-frames")
+            }
+            val uri = checkNotNull(context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values,
+            ))
+            checkNotNull(context.contentResolver.openOutputStream(uri)).use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        } else {
+            val directory = File(context.getExternalFilesDir(null), "motion-frames").apply { mkdirs() }
+            File(directory, "$name.png").outputStream().use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        }
         return bitmap
     }
 
