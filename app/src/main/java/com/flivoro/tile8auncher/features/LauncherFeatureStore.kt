@@ -20,7 +20,7 @@ enum class StartDoubleTapAction {
 /** Independent launch surfaces; DESKTOP deliberately retains all previous rendering defaults. */
 enum class LauncherUiMode(val title: String, val detail: String) {
     DESKTOP("Windows 8.1 Desktop", "Original horizontal Start and desktop motion"),
-    PHONE_8("Windows Phone 8", "Classic Metro phone Start and turnstile motion"),
+    PHONE_8("Windows Phone 8.1", "Classic phone Start, observed spatial tile cascade and turnstile motion"),
     MOBILE_10("Windows 10 Mobile", "Phone Start, translucent tiles and modern motion"),
 }
 

@@ -71,6 +71,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
+import com.flivoro.tile8auncher.ui.phone.PhoneStartChoreography
 import com.flivoro.tile8auncher.ui.phone.PhoneMotionPhase
 import com.flivoro.tile8auncher.ui.phone.PhoneMotionTimeline
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
@@ -819,9 +820,8 @@ fun Tile8LauncherApp(
             if (!flipState.isRunning) return@LaunchedEffect
             if (flipState.direction == FlipAnimationDirection.FORWARD) {
                 // Let per-element feathering finish before handing off to Android apps.
-                delay(PhoneMotionTimeline.totalMillis(
-                    launcherMode, PhoneMotionPhase.FORWARD_OUT, 6,
-                ).toLong())
+                // Match the spatial Start departure measured in the user's WP8.1/W10M video.
+                delay(PhoneStartChoreography.totalMillis(launcherMode, exiting = true).toLong())
                 flipState.sourceTile?.let { tile ->
                     if (!flipLaunchDispatched) {
                         flipLaunchDispatched = true

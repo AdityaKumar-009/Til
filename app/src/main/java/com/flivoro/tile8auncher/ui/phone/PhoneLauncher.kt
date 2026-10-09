@@ -198,6 +198,7 @@ fun PhoneLauncherSurface(
         if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
     }
     val appsState = rememberLazyListState()
+    val startScroll = rememberScrollState()
     val listPhase = if (isLaunching) PhoneMotionPhase.FORWARD_OUT else PhoneMotionPhase.FORWARD_IN
     val appsTimeline = remember(mode, showApps, isLaunching) { Animatable(0f) }
     LaunchedEffect(mode, showApps, isLaunching) {
@@ -308,12 +309,13 @@ fun PhoneLauncherSurface(
                 label = "Phone start apps pivot",
             ) { apps ->
                 if (!apps) {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    Column(Modifier.fillMaxSize().verticalScroll(startScroll)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
                         PhoneStartGrid(
                             tiles = phoneTiles,
                             columns = columns,
                             entranceGeneration = entranceRequest + homeRequest,
+                            scrollOffsetPx = startScroll.value,
                             launchingTileId = launchingTileId,
                             isLaunching = isLaunching,
                             mode = mode,
@@ -603,6 +605,7 @@ private fun PhoneStartGrid(
     tiles: List<TileModel>,
     columns: Int,
     entranceGeneration: Int,
+    scrollOffsetPx: Int,
     launchingTileId: String?,
     isLaunching: Boolean,
     mode: LauncherUiMode,
@@ -612,31 +615,30 @@ private fun PhoneStartGrid(
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
-    // All tiles share one master clock. A separate coroutine per tile can drift and jank on
-    // mid-range Android hardware, defeating the synchronised Microsoft feather cascade.
-    val phase = when {
-        isLaunching -> PhoneMotionPhase.FORWARD_OUT
-        entranceGeneration <= 0 -> PhoneMotionPhase.FORWARD_IN
-        else -> PhoneMotionPhase.BACKWARD_IN
-    }
-    val clock = remember(mode, entranceGeneration, phase) { Animatable(0f) }
-    LaunchedEffect(mode, entranceGeneration, phase) {
+    // Start has different frame-measured choreography from app-page turnstile.
+    // All tiles share a single vsync-synchronized timebase to avoid drift.
+    val clock = remember(mode, entranceGeneration, isLaunching) { Animatable(0f) }
+    LaunchedEffect(mode, entranceGeneration, isLaunching) {
         clock.snapTo(0f)
-        val duration = PhoneMotionTimeline.totalMillis(mode, phase, 6)
+        val duration = PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
         clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
     }
     val gap = 4.dp
     val side = 10.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
+        val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
             tiles.forEachIndexed { index, tile ->
                 val pos = slots[index]
                 key(tile.id) {
                     PhoneTile(
-                        tile = tile, mode = mode, index = index,
-                        phase = phase,
+                        tile = tile, mode = mode,
+                        screenRow = (pos.row - scrollOffsetPx / cellStepPx).roundToInt(),
+                        column = pos.column,
+                        columns = columns,
+                        exiting = isLaunching,
                         elapsedMillis = { clock.value.roundToInt() },
                         selectedTile = launchingTileId == tile.id,
                         tileOpacity = tileOpacity, repository = appsRepository,
@@ -658,8 +660,10 @@ private fun PhoneStartGrid(
 private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
-    index: Int,
-    phase: PhoneMotionPhase,
+    screenRow: Int,
+    column: Int,
+    columns: Int,
+    exiting: Boolean,
     elapsedMillis: () -> Int,
     selectedTile: Boolean,
     tileOpacity: Float,
@@ -668,11 +672,8 @@ private fun PhoneTile(
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
-    // The motion curve is evaluated in the drawing layer to avoid re-composing every
-    // individual tile on each vsync. The original 40/50ms sequence stays deterministic.
-    val ordinal = index.coerceAtMost(6)
-    val configuration = LocalConfiguration.current
-    val pageCenterYPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() / 2f }
+    // Read the master timebase during graphics rendering, not during composition.
+    // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
     val icon = rememberAppIcon(repository, tile.packageName)
     WindowsTileFace(
@@ -682,19 +683,18 @@ private fun PhoneTile(
         modifier = modifier
             .onGloballyPositioned { bounds = it.boundsInWindow() }
             .graphicsLayer {
-                val motion = PhoneMotionTimeline.sample(
-                    mode, phase, elapsedMillis(), ordinal, selectedTile,
+                val motion = PhoneStartChoreography.sample(
+                    mode = mode, exiting = exiting, elapsedMillis = elapsedMillis(),
+                    screenRow = screenRow, column = column, columns = columns,
+                    selected = selectedTile,
                 )
                 alpha = motion.alpha
                 rotationY = motion.rotationY
-                translationY = motion.offsetYPx
+                translationX = motion.translationXPx * density
+                translationY = motion.translationYPx * density
                 scaleX = motion.scale
                 scaleY = motion.scale
-                // Approximate the original Page projection's shared vanishing point.
-                val pivotY = if (mode == LauncherUiMode.PHONE_8 && bounds.height > 1f) {
-                    ((pageCenterYPx - bounds.top) / bounds.height).coerceIn(-8f, 8f)
-                } else .5f
-                transformOrigin = TransformOrigin(motion.pivotX, pivotY)
+                transformOrigin = TransformOrigin(motion.pivotX, .5f)
                 cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
             }
             .phoneToolkitTilePress(
