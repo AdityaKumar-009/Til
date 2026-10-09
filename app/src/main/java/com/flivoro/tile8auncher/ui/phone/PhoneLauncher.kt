@@ -187,6 +187,14 @@ fun PhoneLauncherSurface(
     var order by remember(mode) { mutableStateOf(PhoneLayoutStore.order(context, mode, tiles)) }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
     var showApps by remember(mode) { mutableStateOf(false) }
+    // A horizontal pane swipe must not also replay the per-tile Start turnstile.
+    var returningFromApps by remember(mode) { mutableStateOf(false) }
+    LaunchedEffect(showApps) {
+        if (showApps) returningFromApps = true
+    }
+    LaunchedEffect(entranceRequest) {
+        if (entranceRequest > 0) returningFromApps = false
+    }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
     var search by remember(mode) { mutableStateOf("") }
@@ -202,7 +210,7 @@ fun PhoneLauncherSurface(
     val listPhase = if (isLaunching) PhoneMotionPhase.FORWARD_OUT else PhoneMotionPhase.FORWARD_IN
     val appsTimeline = remember(mode, showApps, isLaunching) { Animatable(0f) }
     LaunchedEffect(mode, showApps, isLaunching) {
-        if (showApps) {
+        if (showApps && isLaunching) {
             appsTimeline.snapTo(0f)
             val duration = PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
             appsTimeline.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
@@ -295,15 +303,19 @@ fun PhoneLauncherSurface(
                 targetState = showApps,
                 modifier = Modifier.weight(1f).fillMaxWidth().then(gestureModifier),
                 transitionSpec = {
-                    val duration = if (isTen) 230 else 330
+                    // 60fps reference 1000197576.mp4, 134.90–135.17s:
+                    // the entire Start/Apps panorama moves horizontally, with no
+                    // per-row fade or separate turnstile. Two full-width panes translate.
+                    val duration = if (isTen) 260 else 270
+                    val panEase = androidx.compose.animation.core.Easing {
+                        PhoneMotionTimeline.exponentialEaseOut6(it)
+                    }
                     if (targetState) {
-                        (slideInHorizontally(tween(duration, easing = FastOutSlowInEasing)) { it } +
-                            fadeIn(tween(duration / 2))) togetherWith
-                            (slideOutHorizontally(tween(duration)) { -it / 5 } + fadeOut(tween(duration / 2)))
+                        slideInHorizontally(tween(duration, easing = panEase)) { it } togetherWith
+                            slideOutHorizontally(tween(duration, easing = panEase)) { -it }
                     } else {
-                        (slideInHorizontally(tween(duration, easing = FastOutSlowInEasing)) { -it / 4 } +
-                            fadeIn(tween(duration / 2))) togetherWith
-                            (slideOutHorizontally(tween(duration)) { it } + fadeOut(tween(duration / 2)))
+                        slideInHorizontally(tween(duration, easing = panEase)) { -it } togetherWith
+                            slideOutHorizontally(tween(duration, easing = panEase)) { it }
                     }
                 },
                 label = "Phone start apps pivot",
@@ -316,6 +328,7 @@ fun PhoneLauncherSurface(
                             columns = columns,
                             entranceGeneration = entranceRequest + homeRequest,
                             scrollOffsetPx = startScroll.value,
+                            suppressEntrance = returningFromApps,
                             launchingTileId = launchingTileId,
                             isLaunching = isLaunching,
                             mode = mode,
@@ -391,10 +404,12 @@ fun PhoneLauncherSurface(
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     val ordinal = ((positions[letter] ?: 0) + appIndex).coerceAtMost(6)
-                                    val rowMotion = PhoneMotionTimeline.sample(
+                                    // The app list is stationary within its horizontally
+                                    // moving pane; only actual app launch feathers the rows.
+                                    val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
                                         mode, listPhase, appsTimeline.value.roundToInt(),
                                         ordinal, selectedTile = launchingTileId == "phone_app_${app.packageName}",
-                                    )
+                                    ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
                                     Row(
                                         Modifier.fillMaxWidth().height(60.dp)
                                             .graphicsLayer {
@@ -606,6 +621,7 @@ private fun PhoneStartGrid(
     columns: Int,
     entranceGeneration: Int,
     scrollOffsetPx: Int,
+    suppressEntrance: Boolean,
     launchingTileId: String?,
     isLaunching: Boolean,
     mode: LauncherUiMode,
@@ -618,10 +634,15 @@ private fun PhoneStartGrid(
     // Start has different frame-measured choreography from app-page turnstile.
     // All tiles share a single vsync-synchronized timebase to avoid drift.
     val clock = remember(mode, entranceGeneration, isLaunching) { Animatable(0f) }
-    LaunchedEffect(mode, entranceGeneration, isLaunching) {
-        clock.snapTo(0f)
+    LaunchedEffect(mode, entranceGeneration, isLaunching, suppressEntrance) {
         val duration = PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
-        clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+        if (suppressEntrance && !isLaunching) {
+            // Apps->Start uses the pane slide, not a second tile-by-tile entrance.
+            clock.snapTo(duration.toFloat())
+        } else {
+            clock.snapTo(0f)
+            clock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+        }
     }
     val gap = 4.dp
     val side = 10.dp

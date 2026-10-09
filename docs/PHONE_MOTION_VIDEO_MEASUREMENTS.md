@@ -19,6 +19,17 @@ and motion frames were compared with the prior Tilt launcher implementation.
   while other Start tiles remain fixed. Do not conflate live-tile flips with
   app/page navigation, which is handled by a different motion subsystem.
 
+## Classic all-apps panorama transition
+
+- 1000197576.mp4, 134.90–135.17s at ~60fps: the Start pane
+  translates left out of view as the adjacent app-list pane is exposed.
+  List entries stay fully visible, with no independent Y-axis flip and
+  no compounded fade.
+- Implemented as two full-width horizontally translating panes with
+  270ms (classic) / 260ms (Mobile) easing. The home pane suppresses
+  per-tile re-entry when returning from the app list; launching an
+  actual application still runs its dedicated per-item navigation motion.
+
 ## Annotated event: side-by-side Start departure, 144.65–145.18 seconds
 
 Frames were read at their native ~33.4ms capture intervals.
