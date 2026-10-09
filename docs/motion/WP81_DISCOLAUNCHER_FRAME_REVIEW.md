@@ -9,7 +9,8 @@ at commit `4907389358708754521bf62a5b2048823edcd12e`. Its global flow perspectiv
 is `1000px` in [`flowTouch.scss`](https://github.com/cherryhoax/DiscoLauncher/blob/4907389358708754521bf62a5b2048823edcd12e/src/styles/flowTouch.scss).
 The Start tile page overrides this with `perspective: calc(flow-perspective * 2)`
 in [`tileList.scss`](https://github.com/cherryhoax/DiscoLauncher/blob/4907389358708754521bf62a5b2048823edcd12e/src/styles/pages/tileList.scss),
-so the tile layers use a 2000px camera distance and native X/Y/Z transforms.
+so the tile layers use a matching 2000px camera distance and project the X/Z
+matrix offsets through Compose.
 
 `appTransition.js` computes `baseScale = innerHeight / 850 / 2 + .5`, filters
 the visible DOM items, reverses their order, and stores each index to two decimal
@@ -33,10 +34,11 @@ launched app with Android Back uses its separate back-resume path; the latter
 does not run the independent inner-content animation.
 
 The exit and Back matrices preserve their X/Z translation and left-edge origin
-in the Compose layer. The Home entrance keeps the tile face and inner content
-on separate layers. The Back entrance interpolates DiscoLauncher's compound
-start matrix to the resting face-on pose. The old guessed 84° right-edge hinge,
-offset tile ranks, and 1000px Start camera have been removed.
+in the Compose layer, projecting Z offsets with the same 2000px distance. The
+Home entrance keeps the tile face and inner content on separate layers. The
+Back entrance interpolates DiscoLauncher's compound start matrix to the resting
+face-on pose. The old guessed 84° right-edge hinge, offset tile ranks, and
+1000px Start camera have been removed.
 
 ## All Apps exit
 

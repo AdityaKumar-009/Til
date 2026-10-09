@@ -24,6 +24,10 @@ class PhoneStartChoreographyTest {
         assertEquals(1f, PhoneStartChoreography.visibleTileAnimationIndex(14, 15), 0f)
         assertEquals(0f, PhoneStartChoreography.visibleTileAnimationIndex(0, 1), 0f)
         assertEquals(2000f, PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX, 0f)
+        assertEquals(6000f / 5640f,
+            PhoneStartChoreography.projectedDepthScale(120f, 6000f, 3f), .001f)
+        assertEquals(2000f / 2052.2368f,
+            PhoneStartChoreography.projectedDepthScale(-52.23689f, 6000f, 3f), .001f)
     }
 
     @Test fun classicExitUsesReverseVisibleOrderAndSelectedTileDelay() {

@@ -405,12 +405,14 @@ fun PhoneLauncherSurface(
                                     )
                                     val cameraDistancePx =
                                         PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
+                                    val depthScale = PhoneStartChoreography.projectedDepthScale(
+                                        bannerMotion.translationZPx, cameraDistancePx, densityScale,
+                                    )
                                     alpha = bannerMotion.alpha
                                     rotationY = bannerMotion.rotationY
-                                    translationX = bannerMotion.translationXPx * densityScale
-                                    translationZ = bannerMotion.translationZPx * densityScale
-                                    scaleX = bannerMotion.scale
-                                    scaleY = bannerMotion.scale
+                                    translationX = bannerMotion.translationXPx * densityScale * depthScale
+                                    scaleX = bannerMotion.scale * depthScale
+                                    scaleY = bannerMotion.scale * depthScale
                                     transformOrigin = TransformOrigin(bannerMotion.pivotX, .5f)
                                     cameraDistance = cameraDistancePx
                                 } else {
@@ -936,11 +938,15 @@ private fun PhoneTile(
                     PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * density
                 } else
                     maxOf(900f, 2f * bounds.width, 2f * bounds.height)
-                translationX = motion.translationXPx * unitScale
+                val depthScale = if (mode == LauncherUiMode.PHONE_8) {
+                    PhoneStartChoreography.projectedDepthScale(
+                        motion.translationZPx, cameraDistancePx, density,
+                    )
+                } else 1f
+                translationX = motion.translationXPx * unitScale * depthScale
                 translationY = motion.translationYPx * unitScale
-                translationZ = motion.translationZPx * unitScale
-                scaleX = motion.scale
-                scaleY = motion.scale
+                scaleX = motion.scale * depthScale
+                scaleY = motion.scale * depthScale
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
                 cameraDistance = cameraDistancePx
             }

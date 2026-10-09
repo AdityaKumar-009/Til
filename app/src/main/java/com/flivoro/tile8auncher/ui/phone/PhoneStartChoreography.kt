@@ -48,6 +48,13 @@ internal object PhoneStartChoreography {
     fun appTransitionScale(viewportHeightCssPx: Float): Float =
         (viewportHeightCssPx / REFERENCE_VIEWPORT_HEIGHT / 2f + .5f).coerceAtLeast(.5f)
 
+    /** Projects a CSS Z offset into Compose's 2D layer scale at the reference camera. */
+    fun projectedDepthScale(depthCssPx: Float, cameraDistancePx: Float, density: Float): Float {
+        val denominator = (cameraDistancePx - depthCssPx * density)
+            .coerceAtLeast(cameraDistancePx * .1f)
+        return (cameraDistancePx / denominator).coerceIn(.25f, 4f)
+    }
+
     /** DiscoLauncher reverses visible tiles and normalizes their indices to 0..1. */
     fun visibleTileAnimationIndex(reverseRank: Int, visibleCount: Int): Float {
         if (visibleCount <= 1) return 0f
