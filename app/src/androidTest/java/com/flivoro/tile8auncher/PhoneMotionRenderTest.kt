@@ -34,12 +34,29 @@ import kotlin.math.abs
 @RunWith(AndroidJUnit4::class)
 class PhoneMotionRenderTest {
     @get:Rule val compose = createComposeRule()
+    private var capturePrefix = ""
 
     @Test fun mobileExitHoldsItsFinalFrameAndReturnRestoresTheSurface() {
+        captureMode(LauncherUiMode.MOBILE_10, "", 32, 608, 640, 384)
+    }
+
+    @Test fun classicTurnstileExitAndReturnAreCapturedAtEveryFrame() {
+        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 320, 512, 192)
+    }
+
+    private fun captureMode(
+        mode: LauncherUiMode,
+        prefix: String,
+        frameStep: Int,
+        exitEnd: Int,
+        entryEnd: Int,
+        beforeCompletion: Int,
+    ) {
+        capturePrefix = prefix
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
             .edit().clear().commit()
-        LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.MOBILE_10, 6)
+        LauncherFeatureStore.setPhoneSmallColumns(context, mode, 6)
         LauncherFeatureStore.setPhoneTileOpacity(context, 100)
         StartPersonalization.ensureLoaded(context)
         StartPersonalization.setCustomWallpaperUri(context, null)
@@ -57,7 +74,7 @@ class PhoneMotionRenderTest {
         compose.setContent {
             MaterialTheme {
                 PhoneLauncherSurface(
-                    mode = LauncherUiMode.MOBILE_10, tiles = tiles, sections = emptyList(),
+                    mode = mode, tiles = tiles, sections = emptyList(),
                     appsRepository = repository, homeRequest = 0,
                     entranceRequest = entrance.intValue, launchingTileId = selected.value,
                     isLaunching = launching.value, interactionEnabled = !launching.value,
@@ -85,14 +102,15 @@ class PhoneMotionRenderTest {
         compose.mainClock.advanceTimeByFrame() // recompose the state change
         compose.mainClock.advanceTimeByFrame() // animation's first frame is t=0
         capture("exit-000")
-        repeat(19) { frame ->
-            compose.mainClock.advanceTimeBy(32)
-            capture("exit-${((frame + 1) * 32).toString().padStart(3, '0')}")
-            if (frame == 11) compose.runOnIdle {
-                assertEquals("App opened before wallpaper had faded", 0, completions)
+        repeat(exitEnd / frameStep) { frame ->
+            compose.mainClock.advanceTimeBy(frameStep.toLong())
+            val elapsed = (frame + 1) * frameStep
+            capture("exit-${elapsed.toString().padStart(3, '0')}")
+            if (elapsed == beforeCompletion) compose.runOnIdle {
+                assertEquals("App opened before its exit animation finished", 0, completions)
             }
         }
-        val finalExit = capture("exit-608-handoff")
+        val finalExit = capture("exit-$exitEnd-handoff")
         compose.runOnIdle { assertEquals("Expected one completed handoff", 1, completions) }
         assertTrue("Start content must be black at handoff", centralBrightness(finalExit) < .01)
         compose.runOnIdle { selected.value = null }
@@ -105,9 +123,9 @@ class PhoneMotionRenderTest {
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeByFrame()
         capture("entry-000")
-        repeat(20) { frame ->
-            compose.mainClock.advanceTimeBy(32)
-            capture("entry-${((frame + 1) * 32).toString().padStart(3, '0')}")
+        repeat(entryEnd / frameStep) { frame ->
+            compose.mainClock.advanceTimeBy(frameStep.toLong())
+            capture("entry-${((frame + 1) * frameStep).toString().padStart(3, '0')}")
         }
         assertTrue("Return failed to restore the original tile geometry",
             difference(resting, capture("02-return-settled")) < .01)
@@ -122,7 +140,7 @@ class PhoneMotionRenderTest {
             // private external files. Export evidence through MediaStore so it
             // survives that cleanup; this requires no broad storage permission.
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$capturePrefix$name.png")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                 put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Til-motion-frames")
             }
@@ -134,7 +152,7 @@ class PhoneMotionRenderTest {
             }
         } else {
             val directory = File(context.getExternalFilesDir(null), "motion-frames").apply { mkdirs() }
-            File(directory, "$name.png").outputStream().use {
+            File(directory, "$capturePrefix$name.png").outputStream().use {
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
             }
         }
