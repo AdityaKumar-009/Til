@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
     private var homeRequest by mutableIntStateOf(0)
     private var entranceRequest by mutableIntStateOf(0)
     private var entranceKind by mutableStateOf(StartEntranceKind.STARTUP)
+    private var phoneResumeUsesBackMotion by mutableStateOf(false)
     private var entranceReady by mutableStateOf(false)
     private var startupEntrancePending = true
     private var pendingLaunchIntent: Intent? = null
@@ -197,6 +198,7 @@ class MainActivity : ComponentActivity() {
                     homeRequest = homeRequest,
                     entranceRequest = entranceRequest,
                     entranceKind = entranceKind,
+                    resumeUsesBackMotion = phoneResumeUsesBackMotion,
                     entranceReady = entranceReady,
                     onOpenInAppTile = { activeInAppTile = it },
                     onCloseInAppTile = {
@@ -297,16 +299,21 @@ class MainActivity : ComponentActivity() {
         val gatedBySystem = deviceRequiresEntranceGate()
         waitingForUserPresent = gatedBySystem
         if (gatedBySystem) {
+            phoneResumeUsesBackMotion = false
             startupEntrancePending = true
             entranceReady = false
             if (userPresentObserved) scheduleUnlockReleaseIfReady()
         } else if (startupEntrancePending) {
+            phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
         } else {
             entranceReady = true
             if (!homeWasPending) {
                 entranceKind = StartEntranceKind.RETURN
+                phoneResumeUsesBackMotion = true
                 entranceRequest++
+            } else {
+                phoneResumeUsesBackMotion = false
             }
         }
 
@@ -321,6 +328,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            phoneResumeUsesBackMotion = false
             if (flipState.isRunning) {
                 requestFlipReverse(FlipReverseReason.HOME)
                 return
@@ -376,6 +384,7 @@ class MainActivity : ComponentActivity() {
         startupEntrancePending = false
         entranceReady = true
         entranceKind = StartEntranceKind.STARTUP
+        phoneResumeUsesBackMotion = false
         entranceRequest++
     }
 
@@ -504,6 +513,7 @@ fun Tile8LauncherApp(
     homeRequest: Int = 0,
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
+    resumeUsesBackMotion: Boolean = false,
     entranceReady: Boolean = true,
 ) {
     var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
@@ -537,6 +547,9 @@ fun Tile8LauncherApp(
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
+    var localPhoneResumeUsesBackMotion by remember(entranceRequest, homeRequest) {
+        mutableStateOf(resumeUsesBackMotion)
+    }
     var showCharms by remember { mutableStateOf(false) }
     var searchFocusRequest by remember { mutableIntStateOf(0) }
     var drawerResetRequest by remember { mutableIntStateOf(0) }
@@ -719,6 +732,7 @@ fun Tile8LauncherApp(
 
     fun returnToStart() {
         val wasAwayFromStart = currentScreen != LauncherScreen.START || activeInAppTile != null
+        localPhoneResumeUsesBackMotion = false
         showCharms = false
         selectedTileForCustomization = null
         showPinAppsDialog = false
@@ -745,6 +759,7 @@ fun Tile8LauncherApp(
         onCloseInAppTile()
         if (wasOpen && entranceReady) {
             startEntranceKind = StartEntranceKind.RETURN
+            localPhoneResumeUsesBackMotion = true
             localStartEntranceRequest++
         }
     }
@@ -842,6 +857,7 @@ fun Tile8LauncherApp(
                         isLaunching = phoneExitActive,
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
+                        resumeUsesBackMotion = localPhoneResumeUsesBackMotion,
                         onLaunch = { tile, bounds, origin ->
                             if (entranceReady && !flipState.isRunning &&
                                 !bindOrPickDefaultTile(tile, bounds)

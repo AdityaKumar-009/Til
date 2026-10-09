@@ -79,6 +79,7 @@ class PhoneMotionRenderTest {
         val launching = mutableStateOf(false)
         val selected = mutableStateOf<String?>(null)
         val entrance = mutableIntStateOf(0)
+        val resumeUsesBackMotion = mutableStateOf(false)
         var completions = 0
         val repository = AppsRepository(context)
         compose.mainClock.autoAdvance = false
@@ -89,7 +90,7 @@ class PhoneMotionRenderTest {
                     appsRepository = repository, homeRequest = 0,
                     entranceRequest = entrance.intValue, launchingTileId = selected.value,
                     isLaunching = launching.value, interactionEnabled = !launching.value,
-                    wallpaperStyle = 0,
+                    wallpaperStyle = 0, resumeUsesBackMotion = resumeUsesBackMotion.value,
                     onLaunch = { tile, _, _ -> selected.value = tile.id; launching.value = true },
                     onExitFinished = { completions++ }, onOpenSettings = {}, onOpenAppInfo = {},
                 )
@@ -130,7 +131,11 @@ class PhoneMotionRenderTest {
             difference(finalExit, capture("exit-held")) < .001)
         compose.runOnIdle { assertEquals(1, completions) }
 
-        compose.runOnIdle { launching.value = false; entrance.intValue++ }
+        compose.runOnIdle {
+            launching.value = false
+            resumeUsesBackMotion.value = mode == LauncherUiMode.PHONE_8
+            entrance.intValue++
+        }
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeByFrame()
         capture("entry-000")

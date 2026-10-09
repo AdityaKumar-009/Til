@@ -38,6 +38,7 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
     private const val FLOW_PERSPECTIVE_CSS_PX = 1000f
+    const val CLASSIC_TILE_PERSPECTIVE_CSS_PX = 2000f
     private const val CLASSIC_EXIT_HOLD_MS = 200f
     private const val REFERENCE_VIEWPORT_HEIGHT = 850f
     private const val MOBILE_EXIT_TILE_MS = MobileStartMotion.EXIT_TILE_MS
@@ -47,11 +48,11 @@ internal object PhoneStartChoreography {
     fun appTransitionScale(viewportHeightCssPx: Float): Float =
         (viewportHeightCssPx / REFERENCE_VIEWPORT_HEIGHT / 2f + .5f).coerceAtLeast(.5f)
 
-    /** Emulates CSS perspective's scale from a per-layer Z offset in Compose. */
-    fun projectedDepthScale(depthCssPx: Float, cameraDistancePx: Float, density: Float): Float {
-        val denominator = (cameraDistancePx - depthCssPx * density)
-            .coerceAtLeast(cameraDistancePx * .1f)
-        return (cameraDistancePx / denominator).coerceIn(.25f, 4f)
+    /** DiscoLauncher reverses visible tiles and normalizes their indices to 0..1. */
+    fun visibleTileAnimationIndex(reverseRank: Int, visibleCount: Int): Float {
+        if (visibleCount <= 1) return 0f
+        return ((reverseRank.coerceIn(0, visibleCount - 1).toFloat() / (visibleCount - 1)) * 100f)
+            .roundToInt() / 100f
     }
 
     private fun delayMillis(index: Float, viewportHeightCssPx: Float): Int =
@@ -108,6 +109,8 @@ internal object PhoneStartChoreography {
         viewportWidthCssPx: Float,
         tileLeftCssPx: Float,
         selected: Boolean = false,
+        resumeUsesBackMotion: Boolean = false,
+        tileWidthCssPx: Float = 1f,
     ): PhoneStartMotionFrame {
         if (mode == LauncherUiMode.MOBILE_10) {
             val mobile = MobileStartMotion.sample(
@@ -135,7 +138,7 @@ internal object PhoneStartChoreography {
 
         if (exiting) {
             // appTransition.scss: translateX(-25vw), then the -30°/-10° compound
-            // turn. Compose folds the same matrix into Y rotation, X travel and depth scale.
+            // turn. The returned X/Z offsets and left-edge pivot preserve its 3D matrix.
             val progress = cubicBezier(raw, .75f, 0f, 1f, 0f)
             val angle = 30f * progress * DEG_TO_RAD
             val offset = tileLeftCssPx * progress
@@ -148,6 +151,35 @@ internal object PhoneStartChoreography {
                 translationZPx = offset * sin(angle),
                 scale = 1f,
                 pivotX = 0f,
+            )
+        }
+
+        if (resumeUsesBackMotion) {
+            // DiscoLauncher appTransition-back: interpolate its 0% matrix to the
+            // face-on matrix. The non-zero origin is -offsetLeft, so the pivot
+            // lands on the left edge of the page rather than the tile itself.
+            val progress = cubicBezier(raw, .05f, 1f, .1f, 1f)
+            val remaining = 1f - progress
+            val angle40 = 40f * DEG_TO_RAD
+            val cos30 = cos(30f * DEG_TO_RAD)
+            val cos40 = cos(angle40)
+            val sin40 = sin(angle40)
+            val startX = tileLeftCssPx * (1f + cos30 * (cos40 - 2f) - .5f * sin40) -
+                cos30 * viewportWidthCssPx * .25f
+            val startZ = tileLeftCssPx * (.5f * (cos40 - 2f) + cos30 * sin40) -
+                viewportWidthCssPx * .125f
+            return PhoneStartMotionFrame(
+                alpha = when {
+                    elapsedMillis < delay || raw <= 0f -> 0f
+                    raw < .01f -> cubicBezier(raw / .01f, .05f, 1f, .1f, 1f)
+                    else -> 1f
+                },
+                rotationY = -80f * remaining,
+                translationXPx = startX * remaining,
+                translationYPx = 0f,
+                translationZPx = startZ * remaining,
+                scale = 1f,
+                pivotX = if (tileWidthCssPx > 0f) -tileLeftCssPx / tileWidthCssPx else 0f,
             )
         }
 

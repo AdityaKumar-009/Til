@@ -7,12 +7,15 @@ This correction follows the implementation in
 and [`appTransition.js`](https://github.com/cherryhoax/DiscoLauncher/blob/4907389358708754521bf62a5b2048823edcd12e/src/scripts/appTransition.js)
 at commit `4907389358708754521bf62a5b2048823edcd12e`. Its global flow perspective
 is `1000px` in [`flowTouch.scss`](https://github.com/cherryhoax/DiscoLauncher/blob/4907389358708754521bf62a5b2048823edcd12e/src/styles/flowTouch.scss).
+The Start tile page overrides this with `perspective: calc(flow-perspective * 2)`
+in [`tileList.scss`](https://github.com/cherryhoax/DiscoLauncher/blob/4907389358708754521bf62a5b2048823edcd12e/src/styles/pages/tileList.scss),
+so the tile layers use a 2000px camera distance and native X/Y/Z transforms.
 
 `appTransition.js` computes `baseScale = innerHeight / 850 / 2 + .5`, filters
 the visible DOM items, reverses their order, and stores each index to two decimal
-places. The Compose renderer applies the same viewport scale and reversed order
-to visible Start tiles. It includes the page-navigation banner as index zero,
-as DiscoLauncher does.
+places across `0..1`. The Compose renderer applies the same viewport scale and
+reversed order to visible Start tiles. It includes the page-navigation banner
+as index zero, as DiscoLauncher does.
 
 ## Start tile exit and return
 
@@ -21,13 +24,19 @@ as DiscoLauncher does.
 | Unselected Start exit | 175 ms; delay `index × 200 ms × baseScale`; `cubic-bezier(.75, 0, 1, 0)` | Left-edge turn; compound −30°/−10° rotations; `−25vw` travel; opacity drops only at the final frame |
 | Selected Start exit | 300 ms; delay `200 ms × baseScale`; same curve | Same tile transform and terminal opacity |
 | Start handoff | `selected delay + 300 ms + 200 ms` | Waits for the turned-away pose before requesting the app |
-| Start return, outer face | 500 ms; delay `index × 200 ms × baseScale`; `cubic-bezier(.3, 1, .2, 1)` | 70° combined left-edge turn to face-on; forward-resume distance is zero |
-| Start return, inner content | 350 ms; same per-tile delay; `cubic-bezier(.2, .25, .25, 1)` | Icon/text begins 60 px to the right and at 45°, independently of the tile background |
+| Start return from Home | 500 ms; delay `index × 200 ms × baseScale`; `cubic-bezier(.3, 1, .2, 1)` | 70° combined left-edge turn to face-on; forward-resume distance is zero |
+| Start return from Back | 500 ms; same per-tile delay; `cubic-bezier(.05, 1, .1, 1)` | The DiscoLauncher back keyframe's −80° compound turn and X/Z offset, pivoted at the page's left edge; opacity follows its 0–1% reveal keyframes |
+| Start return, inner content | 350 ms; same per-tile delay; `cubic-bezier(.2, .25, .25, 1)` | Forward/Home return only: icon/text begins 60 px to the right and at 45°, independently of the tile background |
 
-The exit matrix is folded into equivalent Compose Y rotation, X travel, and
-camera-projected depth scale;
-the entrance keeps the tile face and inner content on separate layers. The old
-guessed 84° right-edge hinge and 15 ms spatial rank have been removed.
+Android Home intents use DiscoLauncher's forward-resume path. Returning from a
+launched app with Android Back uses its separate back-resume path; the latter
+does not run the independent inner-content animation.
+
+The exit and Back matrices preserve their X/Z translation and left-edge origin
+in the Compose layer. The Home entrance keeps the tile face and inner content
+on separate layers. The Back entrance interpolates DiscoLauncher's compound
+start matrix to the resting face-on pose. The old guessed 84° right-edge hinge,
+offset tile ranks, and 1000px Start camera have been removed.
 
 ## All Apps exit
 
@@ -40,7 +49,8 @@ rows additionally leave by `-100vw`. The overall handoff uses the same
 ## Renderer checks
 
 `PhoneStartChoreographyTest` checks the viewport-scaled total, selected and
-stagger delays, separate inner-layer track, terminal transforms, app-list
-letter travel, and finite frame samples. The instrumented renderer exports
-16 ms WP8.1 frames for Start exit/return and All Apps launch. W10M still uses
+stagger delays, both return paths, the separate Home inner-layer track, terminal
+transforms, app-list letter travel, and finite frame samples. The instrumented
+renderer exports 16 ms WP8.1 frames for Start exit/Back-return and All Apps
+launch. W10M still uses
 `MobileStartMotion` and retains its own 534 ms exit capture.

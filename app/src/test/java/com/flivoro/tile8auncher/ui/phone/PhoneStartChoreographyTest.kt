@@ -18,10 +18,12 @@ class PhoneStartChoreographyTest {
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
-    @Test fun classicDepthOffsetProjectsAgainstTheReferenceCameraDistance() {
-        assertEquals(1f, PhoneStartChoreography.projectedDepthScale(0f, 3000f, 3f), .001f)
-        assertEquals(1000f / 880f,
-            PhoneStartChoreography.projectedDepthScale(120f, 3000f, 3f), .001f)
+    @Test fun classicCascadeUsesDiscosZeroToOneVisibleIndexRange() {
+        assertEquals(0f, PhoneStartChoreography.visibleTileAnimationIndex(0, 15), 0f)
+        assertEquals(.5f, PhoneStartChoreography.visibleTileAnimationIndex(7, 15), 0f)
+        assertEquals(1f, PhoneStartChoreography.visibleTileAnimationIndex(14, 15), 0f)
+        assertEquals(0f, PhoneStartChoreography.visibleTileAnimationIndex(0, 1), 0f)
+        assertEquals(2000f, PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX, 0f)
     }
 
     @Test fun classicExitUsesReverseVisibleOrderAndSelectedTileDelay() {
@@ -74,6 +76,73 @@ class PhoneStartChoreographyTest {
         assertEquals(0f, settledContent.rotationY, .001f)
         assertEquals(0f, settledContent.translationXPx, .001f)
         assertEquals(0f, classicFrame(false, 700, 0f).rotationY, .001f)
+    }
+
+    @Test fun classicBackReturnMatchesDiscoBackKeyframeMatrixAndReveal() {
+        val start = PhoneStartChoreography.sample(
+            mode = eight,
+            exiting = false,
+            elapsedMillis = 100,
+            mobileRowFraction = 0f,
+            animationIndex = .5f,
+            viewportHeightCssPx = height,
+            viewportWidthCssPx = width,
+            tileLeftCssPx = 120f,
+            tileWidthCssPx = 80f,
+            resumeUsesBackMotion = true,
+        )
+        assertEquals(0f, start.alpha, 0f)
+        assertEquals(-80f, start.rotationY, .001f)
+        assertEquals(-124.74597f, start.translationXPx, .001f)
+        assertEquals(-52.23689f, start.translationZPx, .001f)
+        assertEquals(-1.5f, start.pivotX, .001f)
+
+        val firstRevealSegment = PhoneStartChoreography.sample(
+            mode = eight,
+            exiting = false,
+            elapsedMillis = 101,
+            mobileRowFraction = 0f,
+            animationIndex = .5f,
+            viewportHeightCssPx = height,
+            viewportWidthCssPx = width,
+            tileLeftCssPx = 120f,
+            tileWidthCssPx = 80f,
+            resumeUsesBackMotion = true,
+        )
+        assertEquals(.89143f, firstRevealSegment.alpha, .001f)
+
+        val revealed = PhoneStartChoreography.sample(
+            mode = eight,
+            exiting = false,
+            elapsedMillis = 110,
+            mobileRowFraction = 0f,
+            animationIndex = .5f,
+            viewportHeightCssPx = height,
+            viewportWidthCssPx = width,
+            tileLeftCssPx = 120f,
+            tileWidthCssPx = 80f,
+            resumeUsesBackMotion = true,
+        )
+        assertEquals(1f, revealed.alpha, .001f)
+        assertTrue("Back return must already be turning toward the front",
+            revealed.rotationY > start.rotationY && revealed.rotationY < 0f)
+
+        val settled = PhoneStartChoreography.sample(
+            mode = eight,
+            exiting = false,
+            elapsedMillis = 600,
+            mobileRowFraction = 0f,
+            animationIndex = .5f,
+            viewportHeightCssPx = height,
+            viewportWidthCssPx = width,
+            tileLeftCssPx = 120f,
+            tileWidthCssPx = 80f,
+            resumeUsesBackMotion = true,
+        )
+        assertEquals(1f, settled.alpha, 0f)
+        assertEquals(0f, settled.rotationY, .001f)
+        assertEquals(0f, settled.translationXPx, .001f)
+        assertEquals(0f, settled.translationZPx, .001f)
     }
 
     @Test fun classicAppsListExitUsesItsSeparateSelectedDelayAndPerspectiveShift() {

@@ -185,6 +185,7 @@ fun PhoneLauncherSurface(
     onExitFinished: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAppInfo: (String) -> Unit,
+    resumeUsesBackMotion: Boolean = false,
 ) {
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
@@ -226,11 +227,13 @@ fun PhoneLauncherSurface(
         mode, exiting = isLaunching,
         viewportHeightCssPx = viewportHeightCssPx,
     )
-    val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching) { Animatable(0f) }
+    val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion) {
+        Animatable(0f)
+    }
     val exitTileId = remember(isLaunching) { launchingTileId }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
     val latestDuration by rememberUpdatedState(duration)
-    LaunchedEffect(mode, entranceRequest, homeRequest, isLaunching) {
+    LaunchedEffect(mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion) {
         snapshotFlow { paneBounds.width > 0f && surfaceBounds.height > 0f }.first { it }
         val animationDuration = latestDuration
         motionClock.animateTo(animationDuration.toFloat(), tween(animationDuration, easing = LinearEasing))
@@ -369,6 +372,7 @@ fun PhoneLauncherSurface(
                             interactionEnabled = interactionEnabled,
                             launchingTileId = exitTileId,
                             isLaunching = isLaunching,
+                            resumeUsesBackMotion = resumeUsesBackMotion,
                             mode = mode,
                             tileOpacity = tileOpacity,
                             appsRepository = appsRepository,
@@ -395,16 +399,18 @@ fun PhoneLauncherSurface(
                                             .takeIf { it > 0f } ?: 850f,
                                         viewportWidthCssPx = widthCss,
                                         tileLeftCssPx = leftCss,
+                                        resumeUsesBackMotion = resumeUsesBackMotion,
+                                        tileWidthCssPx = (homeBannerBounds.width / densityScale)
+                                            .takeIf { it > 0f } ?: 54f,
                                     )
-                                    val cameraDistancePx = 1000f * densityScale
-                                    val depthScale = PhoneStartChoreography.projectedDepthScale(
-                                        bannerMotion.translationZPx, cameraDistancePx, densityScale,
-                                    )
+                                    val cameraDistancePx =
+                                        PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
                                     alpha = bannerMotion.alpha
                                     rotationY = bannerMotion.rotationY
-                                    translationX = bannerMotion.translationXPx * densityScale * depthScale
-                                    scaleX = depthScale
-                                    scaleY = depthScale
+                                    translationX = bannerMotion.translationXPx * densityScale
+                                    translationZ = bannerMotion.translationZPx * densityScale
+                                    scaleX = bannerMotion.scale
+                                    scaleY = bannerMotion.scale
                                     transformOrigin = TransformOrigin(bannerMotion.pivotX, .5f)
                                     cameraDistance = cameraDistancePx
                                 } else {
@@ -784,6 +790,7 @@ private fun PhoneStartGrid(
     interactionEnabled: Boolean,
     launchingTileId: String?,
     isLaunching: Boolean,
+    resumeUsesBackMotion: Boolean,
     mode: LauncherUiMode,
     tileOpacity: Float,
     appsRepository: AppsRepository,
@@ -834,17 +841,19 @@ private fun PhoneStartGrid(
                         tile = tile, mode = mode,
                         visibleRowFraction = rowFraction,
                         animationIndex = animationOrder[index]?.let { rank ->
-                            (((rank + 1f) / visibleSlotCount) * 100f).roundToInt() / 100f
+                            PhoneStartChoreography.visibleTileAnimationIndex(rank, visibleSlotCount)
                         } ?: 0f,
                         viewportHeightCssPx = viewportHeightCssPx,
                         viewportWidthCssPx = viewportWidthCssPx,
                         tileLeftCssPx = (side + (cell + gap) * pos.column).value,
+                        tileWidthCssPx = (cell * pos.columns + gap * (pos.columns - 1)).value,
                         surfaceBounds = surfaceBounds,
                         interactionEnabled = interactionEnabled,
                         exiting = isLaunching,
                         elapsedMillis = elapsedMillis,
                         selectedTile = launchingTileId == tile.id,
                         tileOpacity = tileOpacity, repository = appsRepository,
+                        resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier
                             .offset(x = side + (cell + gap) * pos.column,
                                     y = (cell + gap) * pos.row)
@@ -868,6 +877,8 @@ private fun PhoneTile(
     viewportHeightCssPx: Float,
     viewportWidthCssPx: Float,
     tileLeftCssPx: Float,
+    tileWidthCssPx: Float,
+    resumeUsesBackMotion: Boolean,
     surfaceBounds: Rect,
     interactionEnabled: Boolean,
     exiting: Boolean,
@@ -887,7 +898,7 @@ private fun PhoneTile(
         tile = tile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
-        innerModifier = if (mode == LauncherUiMode.PHONE_8 && !exiting) Modifier.graphicsLayer {
+        innerModifier = if (mode == LauncherUiMode.PHONE_8 && !exiting && !resumeUsesBackMotion) Modifier.graphicsLayer {
             val inner = PhoneStartChoreography.sampleInnerEntry(
                 elapsedMillis(), animationIndex, viewportHeightCssPx, density,
             )
@@ -914,22 +925,22 @@ private fun PhoneTile(
                     viewportHeightCssPx = viewportHeightCssPx,
                     viewportWidthCssPx = viewportWidthCssPx,
                     tileLeftCssPx = tileLeftCssPx,
+                    resumeUsesBackMotion = resumeUsesBackMotion,
+                    tileWidthCssPx = tileWidthCssPx,
                     selected = selectedTile,
                 )
                 alpha = motion.alpha
                 rotationY = motion.rotationY
                 val unitScale = if (mode == LauncherUiMode.MOBILE_10) 1f else density
-                val cameraDistancePx = if (mode == LauncherUiMode.PHONE_8) 1000f * density else
+                val cameraDistancePx = if (mode == LauncherUiMode.PHONE_8) {
+                    PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * density
+                } else
                     maxOf(900f, 2f * bounds.width, 2f * bounds.height)
-                val depthScale = if (mode == LauncherUiMode.PHONE_8) {
-                    PhoneStartChoreography.projectedDepthScale(
-                        motion.translationZPx, cameraDistancePx, density,
-                    )
-                } else 1f
-                translationX = motion.translationXPx * unitScale * depthScale
+                translationX = motion.translationXPx * unitScale
                 translationY = motion.translationYPx * unitScale
-                scaleX = motion.scale * depthScale
-                scaleY = motion.scale * depthScale
+                translationZ = motion.translationZPx * unitScale
+                scaleX = motion.scale
+                scaleY = motion.scale
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
                 cameraDistance = cameraDistancePx
             }
