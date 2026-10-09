@@ -25,7 +25,7 @@ launcher feature preferences, including existing feature JSON backups.
 | Start orientation | Vertical | Vertical | Vertical first-fit packed tile canvas |
 | Tile sizes | Small / medium / wide | Small / medium / wide | Small 1×1, medium 2×2, wide 4×2 |
 | App list | Swipe left; letters | Swipe left; search and letters | App-list swipe, search, alphabet jump |
-| Motion | Staggered turnstile tilt | Faster, flatter transition | Compose rotation/pivot vs translate/fade |
+| Motion | Reverse-indexed 3D tile turnstile | Faster, flatter transition | WP8.1 follows DiscoLauncher choreography; W10M uses its separate fitted Start track |
 | Tile backgrounds | Solid | Background picture and tile opacity | Per-mode tile opacity, reused wallpaper |
 | Tile updates | Windows Push/Live Tile APIs | Windows Push/Live Tile APIs | Android notification listener projection, **not** Windows Push |
 | Customization | Pin/unpin, resize, colors | Pin/unpin, resize, colors | Per-mode persistence, phone edit options |
@@ -39,9 +39,10 @@ push providers cannot be supplied by an ordinary Android launcher. W10 action ce
 visual approximation; use the Android notification shade for real notifications. Native
 Android app transitions may vary with Android/OEM policy.
 
-The phone Start animations are now fitted to the supplied recordings; see
-[the current frame review](motion/W10M_FRAME_REVIEW.md). Other phone surfaces remain approximations. Do not describe these as a bit-for-bit pixel perfect
-Windows ROM clone.
+The W10M Start animation is fitted to the supplied recordings; the WP8.1 app
+launch and return choreography now follows the timing and transforms in
+[DiscoLauncher](motion/WP81_DISCOLAUNCHER_FRAME_REVIEW.md). The remaining phone
+surfaces still use their separate approximations.
 
 ## Research used as references
 

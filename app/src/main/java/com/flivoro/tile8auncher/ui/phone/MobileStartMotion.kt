@@ -50,6 +50,7 @@ internal object MobileStartMotion {
             rotationY = 0f,
             translationXPx = (centerX - viewportCenterX) * (scale - 1f),
             translationYPx = (centerY - viewportCenterY) * (scale - 1f),
+            translationZPx = 0f,
             scale = scale,
             pivotX = .5f,
         )

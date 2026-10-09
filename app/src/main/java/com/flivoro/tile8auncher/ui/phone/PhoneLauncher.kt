@@ -188,6 +188,7 @@ fun PhoneLauncherSurface(
 ) {
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
+    val densityScale = LocalDensity.current.density
     val accent = StartPersonalization.accentColor
     val catalog = remember(sections) { sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
     val byPackage = remember(catalog) { catalog.associateBy(AppInfo::packageName) }
@@ -209,19 +210,30 @@ fun PhoneLauncherSurface(
     val startScroll = rememberScrollState()
     var surfaceBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
+    var homeBannerBounds by remember(mode) { mutableStateOf(Rect.Zero) }
+    val viewportHeightCssPx = (paneBounds.height / densityScale).takeIf { it > 0f } ?: 850f
     val listPhase = PhoneMotionPhase.FORWARD_OUT
     // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
     // can expire before Compose has even presented the first animation frame.
-    val duration = if (isLaunching && showApps) {
+    val duration = if (isLaunching && showApps && mode == LauncherUiMode.PHONE_8) {
+        PhoneStartChoreography.totalMillis(
+            mode, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
+        )
+    } else if (isLaunching && showApps) {
         maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
-    } else PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
+    } else PhoneStartChoreography.totalMillis(
+        mode, exiting = isLaunching,
+        viewportHeightCssPx = viewportHeightCssPx,
+    )
     val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching) { Animatable(0f) }
     val exitTileId = remember(isLaunching) { launchingTileId }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
+    val latestDuration by rememberUpdatedState(duration)
     LaunchedEffect(mode, entranceRequest, homeRequest, isLaunching) {
         snapshotFlow { paneBounds.width > 0f && surfaceBounds.height > 0f }.first { it }
-        motionClock.animateTo(duration.toFloat(), tween(duration, easing = LinearEasing))
+        val animationDuration = latestDuration
+        motionClock.animateTo(animationDuration.toFloat(), tween(animationDuration, easing = LinearEasing))
         if (isLaunching) {
             // Let the completed pose be submitted before the external Activity is requested.
             withFrameNanos { }
@@ -365,10 +377,36 @@ fun PhoneLauncherSurface(
                         )
                         Spacer(Modifier.height(30.dp))
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp).graphicsLayer {
-                                alpha = if (isTen) MobileStartMotion.wallpaperAlpha(
-                                    isLaunching, motionClock.value.roundToInt(),
-                                ) else if (isLaunching && motionClock.value >= duration) 0f else 1f
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                                .onGloballyPositioned { homeBannerBounds = it.boundsInWindow() }
+                                .graphicsLayer {
+                                if (mode == LauncherUiMode.PHONE_8) {
+                                    val widthCss = surfaceBounds.width / densityScale
+                                    val leftCss = if (homeBannerBounds.width > 0f) {
+                                        (homeBannerBounds.left - surfaceBounds.left) / densityScale
+                                    } else widthCss - 54f
+                                    val bannerMotion = PhoneStartChoreography.sample(
+                                        mode = mode,
+                                        exiting = isLaunching,
+                                        elapsedMillis = motionClock.value.roundToInt(),
+                                        mobileRowFraction = 0f,
+                                        animationIndex = 0f,
+                                        viewportHeightCssPx = (paneBounds.height / densityScale)
+                                            .takeIf { it > 0f } ?: 850f,
+                                        viewportWidthCssPx = widthCss,
+                                        tileLeftCssPx = leftCss,
+                                    )
+                                    alpha = bannerMotion.alpha
+                                    rotationY = bannerMotion.rotationY
+                                    translationX = bannerMotion.translationXPx * densityScale
+                                    translationZ = bannerMotion.translationZPx * densityScale
+                                    transformOrigin = TransformOrigin(bannerMotion.pivotX, .5f)
+                                    cameraDistance = maxOf(1000f * densityScale, 2f * size.width, 2f * size.height)
+                                } else {
+                                    alpha = if (isTen) MobileStartMotion.wallpaperAlpha(
+                                        isLaunching, motionClock.value.roundToInt(),
+                                    ) else if (isLaunching && motionClock.value >= duration) 0f else 1f
+                                }
                             },
                             horizontalArrangement = Arrangement.End,
                         ) {
@@ -379,13 +417,31 @@ fun PhoneLauncherSurface(
                 } else {
                     Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)
                         .graphicsLayer {
-                            alpha = if (isLaunching && motionClock.value >=
-                                PhoneMotionTimeline.totalMillis(mode, listPhase, 6)) 0f else 1f
+                            val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
+                                else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
+                            alpha = if (isLaunching && motionClock.value >= listExitEnd) 0f else 1f
                         }) {
                         if (!isTen && !phone8SearchVisible) {
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
                                 Text("⌕", color = Color.White, fontSize = 30.sp,
-                                    modifier = Modifier.clickable { phone8SearchVisible = true }
+                                    modifier = Modifier.graphicsLayer {
+                                        alpha = 1f
+                                        rotationY = 0f
+                                        translationX = 0f
+                                        if (isLaunching && mode == LauncherUiMode.PHONE_8) {
+                                            val motion = PhoneStartChoreography.sampleAppListExit(
+                                                elapsedMillis = motionClock.value.roundToInt(),
+                                                animationIndex = 1f,
+                                                viewportHeightCssPx = viewportHeightCssPx,
+                                                viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                            )
+                                            alpha = motion.alpha
+                                            rotationY = motion.rotationY
+                                            translationX = motion.translationXPx * densityScale
+                                            transformOrigin = TransformOrigin(motion.pivotX, .5f)
+                                            cameraDistance = 1000f * densityScale
+                                        }
+                                    }.clickable { phone8SearchVisible = true }
                                         .padding(horizontal = 8.dp, vertical = 4.dp))
                             }
                         }
@@ -426,20 +482,49 @@ fun PhoneLauncherSurface(
                                 }
                             }
                         }
+                        val visibleListIndices = appsState.layoutInfo.visibleItemsInfo.map { it.index }
+                        val firstVisibleListIndex = visibleListIndices.minOrNull()
+                            ?: appsState.firstVisibleItemIndex
+                        val lastVisibleListIndex = visibleListIndices.maxOrNull()
+                            ?: firstVisibleListIndex
                         val scope = androidx.compose.runtime.rememberCoroutineScope()
                         LazyColumn(state = appsState, modifier = Modifier.fillMaxSize(),
                             userScrollEnabled = interactionEnabled && !isLaunching) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
                                     Text(letter, color = accent, fontSize = 29.sp, fontWeight = FontWeight.Light,
-                                        modifier = Modifier.clickable { alphabetOpen = true }
+                                        modifier = Modifier.fillMaxWidth().graphicsLayer {
+                                            alpha = 1f
+                                            rotationY = 0f
+                                            translationX = 0f
+                                            if (isLaunching && mode == LauncherUiMode.PHONE_8) {
+                                                val motion = PhoneStartChoreography.sampleAppListExit(
+                                                    elapsedMillis = motionClock.value.roundToInt(),
+                                                    animationIndex = PhoneStartChoreography.appListAnimationIndex(
+                                                        positions[letter] ?: 0,
+                                                        firstVisibleListIndex, lastVisibleListIndex,
+                                                    ),
+                                                    viewportHeightCssPx = viewportHeightCssPx,
+                                                    viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                                    letter = true,
+                                                )
+                                                alpha = motion.alpha
+                                                rotationY = motion.rotationY
+                                                translationX = motion.translationXPx * densityScale
+                                                transformOrigin = TransformOrigin(motion.pivotX, .5f)
+                                                cameraDistance = 1000f * densityScale
+                                            }
+                                        }.clickable { alphabetOpen = true }
                                             .padding(vertical = 10.dp, horizontal = 2.dp))
                                 }
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
-                                    val ordinal = ((positions[letter] ?: 0) + appIndex + 1 -
-                                        appsState.firstVisibleItemIndex).coerceIn(0, 6)
+                                    val listIndex = (positions[letter] ?: 0) + appIndex + 1
+                                    val animationIndex = PhoneStartChoreography.appListAnimationIndex(
+                                        listIndex, firstVisibleListIndex, lastVisibleListIndex,
+                                    )
+                                    val ordinal = (listIndex - appsState.firstVisibleItemIndex).coerceIn(0, 6)
                                     // The app list is stationary within its horizontally
                                     // moving pane; only actual app launch feathers the rows.
                                     Row(
@@ -447,17 +532,49 @@ fun PhoneLauncherSurface(
                                             .graphicsLayer {
                                                 // Draw-layer read avoids relaying every animation
                                                 // tick through lazy-row recomposition.
-                                                val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
-                                                    mode, listPhase, motionClock.value.roundToInt(),
-                                                    ordinal, selectedTile = exitTileId == "phone_app_${app.packageName}",
-                                                ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
-                                                alpha = rowMotion.alpha
-                                                rotationY = rowMotion.rotationY
-                                                translationY = rowMotion.offsetYPx * density
-                                                scaleX = rowMotion.scale
-                                                scaleY = rowMotion.scale
-                                                transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
-                                                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+                                                if (isLaunching && mode == LauncherUiMode.PHONE_8) {
+                                                    val rowMotion = PhoneStartChoreography.sampleAppListExit(
+                                                        elapsedMillis = motionClock.value.roundToInt(),
+                                                        animationIndex = animationIndex,
+                                                        viewportHeightCssPx = viewportHeightCssPx,
+                                                        viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                                        selected = exitTileId == "phone_app_${app.packageName}",
+                                                    )
+                                                    alpha = rowMotion.alpha
+                                                    rotationY = rowMotion.rotationY
+                                                    translationX = rowMotion.translationXPx * densityScale
+                                                    translationY = 0f
+                                                    translationZ = 0f
+                                                    scaleX = 1f
+                                                    scaleY = 1f
+                                                    transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
+                                                    cameraDistance = maxOf(
+                                                        1000f * densityScale, 2f * bounds.width, 2f * bounds.height,
+                                                    )
+                                                } else {
+                                                    alpha = 1f
+                                                    rotationY = 0f
+                                                    translationX = 0f
+                                                    translationY = 0f
+                                                    translationZ = 0f
+                                                    scaleX = 1f
+                                                    scaleY = 1f
+                                                    val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
+                                                        mode, listPhase, motionClock.value.roundToInt(),
+                                                        ordinal,
+                                                        selectedTile = exitTileId == "phone_app_${app.packageName}",
+                                                    ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
+                                                    alpha = rowMotion.alpha
+                                                    rotationY = rowMotion.rotationY
+                                                    translationY = rowMotion.offsetYPx * density
+                                                    scaleX = rowMotion.scale
+                                                    scaleY = rowMotion.scale
+                                                    transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
+                                                }
+                                                cameraDistance = maxOf(
+                                                    if (mode == LauncherUiMode.PHONE_8) 1000f * densityScale else 900f,
+                                                    2f * bounds.width, 2f * bounds.height,
+                                                )
                                             }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
                                             .combinedClickable(
@@ -674,13 +791,31 @@ private fun PhoneStartGrid(
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     val gap = 4.dp
     val side = 10.dp
+    val density = LocalDensity.current.density
+    val viewportHeightCssPx = viewportHeightPx / density
+    val viewportWidthCssPx = surfaceBounds.width / density
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
         val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
         val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 18.dp).toPx() }
+        val visibleSlotIndices = slots.indices.filter { index ->
+            val slot = slots[index]
+            val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
+            val slotHeightPx = (cell * slot.rows + gap * (slot.rows - 1)).value * density
+            val leftCss = (side + (cell + gap) * slot.column).value
+            val widthCss = (cell * slot.columns + gap * (slot.columns - 1)).value
+            top >= -slotHeightPx && top + slotHeightPx <= viewportHeightPx + slotHeightPx &&
+                leftCss >= -widthCss && leftCss + widthCss <= viewportWidthCssPx + widthCss
+        }
+        // DiscoLauncher reverses the visible DOM order before assigning a 0..1
+        // animation index, so the last (usually bottom-right) tile starts first.
+        val animationOrder = visibleSlotIndices.asReversed().withIndex()
+            .associate { (rank, slotIndex) -> slotIndex to rank }
+        val visibleSlotCount = visibleSlotIndices.size
         val visibleTops = slots.mapNotNull { slot ->
             val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
-            if (top + slot.rows * cellStepPx > 0f && top < viewportHeightPx) top else null
+            val slotHeight = slot.rows * cellStepPx
+            if (top + slotHeight > 0f && top < viewportHeightPx) top else null
         }
         val firstVisibleTop = visibleTops.minOrNull() ?: 0f
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
@@ -695,12 +830,15 @@ private fun PhoneStartGrid(
                 key(tile.id) {
                     PhoneTile(
                         tile = tile, mode = mode,
-                        screenRow = (rowFraction * 5f).roundToInt(),
                         visibleRowFraction = rowFraction,
+                        animationIndex = animationOrder[index]?.let { rank ->
+                            (((rank + 1f) / visibleSlotCount) * 100f).roundToInt() / 100f
+                        } ?: 0f,
+                        viewportHeightCssPx = viewportHeightCssPx,
+                        viewportWidthCssPx = viewportWidthCssPx,
+                        tileLeftCssPx = (side + (cell + gap) * pos.column).value,
                         surfaceBounds = surfaceBounds,
                         interactionEnabled = interactionEnabled,
-                        column = pos.column,
-                        columns = columns,
                         exiting = isLaunching,
                         elapsedMillis = elapsedMillis,
                         selectedTile = launchingTileId == tile.id,
@@ -723,12 +861,13 @@ private fun PhoneStartGrid(
 private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
-    screenRow: Int,
     visibleRowFraction: Float,
+    animationIndex: Float,
+    viewportHeightCssPx: Float,
+    viewportWidthCssPx: Float,
+    tileLeftCssPx: Float,
     surfaceBounds: Rect,
     interactionEnabled: Boolean,
-    column: Int,
-    columns: Int,
     exiting: Boolean,
     elapsedMillis: () -> Int,
     selectedTile: Boolean,
@@ -746,6 +885,15 @@ private fun PhoneTile(
         tile = tile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
+        innerModifier = if (mode == LauncherUiMode.PHONE_8 && !exiting) Modifier.graphicsLayer {
+            val inner = PhoneStartChoreography.sampleInnerEntry(
+                elapsedMillis(), animationIndex, viewportHeightCssPx, density,
+            )
+            rotationY = inner.rotationY
+            translationX = inner.translationXPx
+            transformOrigin = TransformOrigin.Center
+            cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+        } else Modifier,
         modifier = modifier
             .onGloballyPositioned {
                 // boundsInWindow clips partially visible tiles, moving their apparent centre.
@@ -759,7 +907,11 @@ private fun PhoneTile(
                     surfaceBounds.center.x, surfaceBounds.center.y, selectedTile,
                 ) else PhoneStartChoreography.sample(
                     mode = mode, exiting = exiting, elapsedMillis = elapsedMillis(),
-                    screenRow = screenRow, column = column, columns = columns,
+                    mobileRowFraction = visibleRowFraction,
+                    animationIndex = animationIndex,
+                    viewportHeightCssPx = viewportHeightCssPx,
+                    viewportWidthCssPx = viewportWidthCssPx,
+                    tileLeftCssPx = tileLeftCssPx,
                     selected = selectedTile,
                 )
                 alpha = motion.alpha
@@ -767,10 +919,14 @@ private fun PhoneTile(
                 val unitScale = if (mode == LauncherUiMode.MOBILE_10) 1f else density
                 translationX = motion.translationXPx * unitScale
                 translationY = motion.translationYPx * unitScale
+                translationZ = motion.translationZPx * unitScale
                 scaleX = motion.scale
                 scaleY = motion.scale
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+                cameraDistance = maxOf(
+                    if (mode == LauncherUiMode.PHONE_8) 1000f * density else 900f,
+                    2f * bounds.width, 2f * bounds.height,
+                )
             }
             .phoneToolkitTilePress(
                 enabled = interactionEnabled && !exiting,

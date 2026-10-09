@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.AppInfo
+import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
@@ -40,8 +42,8 @@ class PhoneMotionRenderTest {
         captureMode(LauncherUiMode.MOBILE_10, "", 32, 608, 640, 384)
     }
 
-    @Test fun classicTurnstileExitAndReturnAreCapturedAtEveryFrame() {
-        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 320, 512, 192)
+    @Test fun classicDiscoLauncherExitAndReturnAreCapturedAtEveryFrame() {
+        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 800, 560)
     }
 
     private fun captureMode(
@@ -65,6 +67,15 @@ class PhoneMotionRenderTest {
             id = "motion_$index", title = "Tile ${index + 1}",
             iconGlyph = ('A' + index).toString(), colorValue = colors[index % colors.size],
         ) }
+        val sections = listOf(
+            AppSection("A", listOf(
+                AppInfo("Alpha", "com.example.alpha", "com.example.alpha.Main"),
+                AppInfo("Alpine", "com.example.alpine", "com.example.alpine.Main"),
+            )),
+            AppSection("B", listOf(
+                AppInfo("Beta", "com.example.beta", "com.example.beta.Main"),
+            )),
+        )
         val launching = mutableStateOf(false)
         val selected = mutableStateOf<String?>(null)
         val entrance = mutableIntStateOf(0)
@@ -74,7 +85,7 @@ class PhoneMotionRenderTest {
         compose.setContent {
             MaterialTheme {
                 PhoneLauncherSurface(
-                    mode = mode, tiles = tiles, sections = emptyList(),
+                    mode = mode, tiles = tiles, sections = sections,
                     appsRepository = repository, homeRequest = 0,
                     entranceRequest = entrance.intValue, launchingTileId = selected.value,
                     isLaunching = launching.value, interactionEnabled = !launching.value,
@@ -129,6 +140,29 @@ class PhoneMotionRenderTest {
         }
         assertTrue("Return failed to restore the original tile geometry",
             difference(resting, capture("02-return-settled")) < .01)
+
+        if (mode == LauncherUiMode.PHONE_8) {
+            // Exercise the separate app-list row/letter turn on the real Compose layers.
+            compose.onNodeWithText("⌕").performClick()
+            compose.mainClock.advanceTimeBy(400)
+            capture("apps-rest")
+            compose.runOnIdle { completions = 0 }
+            compose.onNodeWithText("Alpha").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            capture("apps-exit-000")
+            repeat(exitEnd / frameStep) { frame ->
+                compose.mainClock.advanceTimeBy(frameStep.toLong())
+                val elapsed = (frame + 1) * frameStep
+                capture("apps-exit-${elapsed.toString().padStart(3, '0')}")
+                if (elapsed == beforeCompletion) compose.runOnIdle {
+                    assertEquals("App-list launch completed before its exit envelope", 0, completions)
+                }
+            }
+            val appListExit = capture("apps-exit-$exitEnd-handoff")
+            compose.runOnIdle { assertEquals("Expected app-list launch completion", 1, completions) }
+            assertTrue("App-list content must be black at handoff", centralBrightness(appListExit) < .01)
+        }
     }
 
     private fun capture(name: String): Bitmap {

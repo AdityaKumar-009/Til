@@ -98,6 +98,7 @@ internal fun WindowsTileFace(
     appIcon: ImageBitmap?,
     modifier: Modifier = Modifier,
     logoModifier: Modifier = Modifier,
+    innerModifier: Modifier = Modifier,
     backgroundAlpha: Float = 1f,
 ) {
     val context = LocalContext.current
@@ -115,6 +116,9 @@ internal fun WindowsTileFace(
     Box(
         modifier = modifier.background(tileColor.copy(alpha = backgroundAlpha.coerceIn(0f, 1f))),
     ) {
+        // Keep the tile's colored face on its outer layer. Windows Phone 8.1's
+        // home-return transition turns the inner icon/text layer independently.
+        Box(Modifier.fillMaxSize().then(innerModifier)) {
         if (tile.size == TileSize.SMALL) {
             // Compact Windows-style templates keep glanceable built-in information usable even
             // at 1x1. App notification tiles still stay logo-first and use a corner count.
@@ -158,6 +162,7 @@ internal fun WindowsTileFace(
                 )
             }
             }
+        }
         }
     }
 }
