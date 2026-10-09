@@ -406,13 +406,15 @@ fun PhoneLauncherSurface(
                                     val ordinal = ((positions[letter] ?: 0) + appIndex).coerceAtMost(6)
                                     // The app list is stationary within its horizontally
                                     // moving pane; only actual app launch feathers the rows.
-                                    val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
-                                        mode, listPhase, appsTimeline.value.roundToInt(),
-                                        ordinal, selectedTile = launchingTileId == "phone_app_${app.packageName}",
-                                    ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
                                     Row(
                                         Modifier.fillMaxWidth().height(60.dp)
                                             .graphicsLayer {
+                                                // Draw-layer read avoids relaying every animation
+                                                // tick through lazy-row recomposition.
+                                                val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
+                                                    mode, listPhase, appsTimeline.value.roundToInt(),
+                                                    ordinal, selectedTile = launchingTileId == "phone_app_${app.packageName}",
+                                                ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
                                                 alpha = rowMotion.alpha
                                                 rotationY = rowMotion.rotationY
                                                 translationY = rowMotion.offsetYPx
@@ -633,9 +635,13 @@ private fun PhoneStartGrid(
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     // Start has different frame-measured choreography from app-page turnstile.
     // All tiles share a single vsync-synchronized timebase to avoid drift.
-    val clock = remember(mode, entranceGeneration, isLaunching) { Animatable(0f) }
+    val duration = PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
+    // Ensure the very FIRST draw of an Apps->Start pane is already fully opaque.
+    // An effect-time snap alone can flash invisible tiles for one vsync.
+    val clock = remember(mode, entranceGeneration, isLaunching, suppressEntrance) {
+        Animatable(if (suppressEntrance && !isLaunching) duration.toFloat() else 0f)
+    }
     LaunchedEffect(mode, entranceGeneration, isLaunching, suppressEntrance) {
-        val duration = PhoneStartChoreography.totalMillis(mode, exiting = isLaunching)
         if (suppressEntrance && !isLaunching) {
             // Apps->Start uses the pane slide, not a second tile-by-tile entrance.
             clock.snapTo(duration.toFloat())
