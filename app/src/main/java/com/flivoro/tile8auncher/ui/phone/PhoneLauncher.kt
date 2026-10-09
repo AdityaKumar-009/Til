@@ -311,10 +311,15 @@ fun PhoneLauncherSurface(
             // Android provides real cellular/Wi-Fi/battery status in its system status bar.
             // Do not draw invented signal icons immediately beneath those real indicators.
             if (isTen) {
-                Row(Modifier.fillMaxWidth().height(22.dp).padding(end = 18.dp),
+                Row(Modifier.fillMaxWidth().height(22.dp).padding(end = 18.dp)
+                    .graphicsLayer {
+                        alpha = MobileStartMotion.wallpaperAlpha(isLaunching, motionClock.value.roundToInt())
+                    },
                     horizontalArrangement = Arrangement.End) {
                     Text("⌄", color = Color.White, fontSize = 20.sp,
-                        modifier = Modifier.clickable { actionCenterOpen = !actionCenterOpen })
+                        modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) {
+                            actionCenterOpen = !actionCenterOpen
+                        })
                 }
             }
             AnimatedContent(
@@ -360,7 +365,11 @@ fun PhoneLauncherSurface(
                         )
                         Spacer(Modifier.height(30.dp))
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp).graphicsLayer {
+                                alpha = if (isTen) MobileStartMotion.wallpaperAlpha(
+                                    isLaunching, motionClock.value.roundToInt(),
+                                ) else if (isLaunching && motionClock.value >= duration) 0f else 1f
+                            },
                             horizontalArrangement = Arrangement.End,
                         ) {
                             Text("→", color = Color.White, fontSize = 34.sp,
