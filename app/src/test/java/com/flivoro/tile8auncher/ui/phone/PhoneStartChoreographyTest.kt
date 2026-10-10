@@ -13,17 +13,19 @@ class PhoneStartChoreographyTest {
 
     @Test fun classicTimingMatchesDiscoLauncherAtReferenceViewport() {
         assertEquals(700, PhoneStartChoreography.totalMillis(eight, true, height))
-        assertEquals(700, PhoneStartChoreography.totalMillis(eight, false, height))
+        assertEquals(850, PhoneStartChoreography.totalMillis(eight, false, height))
         assertEquals(675, PhoneStartChoreography.totalMillis(eight, true, 637.5f))
+        assertEquals(850, PhoneStartChoreography.totalMillis(eight, false, 637.5f))
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
-    @Test fun classicCascadeUsesDiscosZeroToOneVisibleIndexRange() {
-        assertEquals(0f, PhoneStartChoreography.visibleTileAnimationIndex(0, 15), 0f)
-        assertEquals(.5f, PhoneStartChoreography.visibleTileAnimationIndex(7, 15), 0f)
+    @Test fun classicCascadeReservesIndexZeroForTheIconBanner() {
+        assertEquals(.07f, PhoneStartChoreography.visibleTileAnimationIndex(0, 15), 0f)
+        assertEquals(.53f, PhoneStartChoreography.visibleTileAnimationIndex(7, 15), 0f)
         assertEquals(1f, PhoneStartChoreography.visibleTileAnimationIndex(14, 15), 0f)
-        assertEquals(0f, PhoneStartChoreography.visibleTileAnimationIndex(0, 1), 0f)
+        assertEquals(1f, PhoneStartChoreography.visibleTileAnimationIndex(0, 1), 0f)
         assertEquals(2000f, PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX, 0f)
+        assertEquals(1000f, PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX, 0f)
         assertEquals(6000f / 5640f,
             PhoneStartChoreography.projectedDepthScale(120f, 6000f, 3f), .001f)
         assertEquals(2000f / 2052.2368f,
@@ -64,8 +66,10 @@ class PhoneStartChoreographyTest {
     }
 
     @Test fun classicReturnTurnsOuterFaceAndInnerContentOnSeparateTracks() {
-        val first = classicFrame(exiting = false, elapsed = 0, index = 0f)
+        val firstBeforeDelay = classicFrame(exiting = false, elapsed = 13, index = .07f)
+        val first = classicFrame(exiting = false, elapsed = 14, index = .07f)
         val delayed = classicFrame(exiting = false, elapsed = 0, index = 1f)
+        assertEquals(0f, firstBeforeDelay.alpha, 0f)
         assertEquals(1f, first.alpha, 0f)
         assertEquals(0f, delayed.alpha, 0f)
         assertEquals(70f, first.rotationY, .001f)
@@ -73,13 +77,30 @@ class PhoneStartChoreographyTest {
         assertEquals(1f, classicFrame(false, 200, 1f).alpha, 0f)
         assertEquals(0f, classicFrame(false, 700, 1f).rotationY, .001f)
 
-        val content = PhoneStartChoreography.sampleInnerEntry(0, 0f, height, 1f)
+        val content = PhoneStartChoreography.sampleInnerEntry(14, .07f, height, 1f)
         assertEquals(45f, content.rotationY, .001f)
         assertEquals(60f, content.translationXPx, .001f)
-        val settledContent = PhoneStartChoreography.sampleInnerEntry(350, 0f, height, 1f)
+        val settledContent = PhoneStartChoreography.sampleInnerEntry(364, .07f, height, 1f)
         assertEquals(0f, settledContent.rotationY, .001f)
         assertEquals(0f, settledContent.translationXPx, .001f)
         assertEquals(0f, classicFrame(false, 700, 0f).rotationY, .001f)
+    }
+
+    @Test fun classicHomeResumeAlsoTurnsTheAllAppsPageBehindStart() {
+        val start = PhoneStartChoreography.sampleAppsPageEntry(100, width)
+        assertEquals(0f, start.alpha, 0f)
+        assertEquals(45f, start.rotationY, 0f)
+        assertEquals(width, start.translationXPx, 0f)
+        assertEquals(-1f, start.pivotX, 0f)
+
+        val moving = PhoneStartChoreography.sampleAppsPageEntry(460, width)
+        assertTrue(moving.alpha > 0f && moving.alpha < 1f)
+        assertTrue(moving.rotationY > 0f && moving.rotationY < 45f)
+        assertEquals(width, moving.translationXPx, 0f)
+
+        val settled = PhoneStartChoreography.sampleAppsPageEntry(850, width)
+        assertEquals(1f, settled.alpha, 0f)
+        assertEquals(0f, settled.rotationY, 0f)
     }
 
     @Test fun classicBackReturnMatchesDiscoBackKeyframeMatrixAndReveal() {
