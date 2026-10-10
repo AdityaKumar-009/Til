@@ -299,6 +299,21 @@ fun PhoneLauncherSurface(
     var homeBannerBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     val viewportHeightCssPx = (paneBounds.height / densityScale).takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
+    // Disco's #search-icon starts hidden and gets the .shown class only when
+    // the user moves into All Apps. Its CSS enters after 200ms over 250ms,
+    // then hides 500ms after returning to Start.
+    val appSearchIconAlpha = remember(mode) { Animatable(0f) }
+    LaunchedEffect(mode, showApps) {
+        if (isClassicPhone) {
+            if (showApps) {
+                delay(200)
+                appSearchIconAlpha.animateTo(1f, tween(250, easing = LinearEasing))
+            } else {
+                delay(500)
+                appSearchIconAlpha.snapTo(0f)
+            }
+        }
+    }
     val appListContentLeftCssPx = if (isClassicPhone) 81f else 18f
     val appListSearchLeftCssPx = 25f
     val appListSearchSizeCssPx = 42f
@@ -954,7 +969,10 @@ fun PhoneLauncherSurface(
                             Modifier.offset(x = appListSearchLeftCssPx.dp, y = 26.dp)
                                 .size(appListSearchSizeCssPx.dp)
                                 .onGloballyPositioned { searchIconBounds = it.boundsInWindow() }
-                                .graphicsLayer { alpha = if (isLaunching) searchIconMotion().alpha else 1f }
+                                .graphicsLayer {
+                                    alpha = appSearchIconAlpha.value *
+                                        (if (isLaunching) searchIconMotion().alpha else 1f)
+                                }
                                 .drawWithContent {
                                     if (!isLaunching || searchIconBounds.width <= 0f) {
                                         drawContent()
