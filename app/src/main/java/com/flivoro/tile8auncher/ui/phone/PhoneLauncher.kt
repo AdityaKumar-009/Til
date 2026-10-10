@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -65,6 +66,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -330,10 +332,8 @@ fun PhoneLauncherSurface(
         (surfaceBounds.width / densityScale - if (isClassicPhone) 100f else 32f)
             .coerceAtLeast(1f)
     val listPhase = PhoneMotionPhase.FORWARD_OUT
-    // The native reference's ~1s tile reveal is a CASCADE, not a uniformly
-    // slowed 3D turn. Keep Disco's individual 500/350ms face/glyph easing and
-    // use a longer native-observed tile-to-tile stagger for forward Start entry.
-    // App exit, Back, desktop and W10M retain their independent durations.
+    // Native forward entry is measured from the normal-speed reference.
+    // The slowed orange-tile footage is used for geometry, not wall-clock delay.
     // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
     // can expire before Compose has even presented the first animation frame.
     val duration = if (isLaunching && showApps && mode == LauncherUiMode.PHONE_8) {
@@ -471,21 +471,70 @@ fun PhoneLauncherSurface(
         }
     }
 
+    val classicPanorama = remember(mode) { Animatable(0f) }
+    val panoramaScope = rememberCoroutineScope()
+    var classicDragPosition by remember(mode) { mutableStateOf<Float?>(null) }
+    var classicReleasePosition by remember(mode) { mutableStateOf<Float?>(null) }
+    var classicReleaseRequest by remember(mode) { mutableStateOf(0) }
+    LaunchedEffect(isClassicPhone, showApps, suppressReturnPaneTransition, classicReleaseRequest) {
+        if (!isClassicPhone) return@LaunchedEffect
+        if (suppressReturnPaneTransition) {
+            classicDragPosition = null
+            classicReleasePosition = null
+            classicPanorama.snapTo(0f)
+        } else {
+            classicReleasePosition?.let { classicPanorama.snapTo(it) }
+            classicReleasePosition = null
+            classicDragPosition = null
+            classicPanorama.animateTo(if (showApps) 1f else 0f, tween(270,
+                easing = androidx.compose.animation.core.Easing {
+                    PhoneMotionTimeline.exponentialEaseOut6(it)
+                }))
+        }
+    }
     var horizontalDistance by remember { mutableStateOf(0f) }
     val gestureModifier = Modifier.pointerInput(mode, showApps, interactionEnabled, isLaunching) {
         if (!interactionEnabled || isLaunching) return@pointerInput
+        val velocity = VelocityTracker()
+        fun releaseClassicDrag(cancelled: Boolean) {
+            val position = classicDragPosition ?: return
+            if (!cancelled) {
+                val speed = velocity.calculateVelocity().x / densityScale
+                showApps = if (kotlin.math.abs(speed) > 600f) speed < 0f else position >= .5f
+            }
+            classicReleasePosition = position
+            classicReleaseRequest++
+        }
         detectHorizontalDragGestures(
-            onDragStart = { horizontalDistance = 0f },
+            onDragStart = {
+                horizontalDistance = 0f
+                velocity.resetTracking()
+                if (isClassicPhone) {
+                    classicForwardEntranceActive = false
+                    classicDragPosition = classicPanorama.value
+                    panoramaScope.launch { classicPanorama.stop() }
+                }
+            },
             onHorizontalDrag = { change, amount ->
                 horizontalDistance += amount
+                if (isClassicPhone) {
+                    velocity.addPosition(change.uptimeMillis, change.position)
+                    classicDragPosition = ((classicDragPosition ?: classicPanorama.value) -
+                        amount / paneBounds.width.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                }
                 change.consume()
             },
             onDragEnd = {
-                if (horizontalDistance < -70f) showApps = true
-                if (horizontalDistance > 70f) showApps = false
+                if (isClassicPhone) releaseClassicDrag(false) else {
+                    if (horizontalDistance < -70f) showApps = true
+                    if (horizontalDistance > 70f) showApps = false
+                }
                 horizontalDistance = 0f
             },
-            onDragCancel = { horizontalDistance = 0f },
+            onDragCancel = {
+                if (isClassicPhone) releaseClassicDrag(true)
+                horizontalDistance = 0f
+            },
         )
     }
 
@@ -518,7 +567,7 @@ fun PhoneLauncherSurface(
             // AnimatedContent was destroying the All Apps page whenever Start was selected,
             // so its independent 3D return was missing after launching from Start.
             // Keep both pages mounted and move the panorama with one shared X translation.
-            val panoramaProgress by animateFloatAsState(
+            val nonClassicPanoramaProgress by animateFloatAsState(
                 targetValue = if (showApps && !suppressReturnPaneTransition) 1f else 0f,
                 animationSpec = if (suppressReturnPaneTransition && isClassicPhone) snap()
                     else tween(
@@ -529,6 +578,10 @@ fun PhoneLauncherSurface(
                     ),
                 label = "Phone panorama position",
             )
+            val panoramaProgress = if (isClassicPhone) {
+                if (suppressReturnPaneTransition) 0f
+                else classicDragPosition ?: classicPanorama.value
+            } else nonClassicPanoramaProgress
             Box(
                 Modifier.weight(1f).fillMaxWidth().clipToBounds()
                     .onGloballyPositioned { paneBounds = it.boundsInWindow() }
@@ -1365,7 +1418,9 @@ private fun PhoneTile(
                 viewportHeightCssPx = pageHeightCss,
                 motion = motion,
                 inner = cssInner,
-                cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+                cameraDistanceCssPx = if (!exiting && !resumeUsesBackMotion) {
+                    PhoneStartChoreography.nativeCameraDistance(pageWidthCss)
+                } else PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
             )
         }
     }

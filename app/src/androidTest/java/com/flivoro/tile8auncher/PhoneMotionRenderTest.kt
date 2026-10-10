@@ -17,12 +17,15 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.geometry.Offset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
+import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
@@ -45,8 +48,8 @@ class PhoneMotionRenderTest {
         captureMode(LauncherUiMode.MOBILE_10, "", 32, 608, 640, 384)
     }
 
-    @Test fun classicDiscoLauncherExitAndReturnAreCapturedAtEveryFrame() {
-        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 1792, 560)
+    @Test fun classicNativeExitAndReturnAreCapturedAtEveryFrame() {
+        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 640, 800, 400)
     }
 
     private fun captureMode(
@@ -61,14 +64,18 @@ class PhoneMotionRenderTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
             .edit().clear().commit()
-        LauncherFeatureStore.setPhoneSmallColumns(context, mode, 6)
+        LauncherFeatureStore.setPhoneSmallColumns(context, mode, if (mode == LauncherUiMode.PHONE_8) 4 else 6)
         LauncherFeatureStore.setPhoneTileOpacity(context, 100)
         StartPersonalization.ensureLoaded(context)
         StartPersonalization.setCustomWallpaperUri(context, null)
         val colors = listOf(0xFF00A4EF, 0xFFE3008C, 0xFF008A00, 0xFFF09609, 0xFF603CBA)
-        val tiles = List(15) { index -> TileModel(
+        val classicSizes = listOf(TileSize.MEDIUM, TileSize.SMALL, TileSize.SMALL,
+            TileSize.SMALL, TileSize.SMALL, TileSize.MEDIUM, TileSize.MEDIUM,
+            TileSize.WIDE, TileSize.MEDIUM, TileSize.MEDIUM)
+        val tiles = List(if (mode == LauncherUiMode.PHONE_8) classicSizes.size else 15) { index -> TileModel(
             id = "motion_$index", title = "Tile ${index + 1}",
             iconGlyph = ('A' + index).toString(), colorValue = colors[index % colors.size],
+            size = if (mode == LauncherUiMode.PHONE_8) classicSizes[index] else TileSize.MEDIUM,
         ) }
         val sections = listOf(
             AppSection("A", listOf(
@@ -124,6 +131,22 @@ class PhoneMotionRenderTest {
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
         if (mode == LauncherUiMode.PHONE_8) {
+            // The panorama must follow a held finger, before pointer-up.
+            // A button-only test could not catch the old release-only swipe.
+            compose.onRoot().performTouchInput {
+                down(center)
+                moveBy(Offset(-width * .30f, 0f), 100)
+                moveBy(Offset(-width * .30f, 0f), 100)
+            }
+            compose.mainClock.advanceTimeByFrame()
+            assertTrue("Panorama did not follow the finger before release",
+                difference(resting, capture("panorama-finger-held")) > .03)
+            compose.onRoot().performTouchInput { up() }
+            compose.mainClock.advanceTimeBy(400)
+            compose.onNodeWithText("Alpha").assertIsDisplayed()
+            compose.onNodeWithText("‹").performClick()
+            compose.mainClock.advanceTimeBy(400)
+
             // Regression: returning Home when the previous launcher page was already
             // Start must STILL compose and animate the second All Apps slide page.
             // AnimatedContent previously omitted it altogether in this path.
@@ -187,8 +210,7 @@ class PhoneMotionRenderTest {
 
         compose.runOnIdle {
             launching.value = false
-            // External Android activityResume is forward on DiscoLauncher,
-            // even if the user left the app with Android Back.
+            // Explicit Home uses the forward/native entry. Back is captured separately.
             resumeUsesBackMotion.value = false
             entrance.intValue++
         }
@@ -220,7 +242,7 @@ class PhoneMotionRenderTest {
             val homeReturnStart = capture("home-return-000")
             compose.onNodeWithTag("wp81-home-return-app-page").assertExists()
             compose.onNodeWithText("Alpha").assertExists()
-            assertTrue("Disco's Apps page begins transparent before its delayed turn",
+            assertTrue("Apps page begins transparent before its delayed turn",
                 brightPixelsInAppsSearchRegion(homeReturnStart) < 5)
             var homeReturnMidpoint: Bitmap? = null
             var appsPageRowsFrame: Bitmap? = null
@@ -232,9 +254,7 @@ class PhoneMotionRenderTest {
                     assertTrue("First Start tiles should appear during native-stagger entry",
                         chromaticFraction(frame) > .0005)
                 }
-                // The projected second pane is visible only at the beginning
-                // of its 3D turn. At 112ms app-label pixels appear; by 224ms
-                // the page's left edge has moved almost entirely offscreen.
+                // Sample the native second-pane turn during the tile cascade.
                 if (elapsed == 112) appsPageRowsFrame = frame
                 if (elapsed == 160) appsPageVisibleFrame = frame
                 if (elapsed == 416) homeReturnMidpoint = frame

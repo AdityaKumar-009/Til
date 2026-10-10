@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.ui.phone
 
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -37,28 +38,27 @@ internal data class PhoneProjectedPoint(
 )
 
 /**
- * Windows Phone 8.1 Start choreography follows DiscoLauncher’s
- * `src/styles/appTransition.scss` and `src/scripts/appTransition.js`. CSS-pixel
+ * Windows Phone 8.1 motion: native-video forward entry with the established
+ * DiscoLauncher-derived exit/Back tracks. CSS-pixel
  * inputs are supplied in dp and converted to physical pixels at the Compose
  * graphics layer. W10M stays on MobileStartMotion.
  */
 internal object PhoneStartChoreography {
     private const val CLASSIC_EXIT_MS = 175f
     private const val CLASSIC_SELECTED_EXIT_MS = 300f
-    private const val CLASSIC_ENTRY_MS = 500f
-    private const val CLASSIC_INNER_ENTRY_MS = 350f
+    private const val CLASSIC_ENTRY_MS = 250f
+    private const val CLASSIC_BACK_ENTRY_MS = 350f
+    private const val CLASSIC_INNER_ENTRY_MS = 250f
     private const val CLASSIC_STAGGER_MS = 200f
-    // Actual WP8.1 reference: bottom visible tiles start ~47.5s, the large
-    // top tiles start ~47.9s. A prior 5.5x stagger left the large tiles
-    // absent for ~0.8s; 3x brings their onset closer to the ~0.4s reference.
-    // Preserve Disco's 200ms source exit/Back stagger; this tuning applies
-    // only to the native-style forward entrance and remains experimental.
-    const val NATIVE_FORWARD_STAGGER_MULTIPLIER = 3.0f
+    // 1000197575 contains long repeated-frame holds: its 47s return must not
+    // set real-time duration. Normal-speed 1000197576, 112.70–113.20s, supplies
+    // the clock; the slowed clip supplies intermediate geometry. See the audit.
+    const val NATIVE_FORWARD_STAGGER_MULTIPLIER = 1.0f
     private const val CLASSIC_SELECTED_DELAY_MS = 200f
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
-    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 100f
-    private const val CLASSIC_APPS_PAGE_ENTRY_MS = 750f
+    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 50f
+    private const val CLASSIC_APPS_PAGE_ENTRY_MS = 350f
     // DiscoLauncher src/script.js sets --app-transition-scale from
     // appTransitionScale(window.innerHeight) at startup. The root CSS default
     // of 1 is only a fallback before that JS initialization.
@@ -68,6 +68,9 @@ internal object PhoneStartChoreography {
     private const val REFERENCE_VIEWPORT_HEIGHT = 850f
     private const val MOBILE_EXIT_TILE_MS = MobileStartMotion.EXIT_TILE_MS
     private const val MOBILE_ENTRY_TILE_MS = MobileStartMotion.ENTRY_TILE_MS
+
+    /** Fitted from the four face corners, not from total colored-screen area. */
+    fun nativeCameraDistance(viewportWidthCssPx: Float): Float = viewportWidthCssPx * 3.2f
 
     /** DiscoLauncher’s `baseScale = innerHeight / 850 / 2 + .5`. */
     fun appTransitionScale(viewportHeightCssPx: Float): Float =
@@ -82,23 +85,17 @@ internal object PhoneStartChoreography {
             .roundToInt() / 100f
     }
 
-    /**
-     * DiscoLauncher forward resume also turns the second (All Apps) page behind
-     * Start: 100 ms delay, then 750 ms from 45°/transparent to face-on/opaque.
-     * The CSS declaration spells the delay as `var(.1s)`, which is invalid CSS;
-     * this ports the evident intended 0.1s value from the same declaration.
-     * The source uses the same forward-resume easing for opacity and page angle.
-     */
+    /** Native Home return exposes the second page behind the staggered Start faces. */
     fun sampleAppsPageEntry(
         elapsedMillis: Int,
         viewportWidthCssPx: Float,
     ): PhoneAppsPageEntryFrame {
         val raw = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) /
             CLASSIC_APPS_PAGE_ENTRY_MS).coerceIn(0f, 1f)
-        val progress = cubicBezier(raw, .05f, 1f, .1f, 1f)
+        val progress = cubicBezier(raw, .25f, .1f, .25f, 1f)
         return PhoneAppsPageEntryFrame(
-            alpha = progress,
-            rotationY = 45f * (1f - progress),
+            alpha = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) / 16f).coerceIn(0f, 1f),
+            rotationY = 50f * (1f - progress),
             translationXPx = viewportWidthCssPx,
             pivotX = -1f,
         )
@@ -121,8 +118,9 @@ internal object PhoneStartChoreography {
         val worldX = viewportWidthCssPx + pageLocalXPx
         val rotatedX = worldX * cos(angle)
         val rotatedZ = -worldX * sin(angle)
-        val perspectiveScale = cameraDistanceCssPx /
-            (cameraDistanceCssPx - rotatedZ).coerceAtLeast(cameraDistanceCssPx * .1f)
+        val camera = cameraDistanceCssPx * viewportWidthCssPx / 360f
+        val perspectiveScale = camera /
+            (camera - rotatedZ).coerceAtLeast(camera * .1f)
         return PhoneProjectedPoint(
             xCssPx = rotatedX * perspectiveScale,
             yCssPx = viewportHeightCssPx * .5f +
@@ -182,13 +180,15 @@ internal object PhoneStartChoreography {
     fun selectedExitDelayMillis(viewportHeightCssPx: Float): Int =
         (CLASSIC_SELECTED_DELAY_MS * appTransitionScale(viewportHeightCssPx)).roundToInt()
 
-    /** DiscoLauncher's `launchHide()` timeout, including its viewport baseScale. */
+    /** Last visible Start/Apps track; no additional 200ms blank launch padding. */
     private fun launchHideMillis(viewportHeightCssPx: Float): Int {
-        val scale = appTransitionScale(viewportHeightCssPx)
-        return ((.2f + .2f * scale + .2f + .1f) * 1000f).roundToInt()
+        return maxOf(
+            selectedExitDelayMillis(viewportHeightCssPx) + CLASSIC_SELECTED_EXIT_MS.roundToInt(),
+            (CLASSIC_APPS_SELECTED_DELAY_MS + CLASSIC_APPS_EXIT_MS).roundToInt(),
+        )
     }
 
-    /** `launchHide()` hides Start 200ms after the selected tile's 300ms exit ends. */
+    /** Entry/exit clock endpoints; the retained exit pose still prevents launch flashes. */
     fun totalMillis(
         mode: LauncherUiMode,
         exiting: Boolean,
@@ -196,7 +196,7 @@ internal object PhoneStartChoreography {
     ): Int = when (mode) {
         LauncherUiMode.PHONE_8 -> if (exiting) launchHideMillis(viewportHeightCssPx) else {
             maxOf(
-                (CLASSIC_ENTRY_MS +
+                (CLASSIC_BACK_ENTRY_MS +
                     CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx)).roundToInt(),
                 (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
             )
@@ -211,9 +211,7 @@ internal object PhoneStartChoreography {
 
     fun classicNativeForwardTotalMillis(viewportHeightCssPx: Float): Int =
         maxOf(
-            (CLASSIC_ENTRY_MS +
-                CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx) *
-                    NATIVE_FORWARD_STAGGER_MULTIPLIER).roundToInt(),
+            (CLASSIC_ENTRY_MS + CLASSIC_STAGGER_MS).roundToInt(),
             (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
         )
 
@@ -263,13 +261,16 @@ internal object PhoneStartChoreography {
             )
         }
         check(mode == LauncherUiMode.PHONE_8)
-        val baseDelay = delayMillis(mode, exiting, animationIndex, viewportHeightCssPx, selected)
+        val baseDelay = if (!exiting && !resumeUsesBackMotion) {
+            (animationIndex.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS).roundToInt()
+        } else delayMillis(mode, exiting, animationIndex, viewportHeightCssPx, selected)
         val delay = if (!exiting && !resumeUsesBackMotion) {
             (baseDelay * entryStaggerMultiplier).roundToInt()
         } else baseDelay
         val duration = when {
             exiting && selected -> CLASSIC_SELECTED_EXIT_MS
             exiting -> CLASSIC_EXIT_MS
+            resumeUsesBackMotion -> CLASSIC_BACK_ENTRY_MS
             else -> CLASSIC_ENTRY_MS
         }
         val raw = ((elapsedMillis - delay) / duration).coerceIn(0f, 1f)
@@ -321,21 +322,16 @@ internal object PhoneStartChoreography {
             )
         }
 
-        // Home resume: the tile background turns around its left edge for 500ms.
-        // CSS also offsets the tile by +left/-left around its two rotations.
-        val progress = 1f - cubicBezier(raw, .3f, 1f, .2f, 1f)
-        val outerAngle = 70f * progress
-        // The forward-resume CSS explicitly sets --app-animation-distance to 0px.
-        val offset = 0f
-        val firstX = offset * (cos(10f * progress * DEG_TO_RAD) - 1f)
-        val firstZ = offset * sin(10f * progress * DEG_TO_RAD)
-        val turn = outerAngle * DEG_TO_RAD
+        // Native Home return has a moving hinge: the face arrives from the
+        // right and from behind the screen. A fixed left-edge hinge reproduces
+        // Disco's CSS approximation, but contradicts both native recordings.
+        val progress = nativeEntryRemaining(raw)
         return PhoneStartMotionFrame(
             alpha = if (elapsedMillis < delay) 0f else 1f,
-            rotationY = outerAngle,
-            translationXPx = firstX * cos(turn) + firstZ * sin(turn),
+            rotationY = 80f * progress,
+            translationXPx = viewportWidthCssPx * .25f * progress,
             translationYPx = 0f,
-            translationZPx = -firstX * sin(turn) + firstZ * cos(turn),
+            translationZPx = -viewportWidthCssPx * .12f * progress,
             scale = 1f,
             pivotX = 0f,
         )
@@ -348,7 +344,7 @@ internal object PhoneStartChoreography {
         density: Float,
         entryStaggerMultiplier: Float = 1f,
     ): PhoneStartInnerFrame {
-        val delay = (delayMillis(animationIndex, viewportHeightCssPx) *
+        val delay = (animationIndex.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS *
             entryStaggerMultiplier).roundToInt()
         val raw = ((elapsedMillis - delay) / CLASSIC_INNER_ENTRY_MS).coerceIn(0f, 1f)
         val remaining = 1f - cubicBezier(raw, .2f, .25f, .25f, 1f)
@@ -357,6 +353,9 @@ internal object PhoneStartChoreography {
             translationXPx = 60f * density * remaining,
         )
     }
+
+    private fun nativeEntryRemaining(progress: Float): Float =
+        ((exp(3.0 * (1f - progress.coerceIn(0f, 1f))) - 1.0) / (exp(3.0) - 1.0)).toFloat()
 
     /** CSS exit used by DiscoLauncher for app-list rows, letter rows and search icon. */
     fun sampleAppListExit(

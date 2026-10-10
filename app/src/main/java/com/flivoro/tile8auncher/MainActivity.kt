@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
     // replacement resume, or destruction. Disco delays activityResume by 200ms.
     private var classicPhoneResumeGeneration = 0
     private var pendingClassicHomeReturn = false
+    private var classicExternalAppLaunched = false
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -306,7 +307,10 @@ class MainActivity : ComponentActivity() {
             ) return@postDelayed
 
             entranceKind = StartEntranceKind.RETURN
-            phoneResumeUsesBackMotion = false
+            // Explicit Home enters from the right; returning from an app
+            // launched here uses the native Back turn from the left.
+            phoneResumeUsesBackMotion = classicExternalAppLaunched && !pendingClassicHomeReturn
+            classicExternalAppLaunched = false
             entranceReady = true
             entranceRequest++
             if (pendingClassicHomeReturn) {
@@ -336,8 +340,8 @@ class MainActivity : ComponentActivity() {
             finishStartupEntranceGate()
         } else {
             if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
-                // Both Android Back/Recents and an external HOME intent use
-                // the same forward entrance, with one delayed lifecycle event.
+                // Defer one event until the launcher can present it. Preserve
+                // the distinction between explicit Home and an app Back return.
                 if (homeWasPending) pendingClassicHomeReturn = true
                 scheduleClassicPhoneResume()
             } else {
@@ -533,8 +537,12 @@ class MainActivity : ComponentActivity() {
         }
         try {
             launchHandoffPending = true
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
+                classicExternalAppLaunched = true
+            }
             startActivityWithCustomAnim(preparedIntent)
         } catch (_: Exception) {
+            classicExternalAppLaunched = false
             launchHandoffPending = false
             activeInAppTile = tile
             flipState = FlipAnimationState()

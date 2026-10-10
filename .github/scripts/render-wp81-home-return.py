@@ -36,7 +36,7 @@ def main() -> None:
     SEQUENCE_DIR.mkdir(parents=True)
 
     # Hold the incoming All Apps screen and the settled Start screen long enough
-    # to compare them while keeping the captured animation at 60 fps.
+    # to compare them while keeping the captured animation at their actual 16ms capture spacing.
     sequence = [before] * 30 + transition_frames + [settled] * 30
     for index, source in enumerate(sequence):
         shutil.copyfile(source, SEQUENCE_DIR / f"frame-{index:05d}.png")
@@ -44,7 +44,7 @@ def main() -> None:
     subprocess.run(
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-framerate", "60",
+            "-framerate", "125/2",
             "-i", str(SEQUENCE_DIR / "frame-%05d.png"),
             "-c:v", "libx264", "-crf", "18", "-preset", "medium",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
