@@ -310,7 +310,12 @@ class MainActivity : ComponentActivity() {
             entranceReady = true
             if (!homeWasPending) {
                 entranceKind = StartEntranceKind.RETURN
-                phoneResumeUsesBackMotion = true
+                // DiscoLauncher src/script.js handles Android activityResume
+                // with appTransition.onResume() (back=false). The back variant
+                // is reserved for explicitly closed *internal* Disco apps.
+                // Keep W10M's independent existing motion routing unchanged.
+                phoneResumeUsesBackMotion =
+                    LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.PHONE_8
                 entranceRequest++
             } else {
                 phoneResumeUsesBackMotion = false
