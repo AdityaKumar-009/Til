@@ -130,6 +130,9 @@ class MainActivity : ComponentActivity() {
     private var userPresentObserved = false
     private var homeIntentPending = false
     private var unlockReleaseGeneration = 0
+    // Ignore delayed activity-resume animation callbacks after a pause, a
+    // replacement resume, or destruction. Disco delays activityResume by 200ms.
+    private var classicPhoneResumeGeneration = 0
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -260,6 +263,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         launcherForeground = false
         launcherResumed = false
+        classicPhoneResumeGeneration++
         super.onStop()
         if (flipState.isRunning) {
             flipState = FlipAnimationState(isRunning = false)
@@ -270,6 +274,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         launcherResumed = false
+        classicPhoneResumeGeneration++
 
         // Some OEMs deliver ACTION_SCREEN_OFF after onPause. Pre-arm the same background-only gate
         // here when the display/keyguard already says the device is leaving the interactive state.
@@ -314,9 +319,26 @@ class MainActivity : ComponentActivity() {
                 // with appTransition.onResume() (back=false). The back variant
                 // is reserved for explicitly closed *internal* Disco apps.
                 // Keep W10M's independent existing motion routing unchanged.
-                phoneResumeUsesBackMotion =
-                    LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.PHONE_8
-                entranceRequest++
+                val classicPhone =
+                    LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8
+                phoneResumeUsesBackMotion = !classicPhone
+                if (classicPhone) {
+                    // Disco src/script.js: activityResume -> 200ms ->
+                    // appTransition.onResume(). Do not burn 200ms of Start's
+                    // entrance while Android is still revealing the Activity.
+                    entranceReady = false
+                    val generation = ++classicPhoneResumeGeneration
+                    window.decorView.postDelayed({
+                        if (generation == classicPhoneResumeGeneration &&
+                            launcherResumed && !deviceRequiresEntranceGate()
+                        ) {
+                            entranceReady = true
+                            entranceRequest++
+                        }
+                    }, 200L)
+                } else {
+                    entranceRequest++
+                }
             } else {
                 phoneResumeUsesBackMotion = false
             }
@@ -352,6 +374,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         unlockReleaseGeneration++
+        classicPhoneResumeGeneration++
         if (userPresentReceiverRegistered) {
             unregisterReceiver(userPresentReceiver)
             userPresentReceiverRegistered = false
