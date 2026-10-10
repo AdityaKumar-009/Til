@@ -385,7 +385,7 @@ fun PhoneLauncherSurface(
                         ContentTransform(
                             targetContentEnter = EnterTransition.None,
                             initialContentExit = scaleOut(
-                                targetScale = .999f,
+                                targetScale = .99999f,
                                 animationSpec = tween(
                                     PhoneStartChoreography.totalMillis(
                                         mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
