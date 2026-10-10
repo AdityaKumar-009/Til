@@ -133,6 +133,7 @@ class MainActivity : ComponentActivity() {
     // Ignore delayed activity-resume animation callbacks after a pause, a
     // replacement resume, or destruction. Disco delays activityResume by 200ms.
     private var classicPhoneResumeGeneration = 0
+    private var pendingClassicHomeReturn = false
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -293,6 +294,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun scheduleClassicPhoneResume() {
+        // src/script.js in DiscoLauncher defers activityResume -> onResume()
+        // for 200ms. Keep a black launcher surface in the meantime so the
+        // Android task switch cannot consume the native-style tile entrance.
+        entranceReady = false
+        val generation = ++classicPhoneResumeGeneration
+        window.decorView.postDelayed({
+            if (generation != classicPhoneResumeGeneration || !launcherResumed ||
+                deviceRequiresEntranceGate() || startupEntrancePending
+            ) return@postDelayed
+
+            entranceKind = StartEntranceKind.RETURN
+            phoneResumeUsesBackMotion = false
+            entranceReady = true
+            entranceRequest++
+            if (pendingClassicHomeReturn) {
+                pendingClassicHomeReturn = false
+                homeRequest++
+            }
+        }, 200L)
+    }
+
     override fun onResume() {
         super.onResume()
         LiveTileRuntime.requestReconnect(this)
@@ -312,35 +335,20 @@ class MainActivity : ComponentActivity() {
             phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
         } else {
-            entranceReady = true
-            if (!homeWasPending) {
-                entranceKind = StartEntranceKind.RETURN
-                // DiscoLauncher src/script.js handles Android activityResume
-                // with appTransition.onResume() (back=false). The back variant
-                // is reserved for explicitly closed *internal* Disco apps.
-                // Keep W10M's independent existing motion routing unchanged.
-                val classicPhone =
-                    LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8
-                phoneResumeUsesBackMotion = !classicPhone
-                if (classicPhone) {
-                    // Disco src/script.js: activityResume -> 200ms ->
-                    // appTransition.onResume(). Do not burn 200ms of Start's
-                    // entrance while Android is still revealing the Activity.
-                    entranceReady = false
-                    val generation = ++classicPhoneResumeGeneration
-                    window.decorView.postDelayed({
-                        if (generation == classicPhoneResumeGeneration &&
-                            launcherResumed && !deviceRequiresEntranceGate()
-                        ) {
-                            entranceReady = true
-                            entranceRequest++
-                        }
-                    }, 200L)
-                } else {
-                    entranceRequest++
-                }
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
+                // Both Android Back/Recents and an external HOME intent use
+                // the same forward entrance, with one delayed lifecycle event.
+                if (homeWasPending) pendingClassicHomeReturn = true
+                scheduleClassicPhoneResume()
             } else {
-                phoneResumeUsesBackMotion = false
+                entranceReady = true
+                if (!homeWasPending) {
+                    entranceKind = StartEntranceKind.RETURN
+                    phoneResumeUsesBackMotion = true
+                    entranceRequest++
+                } else {
+                    phoneResumeUsesBackMotion = false
+                }
             }
         }
 
@@ -364,11 +372,23 @@ class MainActivity : ComponentActivity() {
             pendingLaunchIntent = null
             val returningFromOutside = !launcherResumed
             homeIntentPending = returningFromOutside
-            if (returningFromOutside && entranceReady) {
-                entranceKind = StartEntranceKind.RETURN
-                entranceRequest++
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8 &&
+                (returningFromOutside || !entranceReady)
+            ) {
+                // Defer the HOME request alongside the 200ms activity-resume
+                // event. Otherwise homeRequest itself restarts motionClock
+                // before the window is shown (and causes the observed twitch).
+                pendingClassicHomeReturn = true
+                if (launcherResumed && !startupEntrancePending) {
+                    scheduleClassicPhoneResume()
+                }
+            } else {
+                if (returningFromOutside && entranceReady) {
+                    entranceKind = StartEntranceKind.RETURN
+                    entranceRequest++
+                }
+                homeRequest++
             }
-            homeRequest++
         }
     }
 
@@ -414,6 +434,10 @@ class MainActivity : ComponentActivity() {
         entranceKind = StartEntranceKind.STARTUP
         phoneResumeUsesBackMotion = false
         entranceRequest++
+        if (pendingClassicHomeReturn) {
+            pendingClassicHomeReturn = false
+            homeRequest++
+        }
     }
 
     private fun deviceRequiresEntranceGate(): Boolean {
