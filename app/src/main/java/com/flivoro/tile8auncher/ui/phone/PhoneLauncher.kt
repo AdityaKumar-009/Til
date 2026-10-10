@@ -9,6 +9,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -39,6 +41,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -484,44 +488,32 @@ fun PhoneLauncherSurface(
                         })
                 }
             }
-            AnimatedContent(
-                targetState = showApps,
-                modifier = Modifier.weight(1f).fillMaxWidth()
-                    .onGloballyPositioned { paneBounds = it.boundsInWindow() }.then(gestureModifier),
-                transitionSpec = {
-                    if (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8) {
-                        ContentTransform(
-                            targetContentEnter = EnterTransition.None,
-                            initialContentExit = scaleOut(
-                                targetScale = .99999f,
-                                animationSpec = tween(
-                                    PhoneStartChoreography.totalMillis(
-                                        mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
-                                    ),
-                                    easing = LinearEasing,
-                                ),
-                            ),
-                            targetContentZIndex = 1f,
-                        )
-                    } else {
-                        // 60fps reference 1000197576.mp4, 134.90–135.17s:
-                        // manual Start <-> Apps navigation moves the full panorama.
-                        val duration = if (isTen) 260 else 270
-                        val panEase = androidx.compose.animation.core.Easing {
+            // Disco's #main-home-slider holds both slide pages in one panorama.
+            // AnimatedContent was destroying the All Apps page whenever Start was selected,
+            // so its independent 3D return was missing after launching from Start.
+            // Keep both pages mounted and move the panorama with one shared X translation.
+            val panoramaProgress by animateFloatAsState(
+                targetValue = if (showApps && !suppressReturnPaneTransition) 1f else 0f,
+                animationSpec = if (suppressReturnPaneTransition && isClassicPhone) snap()
+                    else tween(
+                        durationMillis = if (isTen) 260 else 270,
+                        easing = androidx.compose.animation.core.Easing {
                             PhoneMotionTimeline.exponentialEaseOut6(it)
-                        }
-                        if (targetState) {
-                            slideInHorizontally(tween(duration, easing = panEase)) { it } togetherWith
-                                slideOutHorizontally(tween(duration, easing = panEase)) { -it }
-                        } else {
-                            slideInHorizontally(tween(duration, easing = panEase)) { -it } togetherWith
-                                slideOutHorizontally(tween(duration, easing = panEase)) { it }
-                        }
-                    }
-                },
-                label = "Phone start apps pivot",
-            ) { apps ->
-                if (!apps) {
+                        },
+                    ),
+                label = "Phone panorama position",
+            )
+            Box(
+                Modifier.weight(1f).fillMaxWidth().clipToBounds()
+                    .onGloballyPositioned { paneBounds = it.boundsInWindow() }
+                    .then(gestureModifier),
+            ) {
+                // Start is in front of the right-hand page during Disco's Home entrance.
+                Box(
+                    Modifier.fillMaxSize().zIndex(1f).graphicsLayer {
+                        translationX = -paneBounds.width * panoramaProgress
+                    },
+                ) {
                     Column(Modifier.fillMaxSize().verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
                         PhoneStartGrid(
@@ -615,9 +607,15 @@ fun PhoneLauncherSurface(
                                 modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(10.dp))
                         }
                     }
-                } else {
+                }
+                Box(
+                    Modifier.fillMaxSize().zIndex(0f).graphicsLayer {
+                        translationX = paneBounds.width * (1f - panoramaProgress)
+                    },
+                ) {
                     val animateHomeAppsPage = mode == LauncherUiMode.PHONE_8 &&
-                        suppressReturnPaneTransition && !resumeUsesBackMotion
+                        !isLaunching && !resumeUsesBackMotion &&
+                        (suppressReturnPaneTransition || entranceRequest > 0)
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
                         suppressReturnPaneTransition && resumeUsesBackMotion
                     Box(Modifier.fillMaxSize()
@@ -636,9 +634,10 @@ fun PhoneLauncherSurface(
                                 cameraDistance =
                                     PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX * densityScale
                             } else if (snapAppsPageAway) {
-                                alpha = 1f
+                                // Back-return leaves the second pane parked offscreen.
+                                alpha = 0f
                                 rotationY = 0f
-                                translationX = surfaceBounds.width
+                                translationX = 0f
                                 transformOrigin = TransformOrigin.Center
                                 cameraDistance =
                                     PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX * densityScale
@@ -681,7 +680,11 @@ fun PhoneLauncherSurface(
                             )
                             val destination = FloatArray(8)
                             corners.forEachIndexed { index, point ->
-                                destination[index * 2] = point.xCssPx * densityScale
+                                // projectAppsPagePoint returns panorama/world X. The outer
+                                // pane is already translated +one viewport; convert back
+                                // to page-local X to avoid translating the page twice.
+                                destination[index * 2] =
+                                    (point.xCssPx - viewportWidthCssPx) * densityScale
                                 destination[index * 2 + 1] = point.yCssPx * densityScale
                             }
                             val perspective = PlatformMatrix()
