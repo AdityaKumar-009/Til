@@ -71,6 +71,37 @@ travel by `1000px / -3`; letter rows additionally leave by `-100vw`. Their
 perspective comes from the source app list's 2000px camera. The overall handoff
 uses the same `launchHide()` envelope as Start.
 
+## Persistent panorama correction
+
+The previous Compose `AnimatedContent(targetState = showApps)` removed the All Apps
+page whenever Start was the selected page. DiscoLauncher's
+`#main-home-slider > .slide-content` keeps **both** `.slide-page` descendants
+in one slider at all times. This caused a visible omission on Home return
+from Start (not merely a mistimed tile).
+
+`PhoneLauncherSurface` now keeps Start and All Apps mounted simultaneously.
+The two panes share one animation progress and remain one viewport apart on
+manual swipes; Home/Back resets use a zero-duration snap of that offset.
+During forward Home/intro only, the All Apps page occupies a viewport-wide
+render layer at x=0 and its perspective transform projects the original page
+from world x=+viewport into the Start viewport. Keeping the drawing layer at
+x=0 prevents alpha offscreen compositing from clipping its incoming left edge.
+The Start tile layer is rendered in front of the second page as in the
+source's negative-z stacking. The home-page perspective is not added to the
+normal horizontal swipe offset a second time.
+
+The instrumented test now checks a Home-return **while already on Start**
+as well as an All Apps-to-Start Home return, an All Apps launch, and an
+Android Back return. A stable semantic tag identifies the bottom search
+button now that the offscreen page remains in the semantics tree.
+
+**Validation boundary:** the tests examine sampled Compose frames and
+screen-state invariants. They do not compare those frames to an independent
+DiscoLauncher recording at identical geometry/color density. This work is
+a source-driven port rather than verified 100% perceptual equivalence. The
+source's invalid CSS `var(.1s)` expression is still implemented as a
+100ms inferred animation delay, not a browser-guaranteed behavior.
+
 ## Renderer checks
 
 `PhoneStartChoreographyTest` checks the viewport-scaled `launchHide()` timeout,
