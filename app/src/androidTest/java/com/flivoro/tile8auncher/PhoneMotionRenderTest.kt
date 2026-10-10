@@ -153,6 +153,9 @@ class PhoneMotionRenderTest {
             compose.onNodeWithText("⌕").performClick()
             compose.mainClock.advanceTimeBy(400)
             compose.onNodeWithText("Alpha").assertExists()
+            val appsBeforeHome = capture("apps-home-return-before")
+            assertTrue("App-list label fixture must be visible before Home",
+                brightPixelsInAppLabelRegion(appsBeforeHome) > 100)
             compose.runOnIdle {
                 resumeUsesBackMotion.value = false
                 home.intValue++
@@ -160,7 +163,8 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val homeReturnStart = capture("home-return-000")
-            compose.onNodeWithText("Alpha").assertDoesNotExist()
+            assertTrue("All Apps must be invisible in the first Home-return frame",
+                brightPixelsInAppLabelRegion(homeReturnStart) < 5)
             compose.mainClock.advanceTimeBy(16)
             val homeReturnMoving = capture("home-return-016")
             compose.onNodeWithText("Alpha").assertDoesNotExist()
@@ -248,6 +252,23 @@ class PhoneMotionRenderTest {
             }
         }
         return sum.toDouble() / (count * 3.0 * 255.0)
+    }
+
+    private fun brightPixelsInAppLabelRegion(bitmap: Bitmap): Int {
+        val left = (bitmap.width * .16f).toInt()
+        val right = (bitmap.width * .41f).toInt()
+        val top = (bitmap.height * .205f).toInt()
+        val bottom = (bitmap.height * .30f).toInt()
+        var count = 0
+        for (y in top until bottom step 2) {
+            for (x in left until right step 2) {
+                val pixel = bitmap.getPixel(x, y)
+                if (((pixel shr 16) and 255) > 220 &&
+                    ((pixel shr 8) and 255) > 220 && (pixel and 255) > 220
+                ) count++
+            }
+        }
+        return count
     }
 
     private fun difference(first: Bitmap, second: Bitmap): Double {

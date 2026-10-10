@@ -471,7 +471,9 @@ fun PhoneLauncherSurface(
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
                                 else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
-                            alpha = if (isLaunching && motionClock.value >= listExitEnd) 0f else 1f
+                            alpha = if (mode == LauncherUiMode.PHONE_8 &&
+                                suppressReturnPaneTransition
+                            ) 0f else if (isLaunching && motionClock.value >= listExitEnd) 0f else 1f
                         }) {
                         if (!isTen && !phone8SearchVisible) {
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
