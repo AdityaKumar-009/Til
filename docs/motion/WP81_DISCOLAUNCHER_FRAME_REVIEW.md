@@ -31,11 +31,15 @@ banner as index zero, as DiscoLauncher does.
 | Start return from Back | 500 ms; same per-tile delay; `cubic-bezier(.05, 1, .1, 1)` | The DiscoLauncher back keyframe's −80° compound turn and X/Z offset, pivoted at the page's left edge; opacity follows its 0–1% reveal keyframes |
 | Start return, inner content | 350 ms; same per-tile delay; `cubic-bezier(.2, .25, .25, 1)` | Forward/Home return only: icon/text begins 60 px to the right and at 45°, independently of the tile background |
 
-Android Home intents use DiscoLauncher's forward-resume path. Returning from a
-launched app with Android Back uses its separate back-resume path; the latter
-does not run the independent inner-content animation. When the launched app was
-opened from All Apps, Back still resets the panorama to Start before that tile
-entrance; it does not leave the launcher on the app list.
+Android Home intents use DiscoLauncher's forward-resume path. Importantly,
+DiscoLauncher's external `activityResume` callback in `src/script.js` also calls
+`appTransition.onResume()` with default `back=false`, even if the user pressed
+Android Back in the external app. Tile8 therefore uses the **forward** return
+for external Android apps. The distinct Back matrix applies to Disco's
+internal-app close path (`DiscoBoard.destroyInternalApp` calls
+`appTransition.onResume(!homeBack)`), which is retained for Tile8's
+internal Windows-app surface. Both return paths reset the panorama to Start.
+Windows 10 Mobile retains its independent navigation motion selection.
 
 When Android Home returns while All Apps was open, WP8.1 snaps the panorama
 back to Start. The manual 270 ms Start/Apps slide does not run; instead, the
