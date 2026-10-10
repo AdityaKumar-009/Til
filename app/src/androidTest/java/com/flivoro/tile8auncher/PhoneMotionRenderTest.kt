@@ -167,7 +167,8 @@ class PhoneMotionRenderTest {
                 brightPixelsInAppLabelRegion(homeReturnStart) < 5)
             compose.mainClock.advanceTimeBy(16)
             val homeReturnMoving = capture("home-return-016")
-            compose.onNodeWithText("Alpha").assertDoesNotExist()
+            assertTrue("All Apps must remain invisible while Start tiles turn",
+                brightPixelsInAppLabelRegion(homeReturnMoving) < 5)
             assertTrue("WP8.1 Start tiles must keep their own return animation",
                 difference(homeReturnStart, homeReturnMoving) > .001)
             for (elapsed in (frameStep * 2)..entryEnd step frameStep) {
