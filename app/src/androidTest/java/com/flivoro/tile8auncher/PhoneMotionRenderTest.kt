@@ -177,7 +177,9 @@ class PhoneMotionRenderTest {
 
         compose.runOnIdle {
             launching.value = false
-            resumeUsesBackMotion.value = mode == LauncherUiMode.PHONE_8
+            // External Android activityResume is forward on DiscoLauncher,
+            // even if the user left the app with Android Back.
+            resumeUsesBackMotion.value = false
             entrance.intValue++
         }
         compose.mainClock.advanceTimeByFrame()
