@@ -60,9 +60,17 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var appPickerMode by remember { mutableStateOf<AppPickerMode?>(null) }
     var showIconPacks by remember { mutableStateOf(false) }
     var showIconStyles by remember { mutableStateOf(false) }
+    var showLauncherModePicker by remember { mutableStateOf(false) }
+    var showPhoneColumnsPicker by remember { mutableStateOf(false) }
+    var showPhoneTransparencyPicker by remember { mutableStateOf(false) }
+    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
     var showStartGroupHeadings by remember {
         mutableStateOf(LauncherFeatureStore.showStartGroupHeadings(context))
+    }
+    var showRecentlyInstalledApps by remember {
+        mutableStateOf(LauncherFeatureStore.showRecentlyInstalledPhoneApps(context))
     }
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
@@ -148,16 +156,50 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     }
 
     Spacer(Modifier.height(28.dp))
-    Text("Launcher features", color = settingsPurple, fontSize = 20.sp)
-    Spacer(Modifier.height(6.dp))
+    Text("Launcher appearance", color = settingsPurple, fontSize = 20.sp)
+    Spacer(Modifier.height(10.dp))
+    SettingsActionRow(
+        title = "Windows interface",
+        description = "${launcherMode.title} — ${launcherMode.detail}",
+        glyph = "app",
+    ) { showLauncherModePicker = true }
+
+    if (launcherMode != LauncherUiMode.DESKTOP) {
+        SettingsCategoryHeader("Phone Start screen")
+        SettingsActionRow(
+            title = "Phone tile columns",
+            description = "${LauncherFeatureStore.phoneSmallColumns(context, launcherMode)} small tiles across. Adjusts only ${launcherMode.title}.",
+            glyph = "app",
+        ) { showPhoneColumnsPicker = true }
+
+        if (launcherMode == LauncherUiMode.MOBILE_10) {
+            SettingsToggleRow(
+                title = "Recently installed apps",
+                description = "Show recently installed apps at the top of the Windows 10 Mobile app list.",
+                checked = showRecentlyInstalledApps,
+                onCheckedChange = { enabled ->
+                    showRecentlyInstalledApps = enabled
+                    LauncherFeatureStore.setShowRecentlyInstalledPhoneApps(context, enabled)
+                },
+            )
+        }
+    }
+
+    SettingsCategoryHeader("Tiles and live content")
+    if (launcherMode == LauncherUiMode.MOBILE_10) {
+        SettingsActionRow(
+            title = "Live tile opacity",
+            description = "${(LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt()}% — 0% is transparent and 100% is solid.",
+            glyph = "photos",
+        ) { showPhoneTransparencyPicker = true }
+    }
     Text(
-        "Windows 8.1 behavior stays the default. Android-only extensions below are isolated from Start, All Apps and app-launch motion timing.",
+        "Windows 8.1 Desktop remains the default. Phone layouts are stored independently and do not rearrange desktop Start.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
     )
     Spacer(Modifier.height(12.dp))
-
     SettingsActionRow(
         title = if (liveTileConnected) "Live tiles • Connected" else "Live tiles",
         description = liveTileStatus,
@@ -175,6 +217,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         context.startActivity(Intent(context, WidgetPickerActivity::class.java))
     }
 
+    SettingsCategoryHeader("App list and search")
     SettingsActionRow(
         title = "App icon style",
         description = "Style: ${LauncherFeatureStore.appIconStyle(context).displayName()}",
@@ -197,22 +240,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             ?: "Use compatible ADW/Nova-style icon packs. Icon packs apply when App icon style is Default.",
         glyph = "photos",
     ) { showIconPacks = true }
-
-    SettingsActionRow(
-        title = "Double-tap Start",
-        description = "Action: ${LauncherFeatureStore.doubleTapAction(context).displayName()}",
-        glyph = "app",
-    ) { showDoubleTapActions = true }
-
-    SettingsToggleRow(
-        title = "Start group headings",
-        description = "Show group names above tile groups on the normal Start screen. Off by default.",
-        checked = showStartGroupHeadings,
-        onCheckedChange = { enabled ->
-            showStartGroupHeadings = enabled
-            LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
-        },
-    )
 
     SettingsActionRow(
         title = "Hidden apps",
@@ -242,15 +269,30 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
 
     SettingsActionRow(
         title = "Most used app sorting",
-        description = "Grant Android Usage Access so Windows 8.1's Most used sort can use real foreground history.",
+        description = "Grant Android Usage Access so the Most used app-list sort can use real foreground history.",
         glyph = "clock",
     ) {
         runCatching { context.startActivity(usageAccessSettingsIntent()) }
     }
 
-    Spacer(Modifier.height(20.dp))
-    Text("Windows 8.1 lock screen extras", color = settingsPurple, fontSize = 18.sp)
-    Spacer(Modifier.height(10.dp))
+    SettingsCategoryHeader("Start shortcuts")
+    SettingsActionRow(
+        title = "Double-tap Start",
+        description = "Action: ${LauncherFeatureStore.doubleTapAction(context).displayName()}",
+        glyph = "app",
+    ) { showDoubleTapActions = true }
+
+    SettingsToggleRow(
+        title = "Start group headings",
+        description = "Show group names above tile groups on the normal Start screen. Off by default.",
+        checked = showStartGroupHeadings,
+        onCheckedChange = { enabled ->
+            showStartGroupHeadings = enabled
+            LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
+        },
+    )
+
+    SettingsCategoryHeader("Windows 8.1 lock screen")
 
     SettingsActionRow(
         title = "Lock-screen slideshow",
@@ -272,9 +314,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         glyph = "mail",
     ) { appPickerMode = AppPickerMode.LOCK_DETAILED }
 
-    Spacer(Modifier.height(20.dp))
-    Text("Backup", color = settingsPurple, fontSize = 18.sp)
-    Spacer(Modifier.height(10.dp))
+    SettingsCategoryHeader("Backup and restore")
 
     SettingsActionRow(
         title = "Back up Mosaic",
@@ -287,6 +327,60 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         description = "Restore a Mosaic Launcher JSON backup and reload the launcher configuration.",
         glyph = "unpin",
     ) { restoreBackup.launch(arrayOf("application/json", "text/plain")) }
+
+    if (showLauncherModePicker) {
+        Dialog(onDismissRequest = { showLauncherModePicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Choose Windows interface", fontSize = 22.sp, color = settingsPurple)
+                Spacer(Modifier.height(12.dp))
+                LauncherUiMode.entries.forEach { mode ->
+                    ChoiceRow(
+                        label = "${mode.title}\n${mode.detail}",
+                        selected = launcherMode == mode,
+                        onClick = {
+                            LauncherFeatureStore.setLauncherUiMode(context, mode)
+                            showLauncherModePicker = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (showPhoneColumnsPicker) {
+        Dialog(onDismissRequest = { showPhoneColumnsPicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Phone tile density", fontSize = 22.sp, color = settingsPurple)
+                listOf(4, 6).forEach { n ->
+                    ChoiceRow(
+                        label = if (n == 4) "Classic: 2 medium tiles across" else "Dense: 3 medium tiles across",
+                        selected = LauncherFeatureStore.phoneSmallColumns(context, launcherMode) == n,
+                        onClick = {
+                            LauncherFeatureStore.setPhoneSmallColumns(context, launcherMode, n)
+                            showPhoneColumnsPicker = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showPhoneTransparencyPicker) {
+        Dialog(onDismissRequest = { showPhoneTransparencyPicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Windows 10 Mobile tile opacity", fontSize = 20.sp, color = settingsPurple)
+                listOf(0, 25, 50, 75, 82, 100).forEach { value ->
+                    ChoiceRow(
+                        label = "$value%",
+                        selected = (LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt() == value,
+                        onClick = {
+                            LauncherFeatureStore.setPhoneTileOpacity(context, value)
+                            showPhoneTransparencyPicker = false
+                        },
+                    )
+                }
+            }
+        }
+    }
 
     if (showIconStyles) {
         AppIconStyleDialog(
@@ -351,6 +445,13 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
 }
 
 private enum class AppPickerMode { HIDDEN, PRIVATE, LOCK_QUICK, LOCK_DETAILED }
+
+@Composable
+private fun SettingsCategoryHeader(title: String) {
+    Spacer(Modifier.height(22.dp))
+    Text(title, color = settingsPurple, fontSize = 18.sp)
+    Spacer(Modifier.height(8.dp))
+}
 
 @Composable
 private fun SettingsActionRow(

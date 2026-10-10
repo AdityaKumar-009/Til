@@ -25,6 +25,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -68,6 +69,8 @@ import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -116,6 +119,7 @@ class MainActivity : ComponentActivity() {
     private var homeRequest by mutableIntStateOf(0)
     private var entranceRequest by mutableIntStateOf(0)
     private var entranceKind by mutableStateOf(StartEntranceKind.STARTUP)
+    private var phoneResumeUsesBackMotion by mutableStateOf(false)
     private var entranceReady by mutableStateOf(false)
     private var startupEntrancePending = true
     private var pendingLaunchIntent: Intent? = null
@@ -126,6 +130,11 @@ class MainActivity : ComponentActivity() {
     private var userPresentObserved = false
     private var homeIntentPending = false
     private var unlockReleaseGeneration = 0
+    // Ignore delayed activity-resume animation callbacks after a pause, a
+    // replacement resume, or destruction. Disco delays activityResume by 200ms.
+    private var classicPhoneResumeGeneration = 0
+    private var pendingClassicHomeReturn = false
+    private var classicExternalAppLaunched = false
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -194,6 +203,7 @@ class MainActivity : ComponentActivity() {
                     homeRequest = homeRequest,
                     entranceRequest = entranceRequest,
                     entranceKind = entranceKind,
+                    resumeUsesBackMotion = phoneResumeUsesBackMotion,
                     entranceReady = entranceReady,
                     onOpenInAppTile = { activeInAppTile = it },
                     onCloseInAppTile = {
@@ -255,6 +265,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         launcherForeground = false
         launcherResumed = false
+        classicPhoneResumeGeneration++
         super.onStop()
         if (flipState.isRunning) {
             flipState = FlipAnimationState(isRunning = false)
@@ -265,6 +276,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         launcherResumed = false
+        classicPhoneResumeGeneration++
 
         // Some OEMs deliver ACTION_SCREEN_OFF after onPause. Pre-arm the same background-only gate
         // here when the display/keyguard already says the device is leaving the interactive state.
@@ -283,6 +295,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun scheduleClassicPhoneResume() {
+        // src/script.js in DiscoLauncher defers activityResume -> onResume()
+        // for 200ms. Keep a black launcher surface in the meantime so the
+        // Android task switch cannot consume the native-style tile entrance.
+        entranceReady = false
+        val generation = ++classicPhoneResumeGeneration
+        window.decorView.postDelayed({
+            if (generation != classicPhoneResumeGeneration || !launcherResumed ||
+                deviceRequiresEntranceGate() || startupEntrancePending
+            ) return@postDelayed
+
+            entranceKind = StartEntranceKind.RETURN
+            // Explicit Home enters from the right; returning from an app
+            // launched here uses the native Back turn from the left.
+            phoneResumeUsesBackMotion = classicExternalAppLaunched && !pendingClassicHomeReturn
+            classicExternalAppLaunched = false
+            entranceReady = true
+            entranceRequest++
+            if (pendingClassicHomeReturn) {
+                pendingClassicHomeReturn = false
+                homeRequest++
+            }
+        }, 200L)
+    }
+
     override fun onResume() {
         super.onResume()
         LiveTileRuntime.requestReconnect(this)
@@ -294,16 +331,28 @@ class MainActivity : ComponentActivity() {
         val gatedBySystem = deviceRequiresEntranceGate()
         waitingForUserPresent = gatedBySystem
         if (gatedBySystem) {
+            phoneResumeUsesBackMotion = false
             startupEntrancePending = true
             entranceReady = false
             if (userPresentObserved) scheduleUnlockReleaseIfReady()
         } else if (startupEntrancePending) {
+            phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
         } else {
-            entranceReady = true
-            if (!homeWasPending) {
-                entranceKind = StartEntranceKind.RETURN
-                entranceRequest++
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
+                // Defer one event until the launcher can present it. Preserve
+                // the distinction between explicit Home and an app Back return.
+                if (homeWasPending) pendingClassicHomeReturn = true
+                scheduleClassicPhoneResume()
+            } else {
+                entranceReady = true
+                if (!homeWasPending) {
+                    entranceKind = StartEntranceKind.RETURN
+                    phoneResumeUsesBackMotion = true
+                    entranceRequest++
+                } else {
+                    phoneResumeUsesBackMotion = false
+                }
             }
         }
 
@@ -318,6 +367,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            phoneResumeUsesBackMotion = false
             if (flipState.isRunning) {
                 requestFlipReverse(FlipReverseReason.HOME)
                 return
@@ -326,16 +376,29 @@ class MainActivity : ComponentActivity() {
             pendingLaunchIntent = null
             val returningFromOutside = !launcherResumed
             homeIntentPending = returningFromOutside
-            if (returningFromOutside && entranceReady) {
-                entranceKind = StartEntranceKind.RETURN
-                entranceRequest++
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8 &&
+                (returningFromOutside || !entranceReady)
+            ) {
+                // Defer the HOME request alongside the 200ms activity-resume
+                // event. Otherwise homeRequest itself restarts motionClock
+                // before the window is shown (and causes the observed twitch).
+                pendingClassicHomeReturn = true
+                if (launcherResumed && !startupEntrancePending) {
+                    scheduleClassicPhoneResume()
+                }
+            } else {
+                if (returningFromOutside && entranceReady) {
+                    entranceKind = StartEntranceKind.RETURN
+                    entranceRequest++
+                }
+                homeRequest++
             }
-            homeRequest++
         }
     }
 
     override fun onDestroy() {
         unlockReleaseGeneration++
+        classicPhoneResumeGeneration++
         if (userPresentReceiverRegistered) {
             unregisterReceiver(userPresentReceiver)
             userPresentReceiverRegistered = false
@@ -373,7 +436,12 @@ class MainActivity : ComponentActivity() {
         startupEntrancePending = false
         entranceReady = true
         entranceKind = StartEntranceKind.STARTUP
+        phoneResumeUsesBackMotion = false
         entranceRequest++
+        if (pendingClassicHomeReturn) {
+            pendingClassicHomeReturn = false
+            homeRequest++
+        }
     }
 
     private fun deviceRequiresEntranceGate(): Boolean {
@@ -469,8 +537,12 @@ class MainActivity : ComponentActivity() {
         }
         try {
             launchHandoffPending = true
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
+                classicExternalAppLaunched = true
+            }
             startActivityWithCustomAnim(preparedIntent)
         } catch (_: Exception) {
+            classicExternalAppLaunched = false
             launchHandoffPending = false
             activeInAppTile = tile
             flipState = FlipAnimationState()
@@ -501,6 +573,7 @@ fun Tile8LauncherApp(
     homeRequest: Int = 0,
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
+    resumeUsesBackMotion: Boolean = false,
     entranceReady: Boolean = true,
 ) {
     var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
@@ -534,6 +607,9 @@ fun Tile8LauncherApp(
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
+    var localPhoneResumeUsesBackMotion by remember(entranceRequest, homeRequest) {
+        mutableStateOf(resumeUsesBackMotion)
+    }
     var showCharms by remember { mutableStateOf(false) }
     var searchFocusRequest by remember { mutableIntStateOf(0) }
     var drawerResetRequest by remember { mutableIntStateOf(0) }
@@ -716,6 +792,7 @@ fun Tile8LauncherApp(
 
     fun returnToStart() {
         val wasAwayFromStart = currentScreen != LauncherScreen.START || activeInAppTile != null
+        localPhoneResumeUsesBackMotion = false
         showCharms = false
         selectedTileForCustomization = null
         showPinAppsDialog = false
@@ -742,6 +819,7 @@ fun Tile8LauncherApp(
         onCloseInAppTile()
         if (wasOpen && entranceReady) {
             startEntranceKind = StartEntranceKind.RETURN
+            localPhoneResumeUsesBackMotion = true
             localStartEntranceRequest++
         }
     }
@@ -800,6 +878,92 @@ fun Tile8LauncherApp(
 
     val charmsAvailable = entranceReady && !flipState.isRunning && !showPowerDialog &&
         !showPinAppsDialog && selectedTileForCustomization == null
+
+    // Dedicated phone surfaces do not touch Desktop's horizontal Start layout or its animations.
+    // Switching the setting recomposes immediately; saved desktop tile positions remain intact.
+    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val launcherMode = remember(launcherModeRevision) {
+        LauncherFeatureStore.launcherUiMode(context)
+    }
+    if (launcherMode != LauncherUiMode.DESKTOP) {
+        // Keep the completed exit drawn while Android asynchronously starts the target app.
+        // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
+        var phoneHandoffHeld by remember(launcherMode, startEntranceRequest, homeRequest) {
+            mutableStateOf(false)
+        }
+        val phoneLaunchActive = flipState.isRunning &&
+            flipState.direction == FlipAnimationDirection.FORWARD
+        val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
+        LaunchedEffect(flipState.isRunning, flipState.direction, launcherMode) {
+            if (flipState.isRunning && flipState.direction == FlipAnimationDirection.REVERSE) {
+                phoneHandoffHeld = false
+                onDismissFlip()
+                localStartEntranceRequest++
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = if (entranceReady) 1f else 0f
+            }) {
+                if (tilesLoaded) {
+                    PhoneLauncherSurface(
+                        mode = launcherMode,
+                        tiles = tiles,
+                        sections = categorizedApps,
+                        appsRepository = appsRepository,
+                        homeRequest = homeRequest,
+                        entranceRequest = startEntranceRequest,
+                        launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
+                        isLaunching = phoneExitActive,
+                        interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
+                        wallpaperStyle = wallpaperStyle,
+                        resumeUsesBackMotion = localPhoneResumeUsesBackMotion,
+                        onLaunch = { tile, bounds, origin ->
+                            if (entranceReady && !flipState.isRunning &&
+                                !bindOrPickDefaultTile(tile, bounds)
+                            ) {
+                                onTriggerFlip(tile, bounds, origin)
+                            }
+                        },
+                        onExitFinished = {
+                            // The compositor reports completion after submitting its final frame.
+                            // Preserve the exit pose and selected ID through Android's window swap.
+                            if (phoneLaunchActive && !flipLaunchDispatched) {
+                                flipState.sourceTile?.let { tile ->
+                                    phoneHandoffHeld = true
+                                    flipLaunchDispatched = true
+                                    onLaunchTile(tile)
+                                }
+                                onDismissFlip()
+                            }
+                        },
+                        onOpenSettings = { openLauncherSettings() },
+                        onOpenAppInfo = { onOpenAppInfo(it) },
+                    )
+                }
+            }
+            if (entranceReady && activeInAppTile != null) {
+                WindowsAppView(
+                    tile = activeInAppTile,
+                    appsRepository = appsRepository,
+                    onClose = { closeInAppTileAndRetriggerEntrance() },
+                    onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
+                    onWallpaperStyleChanged = { wallpaperStyle = it },
+                )
+            }
+            if (entranceReady &&
+                WindowsLockScreenRuntime.pending &&
+                WindowsLockScreenPreferences.isEnabled(context)
+            ) {
+                Windows81LockScreen(
+                    cameraGestureEnabled = WindowsLockScreenPreferences.isCameraGestureEnabled(context),
+                    onDismiss = { WindowsLockScreenRuntime.dismiss() },
+                )
+            }
+        }
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()
         .charmsEdgeGesture(enabled = charmsAvailable && !showCharms) { showCharms = true }
         .semantics {
