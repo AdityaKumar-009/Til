@@ -5,8 +5,8 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -71,6 +72,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -302,9 +304,8 @@ fun PhoneLauncherSurface(
 
     LaunchedEffect(homeRequest) {
         if (homeRequest > 0) {
-            // A system Home return already has a per-tile 3D Start choreography.
-            // Do not also animate the whole All Apps panorama out underneath it.
-            // Keep the manual Start <-> Apps panorama animation unchanged.
+            // DiscoLauncher snaps its panorama to Start, while the Start tiles
+            // and the second All Apps page run their independent 3D entries.
             Snapshot.withMutableSnapshot {
                 suppressReturnPaneTransition = mode == LauncherUiMode.PHONE_8
                 showApps = false
@@ -313,9 +314,11 @@ fun PhoneLauncherSurface(
                 actionCenterOpen = false
             }
             if (suppressReturnPaneTransition) {
-                // AnimatedContent reads the suppression flag when it creates this
-                // state transition. Clear it on the next frame for future gestures.
-                withFrameNanos { }
+                // Keep the outgoing Apps page composed behind Start until its
+                // 100 ms delay + 750 ms source page-turn animation completes.
+                delay(PhoneStartChoreography.totalMillis(
+                    mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
+                ).toLong())
                 suppressReturnPaneTransition = false
             }
         }
@@ -379,7 +382,19 @@ fun PhoneLauncherSurface(
                     .onGloballyPositioned { paneBounds = it.boundsInWindow() }.then(gestureModifier),
                 transitionSpec = {
                     if (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8) {
-                        EnterTransition.None togetherWith ExitTransition.None
+                        ContentTransform(
+                            targetContentEnter = EnterTransition.None,
+                            initialContentExit = scaleOut(
+                                targetScale = .999f,
+                                animationSpec = tween(
+                                    PhoneStartChoreography.totalMillis(
+                                        mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
+                                    ),
+                                    easing = LinearEasing,
+                                ),
+                            ),
+                            targetContentZIndex = 1f,
+                        )
                     } else {
                         // 60fps reference 1000197576.mp4, 134.90–135.17s:
                         // manual Start <-> Apps navigation moves the full panorama.
@@ -398,11 +413,7 @@ fun PhoneLauncherSurface(
                 },
                 label = "Phone start apps pivot",
             ) { apps ->
-                // AnimatedContent keeps its outgoing state for at least one draw
-                // after a target change. On a system Home return, paint that slot
-                // with Start too; suppressing it entirely leaves a black frame
-                // before the incoming Start slot is committed.
-                if (!apps || (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8)) {
+                if (!apps) {
                     Column(Modifier.fillMaxSize().verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
                         PhoneStartGrid(
@@ -471,14 +482,33 @@ fun PhoneLauncherSurface(
                         }
                     }
                 } else {
-                    Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)
+                    Column(Modifier.fillMaxSize()
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
                                 else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
-                            alpha = if (mode == LauncherUiMode.PHONE_8 &&
-                                suppressReturnPaneTransition
-                            ) 0f else if (isLaunching && motionClock.value >= listExitEnd) 0f else 1f
-                        }) {
+                            if (mode == LauncherUiMode.PHONE_8 && suppressReturnPaneTransition) {
+                                val page = PhoneStartChoreography.sampleAppsPageEntry(
+                                    elapsedMillis = motionClock.value.roundToInt(),
+                                    viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                )
+                                alpha = page.alpha
+                                rotationY = page.rotationY
+                                translationX = page.translationXPx * densityScale
+                                transformOrigin = TransformOrigin(page.pivotX, .5f)
+                                cameraDistance =
+                                    PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX * densityScale
+                            } else {
+                                alpha = if (isLaunching && motionClock.value >= listExitEnd) 0f else 1f
+                                rotationY = 0f
+                                translationX = 0f
+                                transformOrigin = TransformOrigin.Center
+                                cameraDistance = 1000f * densityScale
+                            }
+                        }
+                        .padding(start = 18.dp, end = 14.dp)
+                        .then(if (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8) {
+                            Modifier.testTag("wp81-home-return-app-page")
+                        } else Modifier)) {
                         if (!isTen && !phone8SearchVisible) {
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
                                 Text("⌕", color = Color.White, fontSize = 30.sp,
