@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -83,14 +84,18 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.loadEnhancedApps
+import com.flivoro.tile8auncher.features.recentlyInstalledApps as selectRecentlyInstalledApps
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -248,6 +253,21 @@ fun PhoneLauncherSurface(
         catalog.filter { it.packageName !in hidden }.sortedWith(
             compareBy(String.CASE_INSENSITIVE_ORDER) { it.label },
         )
+    }
+    val showRecentlyInstalledPhoneApps = remember(mode, densityRevision) {
+        mode == LauncherUiMode.MOBILE_10 &&
+            LauncherFeatureStore.showRecentlyInstalledPhoneApps(context)
+    }
+    val recentlyInstalledApps by produceState(
+        initialValue = emptyList<AppInfo>(),
+        visibleApps,
+        showRecentlyInstalledPhoneApps,
+    ) {
+        value = if (showRecentlyInstalledPhoneApps) withContext(Dispatchers.IO) {
+            selectRecentlyInstalledApps(
+                loadEnhancedApps(context.applicationContext, visibleApps),
+            ).map { it.app }
+        } else emptyList()
     }
 
     fun appTile(app: AppInfo): TileModel = TileModel(
@@ -481,10 +501,23 @@ fun PhoneLauncherSurface(
                         val filtered = remember(visibleApps, search) {
                             visibleApps.filter { it.label.contains(search, ignoreCase = true) }
                         }
-                        val groups = remember(filtered) {
-                            filtered.groupBy {
+                        val groups = remember(
+                            filtered,
+                            recentlyInstalledApps,
+                            showRecentlyInstalledPhoneApps,
+                            search,
+                        ) {
+                            val alphabetical = filtered.groupBy {
                                 it.label.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
                             }.toSortedMap()
+                            if (showRecentlyInstalledPhoneApps && search.isBlank() &&
+                                recentlyInstalledApps.isNotEmpty()
+                            ) {
+                                buildMap {
+                                    put("Recently installed", recentlyInstalledApps)
+                                    alphabetical.forEach { (letter, apps) -> put(letter, apps) }
+                                }
+                            } else alphabetical
                         }
                         val positions = remember(groups) {
                             var index = 0
@@ -505,7 +538,9 @@ fun PhoneLauncherSurface(
                             userScrollEnabled = interactionEnabled && !isLaunching) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
-                                    Text(letter, color = accent, fontSize = 29.sp, fontWeight = FontWeight.Light,
+                                    Text(letter, color = accent,
+                                        fontSize = if (letter == "Recently installed") 20.sp else 29.sp,
+                                        fontWeight = FontWeight.Light,
                                         modifier = Modifier.fillMaxWidth().graphicsLayer {
                                             alpha = 1f
                                             rotationY = 0f
@@ -527,7 +562,10 @@ fun PhoneLauncherSurface(
                                                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
                                                 cameraDistance = 1000f * densityScale
                                             }
-                                        }.clickable { alphabetOpen = true }
+                                        }.clickable(
+                                            enabled = letter == "#" ||
+                                                (letter.length == 1 && letter[0].isLetter()),
+                                        ) { alphabetOpen = true }
                                             .padding(vertical = 10.dp, horizontal = 2.dp))
                                 }
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->

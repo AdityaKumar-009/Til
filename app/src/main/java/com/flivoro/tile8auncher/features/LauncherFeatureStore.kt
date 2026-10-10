@@ -83,6 +83,7 @@ object LauncherFeatureStore {
     private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
     private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
     private const val PHONE_TILE_OPACITY = "phone_tile_opacity"
+    private const val PHONE_RECENTLY_INSTALLED_APPS = "phone_recently_installed_apps"
     private const val HIDDEN_PACKAGES = "feature_hidden_packages"
     private const val PRIVATE_PACKAGES = "feature_private_packages"
     private const val LIVE_TILE_DISABLED_PACKAGES = "feature_live_tile_disabled_packages"
@@ -127,6 +128,14 @@ object LauncherFeatureStore {
 
     fun setPhoneTileOpacity(context: Context, percent: Int) {
         prefs(context).edit { putInt(PHONE_TILE_OPACITY, percent.coerceIn(0, 100)) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    fun showRecentlyInstalledPhoneApps(context: Context): Boolean =
+        prefs(context).getBoolean(PHONE_RECENTLY_INSTALLED_APPS, true)
+
+    fun setShowRecentlyInstalledPhoneApps(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(PHONE_RECENTLY_INSTALLED_APPS, enabled) }
         LauncherFeatureRuntime.notifyLauncherModeChanged()
     }
 

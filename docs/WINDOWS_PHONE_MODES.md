@@ -18,6 +18,11 @@ or dense 6-small-cell layout. Windows 10 Mobile also has **Live tile opacity**.
 Phone-specific pin order, tile sizes and colors are persisted independently in the
 launcher feature preferences, including existing feature JSON backups.
 
+Launcher options are grouped into **Phone Start screen**, **Tiles and live content**,
+**App list and search**, **Start shortcuts**, **Windows 8.1 lock screen**, and
+**Backup and restore**. Windows 10 Mobile can also show newly installed apps at the top
+of its app list; this defaults on and can be switched off in the feature settings.
+
 ## Behavioral mapping
 
 | Behavior | Windows Phone 8 | Windows 10 Mobile | Android launcher implementation |

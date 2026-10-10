@@ -69,6 +69,9 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var showStartGroupHeadings by remember {
         mutableStateOf(LauncherFeatureStore.showStartGroupHeadings(context))
     }
+    var showRecentlyInstalledApps by remember {
+        mutableStateOf(LauncherFeatureStore.showRecentlyInstalledPhoneApps(context))
+    }
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
@@ -160,13 +163,29 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         description = "${launcherMode.title} — ${launcherMode.detail}",
         glyph = "app",
     ) { showLauncherModePicker = true }
+
     if (launcherMode != LauncherUiMode.DESKTOP) {
+        SettingsCategoryHeader("Phone Start screen")
         SettingsActionRow(
             title = "Phone tile columns",
             description = "${LauncherFeatureStore.phoneSmallColumns(context, launcherMode)} small tiles across. Adjusts only ${launcherMode.title}.",
             glyph = "app",
         ) { showPhoneColumnsPicker = true }
+
+        if (launcherMode == LauncherUiMode.MOBILE_10) {
+            SettingsToggleRow(
+                title = "Recently installed apps",
+                description = "Show recently installed apps at the top of the Windows 10 Mobile app list.",
+                checked = showRecentlyInstalledApps,
+                onCheckedChange = { enabled ->
+                    showRecentlyInstalledApps = enabled
+                    LauncherFeatureStore.setShowRecentlyInstalledPhoneApps(context, enabled)
+                },
+            )
+        }
     }
+
+    SettingsCategoryHeader("Tiles and live content")
     if (launcherMode == LauncherUiMode.MOBILE_10) {
         SettingsActionRow(
             title = "Live tile opacity",
@@ -174,9 +193,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             glyph = "photos",
         ) { showPhoneTransparencyPicker = true }
     }
-    Spacer(Modifier.height(22.dp))
-    Text("Launcher features", color = settingsPurple, fontSize = 20.sp)
-    Spacer(Modifier.height(6.dp))
     Text(
         "Windows 8.1 Desktop remains the default. Phone layouts are stored independently and do not rearrange desktop Start.",
         color = Color(0xFF666666),
@@ -184,7 +200,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         lineHeight = 16.sp,
     )
     Spacer(Modifier.height(12.dp))
-
     SettingsActionRow(
         title = if (liveTileConnected) "Live tiles • Connected" else "Live tiles",
         description = liveTileStatus,
@@ -202,6 +217,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         context.startActivity(Intent(context, WidgetPickerActivity::class.java))
     }
 
+    SettingsCategoryHeader("App list and search")
     SettingsActionRow(
         title = "App icon style",
         description = "Style: ${LauncherFeatureStore.appIconStyle(context).displayName()}",
@@ -224,22 +240,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             ?: "Use compatible ADW/Nova-style icon packs. Icon packs apply when App icon style is Default.",
         glyph = "photos",
     ) { showIconPacks = true }
-
-    SettingsActionRow(
-        title = "Double-tap Start",
-        description = "Action: ${LauncherFeatureStore.doubleTapAction(context).displayName()}",
-        glyph = "app",
-    ) { showDoubleTapActions = true }
-
-    SettingsToggleRow(
-        title = "Start group headings",
-        description = "Show group names above tile groups on the normal Start screen. Off by default.",
-        checked = showStartGroupHeadings,
-        onCheckedChange = { enabled ->
-            showStartGroupHeadings = enabled
-            LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
-        },
-    )
 
     SettingsActionRow(
         title = "Hidden apps",
@@ -269,15 +269,30 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
 
     SettingsActionRow(
         title = "Most used app sorting",
-        description = "Grant Android Usage Access so Windows 8.1's Most used sort can use real foreground history.",
+        description = "Grant Android Usage Access so the Most used app-list sort can use real foreground history.",
         glyph = "clock",
     ) {
         runCatching { context.startActivity(usageAccessSettingsIntent()) }
     }
 
-    Spacer(Modifier.height(20.dp))
-    Text("Windows 8.1 lock screen extras", color = settingsPurple, fontSize = 18.sp)
-    Spacer(Modifier.height(10.dp))
+    SettingsCategoryHeader("Start shortcuts")
+    SettingsActionRow(
+        title = "Double-tap Start",
+        description = "Action: ${LauncherFeatureStore.doubleTapAction(context).displayName()}",
+        glyph = "app",
+    ) { showDoubleTapActions = true }
+
+    SettingsToggleRow(
+        title = "Start group headings",
+        description = "Show group names above tile groups on the normal Start screen. Off by default.",
+        checked = showStartGroupHeadings,
+        onCheckedChange = { enabled ->
+            showStartGroupHeadings = enabled
+            LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
+        },
+    )
+
+    SettingsCategoryHeader("Windows 8.1 lock screen")
 
     SettingsActionRow(
         title = "Lock-screen slideshow",
@@ -299,9 +314,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         glyph = "mail",
     ) { appPickerMode = AppPickerMode.LOCK_DETAILED }
 
-    Spacer(Modifier.height(20.dp))
-    Text("Backup", color = settingsPurple, fontSize = 18.sp)
-    Spacer(Modifier.height(10.dp))
+    SettingsCategoryHeader("Backup and restore")
 
     SettingsActionRow(
         title = "Back up Mosaic",
@@ -432,6 +445,13 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
 }
 
 private enum class AppPickerMode { HIDDEN, PRIVATE, LOCK_QUICK, LOCK_DETAILED }
+
+@Composable
+private fun SettingsCategoryHeader(title: String) {
+    Spacer(Modifier.height(22.dp))
+    Text(title, color = settingsPurple, fontSize = 18.sp)
+    Spacer(Modifier.height(8.dp))
+}
 
 @Composable
 private fun SettingsActionRow(
