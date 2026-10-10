@@ -48,10 +48,12 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_ENTRY_MS = 500f
     private const val CLASSIC_INNER_ENTRY_MS = 350f
     private const val CLASSIC_STAGGER_MS = 200f
-    // Native handset footage spreads the visible Start entrance across ~1s.
-    // Preserve Disco's 200ms source stagger for app exit/Back while expanding
-    // only the forward Start arrival to match the native observed cascade.
-    const val NATIVE_FORWARD_STAGGER_MULTIPLIER = 5.5f
+    // Actual WP8.1 reference: bottom visible tiles start ~47.5s, the large
+    // top tiles start ~47.9s. A prior 5.5x stagger left the large tiles
+    // absent for ~0.8s; 3x brings their onset closer to the ~0.4s reference.
+    // Preserve Disco's 200ms source exit/Back stagger; this tuning applies
+    // only to the native-style forward entrance and remains experimental.
+    const val NATIVE_FORWARD_STAGGER_MULTIPLIER = 3.0f
     private const val CLASSIC_SELECTED_DELAY_MS = 200f
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
