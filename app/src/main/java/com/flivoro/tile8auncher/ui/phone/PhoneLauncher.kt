@@ -613,9 +613,12 @@ fun PhoneLauncherSurface(
                         translationX = paneBounds.width * (1f - panoramaProgress)
                     },
                 ) {
+                    // Play Disco's forward second-page entry on first launcher
+                    // introduction as well as on every explicit Home return.
+                    // The shared clock only restarts for lifecycle/launch events,
+                    // not on a normal Start <-> All Apps panorama swipe.
                     val animateHomeAppsPage = mode == LauncherUiMode.PHONE_8 &&
-                        !isLaunching && !resumeUsesBackMotion &&
-                        (suppressReturnPaneTransition || entranceRequest > 0)
+                        !isLaunching && !resumeUsesBackMotion
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
                         suppressReturnPaneTransition && resumeUsesBackMotion
                     Box(Modifier.fillMaxSize()
