@@ -75,6 +75,11 @@ jobs:
           profile: pixel_2
           disable-animations: false
           script: bash .github/scripts/verify-phone-motion.sh
+      - name: Install FFmpeg for preview
+        if: always()
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       - name: Render WP8.1 Home-return preview video
         if: always()
         run: python3 .github/scripts/render-wp81-home-return.py
