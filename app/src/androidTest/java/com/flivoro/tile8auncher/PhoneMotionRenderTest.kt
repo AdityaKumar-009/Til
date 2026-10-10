@@ -153,7 +153,10 @@ class PhoneMotionRenderTest {
             compose.onNodeWithText("⌕").performClick()
             compose.mainClock.advanceTimeBy(400)
             compose.onNodeWithText("Alpha").assertExists()
-            compose.runOnIdle { home.intValue++ }
+            compose.runOnIdle {
+                resumeUsesBackMotion.value = false
+                home.intValue++
+            }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val homeReturnStart = capture("home-return-000")
@@ -162,7 +165,12 @@ class PhoneMotionRenderTest {
             compose.onNodeWithText("Alpha").assertDoesNotExist()
             assertTrue("WP8.1 Start tiles must keep their own return animation",
                 difference(homeReturnStart, homeReturnMoving) > .001)
-            compose.mainClock.advanceTimeBy(800)
+            for (elapsed in (frameStep * 2)..entryEnd step frameStep) {
+                compose.mainClock.advanceTimeBy(frameStep.toLong())
+                capture("home-return-${elapsed.toString().padStart(3, '0')}")
+            }
+            assertTrue("Home return must settle on the original Start layout",
+                difference(resting, capture("home-return-settled")) < .01)
 
             // Exercise the separate app-list row/letter turn on the real Compose layers.
             compose.onNodeWithText("⌕").performClick()
