@@ -22,6 +22,14 @@ internal data class PhoneStartInnerFrame(
     val translationXPx: Float,
 )
 
+/** The second slide page's entry while DiscoLauncher resumes on Start. */
+internal data class PhoneAppsPageEntryFrame(
+    val alpha: Float,
+    val rotationY: Float,
+    val translationXPx: Float,
+    val pivotX: Float,
+)
+
 /**
  * Windows Phone 8.1 Start tile choreography follows DiscoLauncher’s
  * `src/styles/appTransition.scss` and `src/scripts/appTransition.js` timing and
@@ -37,8 +45,11 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_SELECTED_DELAY_MS = 200f
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
+    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 100f
+    private const val CLASSIC_APPS_PAGE_ENTRY_MS = 750f
     private const val FLOW_PERSPECTIVE_CSS_PX = 1000f
     const val CLASSIC_TILE_PERSPECTIVE_CSS_PX = 2000f
+    const val CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX = 1000f
     private const val CLASSIC_EXIT_HOLD_MS = 200f
     private const val REFERENCE_VIEWPORT_HEIGHT = 850f
     private const val MOBILE_EXIT_TILE_MS = MobileStartMotion.EXIT_TILE_MS
@@ -57,9 +68,32 @@ internal object PhoneStartChoreography {
 
     /** DiscoLauncher reverses visible tiles and normalizes their indices to 0..1. */
     fun visibleTileAnimationIndex(reverseRank: Int, visibleCount: Int): Float {
-        if (visibleCount <= 1) return 0f
-        return ((reverseRank.coerceIn(0, visibleCount - 1).toFloat() / (visibleCount - 1)) * 100f)
+        if (visibleCount <= 0) return 0f
+        // DiscoLauncher appends its page icon banner before reversing the visible
+        // nodes. The banner receives index 0; tiles therefore occupy 1/N..1.
+        return (((reverseRank.coerceIn(0, visibleCount - 1) + 1).toFloat() / visibleCount) * 100f)
             .roundToInt() / 100f
+    }
+
+    /**
+     * DiscoLauncher forward resume also turns the second (All Apps) page behind
+     * Start: 100 ms delay, then 750 ms from 45°/transparent to face-on/opaque.
+     * The CSS declaration spells the delay as `var(.1s)`, which is invalid CSS;
+     * this ports the evident intended 0.1s value from the same declaration.
+     */
+    fun sampleAppsPageEntry(
+        elapsedMillis: Int,
+        viewportWidthCssPx: Float,
+    ): PhoneAppsPageEntryFrame {
+        val raw = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) /
+            CLASSIC_APPS_PAGE_ENTRY_MS).coerceIn(0f, 1f)
+        val progress = cubicBezier(raw, .05f, 1f, .1f, 1f)
+        return PhoneAppsPageEntryFrame(
+            alpha = progress,
+            rotationY = 45f * (1f - progress),
+            translationXPx = viewportWidthCssPx,
+            pivotX = -1f,
+        )
     }
 
     private fun delayMillis(index: Float, viewportHeightCssPx: Float): Int =
@@ -79,8 +113,11 @@ internal object PhoneStartChoreography {
             (selectedExitDelayMillis(viewportHeightCssPx) + CLASSIC_SELECTED_EXIT_MS +
                 CLASSIC_EXIT_HOLD_MS).roundToInt()
         } else {
-            (CLASSIC_ENTRY_MS + CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx))
-                .roundToInt()
+            maxOf(
+                (CLASSIC_ENTRY_MS + CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx))
+                    .roundToInt(),
+                (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
+            )
         }
         LauncherUiMode.MOBILE_10 -> if (exiting) {
             MobileStartMotion.EXIT_TOTAL_MS
