@@ -398,7 +398,11 @@ fun PhoneLauncherSurface(
                 },
                 label = "Phone start apps pivot",
             ) { apps ->
-                if (!apps) {
+                // AnimatedContent keeps its outgoing state for at least one draw
+                // after a target change. On a system Home return, paint that slot
+                // with Start too; suppressing it entirely leaves a black frame
+                // before the incoming Start slot is committed.
+                if (!apps || (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8)) {
                     Column(Modifier.fillMaxSize().verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
                         PhoneStartGrid(
@@ -466,7 +470,7 @@ fun PhoneLauncherSurface(
                                 modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(10.dp))
                         }
                     }
-                } else if (!suppressReturnPaneTransition) {
+                } else {
                     Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
