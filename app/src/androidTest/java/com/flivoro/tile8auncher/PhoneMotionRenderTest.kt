@@ -232,8 +232,11 @@ class PhoneMotionRenderTest {
                     assertTrue("First Start tiles should appear during native-stagger entry",
                         chromaticFraction(frame) > .0005)
                 }
-                if (elapsed == 224) appsPageRowsFrame = frame
-                if (elapsed == 320) appsPageVisibleFrame = frame
+                // The projected second pane is visible only at the beginning
+                // of its 3D turn. At 112ms app-label pixels appear; by 224ms
+                // the page's left edge has moved almost entirely offscreen.
+                if (elapsed == 112) appsPageRowsFrame = frame
+                if (elapsed == 160) appsPageVisibleFrame = frame
                 if (elapsed == 416) homeReturnMidpoint = frame
             }
             val visibleAppLabelPixels = brightPixelsInAppLabelRegion(
