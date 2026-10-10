@@ -280,8 +280,14 @@ fun PhoneLauncherSurface(
     val desktopById = remember(tiles) { tiles.associateBy(TileModel::id) }
     var order by remember(mode) { mutableStateOf(PhoneLayoutStore.order(context, mode, tiles)) }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
-    var showApps by remember(mode) { mutableStateOf(false) }
-    var suppressReturnPaneTransition by remember(mode) { mutableStateOf(false) }
+    // New Home/Back/launch-return requests must reset the actual panorama
+    // synchronously with composition. Delaying this until LaunchedEffect runs
+    // exposed one stale All Apps frame when restoring Start.
+    var showApps by remember(mode, entranceRequest, homeRequest) { mutableStateOf(false) }
+    var suppressReturnPaneTransition by remember(mode, entranceRequest, homeRequest) {
+        mutableStateOf(mode == LauncherUiMode.PHONE_8 &&
+            (entranceRequest > 0 || homeRequest > 0))
+    }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
     var search by remember(mode) { mutableStateOf("") }
@@ -440,18 +446,16 @@ fun PhoneLauncherSurface(
     }
 
     LaunchedEffect(entranceRequest, resumeUsesBackMotion) {
-        if (entranceRequest > 0 && resumeUsesBackMotion &&
-            mode == LauncherUiMode.PHONE_8 && showApps
-        ) {
-            // DiscoLauncher always resets the horizontal panorama to Start on
-            // activity resume. The Back path turns Start tiles in, but does not
-            // run the forward All Apps page turn used by the Home button path.
-            Snapshot.withMutableSnapshot {
-                suppressReturnPaneTransition = true
-                showApps = false
-                alphabetOpen = false
-                editing = null
-                actionCenterOpen = false
+        if (entranceRequest > 0 && mode == LauncherUiMode.PHONE_8) {
+            // The pane was already snapped when the entrance event changed
+            // composition keys. Keep it parked there for the full 3D return,
+            // including returns that previously had showApps=true.
+            if (resumeUsesBackMotion) {
+                Snapshot.withMutableSnapshot {
+                    alphabetOpen = false
+                    editing = null
+                    actionCenterOpen = false
+                }
             }
             delay(duration.toLong())
             suppressReturnPaneTransition = false
