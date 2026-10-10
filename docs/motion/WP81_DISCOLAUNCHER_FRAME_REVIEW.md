@@ -14,10 +14,15 @@ matrix offsets through Compose.
 
 `appTransition.js` computes `baseScale = innerHeight / 850 / 2 + .5` for its
 `launchHide()` timeout. It filters visible DOM items, reverses their order, and
-stores each index to two decimal places across `0..1`. The CSS stagger uses the
-root `--app-transition-scale`, whose value is `1`; it does not use `baseScale`.
-The Compose renderer keeps those scales separate and includes the page-navigation
-banner as index zero, as DiscoLauncher does.
+stores each index to two decimal places across `0..1`. Disco's `src/script.js`
+**also initializes** CSS `--app-transition-scale` using that same viewport
+function (it overrides the stylesheet fallback of 1). Thus per-tile delays
+are `index × 200ms × (0.5 + windowHeight / 1700)` and the selected Start
+tile also uses the viewport scale. Its resize callback supplies a different
+`windowHeight / 850` value if the window is resized after startup; the native
+renderer follows the initialization path. The Compose renderer uses the entire
+Android content window rather than the shorter Start/Apps pane for this timing,
+and includes the page-navigation banner as index zero.
 
 ## Start tile exit and return
 
