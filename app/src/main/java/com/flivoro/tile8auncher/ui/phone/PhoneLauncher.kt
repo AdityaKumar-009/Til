@@ -466,7 +466,7 @@ fun PhoneLauncherSurface(
                                 modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(10.dp))
                         }
                     }
-                } else {
+                } else if (!suppressReturnPaneTransition) {
                     Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 14.dp)
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration

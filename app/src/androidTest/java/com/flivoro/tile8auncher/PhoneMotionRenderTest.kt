@@ -160,6 +160,7 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val homeReturnStart = capture("home-return-000")
+            compose.onNodeWithText("Alpha").assertDoesNotExist()
             compose.mainClock.advanceTimeBy(16)
             val homeReturnMoving = capture("home-return-016")
             compose.onNodeWithText("Alpha").assertDoesNotExist()
