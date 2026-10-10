@@ -48,6 +48,10 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_ENTRY_MS = 500f
     private const val CLASSIC_INNER_ENTRY_MS = 350f
     private const val CLASSIC_STAGGER_MS = 200f
+    // Native handset footage spreads the visible Start entrance across ~1s.
+    // Preserve Disco's 200ms source stagger for app exit/Back while expanding
+    // only the forward Start arrival to match the native observed cascade.
+    const val NATIVE_FORWARD_STAGGER_MULTIPLIER = 5.5f
     private const val CLASSIC_SELECTED_DELAY_MS = 200f
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
@@ -203,6 +207,14 @@ internal object PhoneStartChoreography {
         else -> error("Start choreography requires a phone mode")
     }
 
+    fun classicNativeForwardTotalMillis(viewportHeightCssPx: Float): Int =
+        maxOf(
+            (CLASSIC_ENTRY_MS +
+                CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx) *
+                    NATIVE_FORWARD_STAGGER_MULTIPLIER).roundToInt(),
+            (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
+        )
+
     fun delayMillis(
         mode: LauncherUiMode,
         exiting: Boolean,
@@ -231,6 +243,7 @@ internal object PhoneStartChoreography {
         selected: Boolean = false,
         resumeUsesBackMotion: Boolean = false,
         tileWidthCssPx: Float = 1f,
+        entryStaggerMultiplier: Float = 1f,
     ): PhoneStartMotionFrame {
         if (mode == LauncherUiMode.MOBILE_10) {
             val mobile = MobileStartMotion.sample(
@@ -248,7 +261,10 @@ internal object PhoneStartChoreography {
             )
         }
         check(mode == LauncherUiMode.PHONE_8)
-        val delay = delayMillis(mode, exiting, animationIndex, viewportHeightCssPx, selected)
+        val baseDelay = delayMillis(mode, exiting, animationIndex, viewportHeightCssPx, selected)
+        val delay = if (!exiting && !resumeUsesBackMotion) {
+            (baseDelay * entryStaggerMultiplier).roundToInt()
+        } else baseDelay
         val duration = when {
             exiting && selected -> CLASSIC_SELECTED_EXIT_MS
             exiting -> CLASSIC_EXIT_MS
@@ -328,8 +344,10 @@ internal object PhoneStartChoreography {
         animationIndex: Float,
         viewportHeightCssPx: Float,
         density: Float,
+        entryStaggerMultiplier: Float = 1f,
     ): PhoneStartInnerFrame {
-        val delay = delayMillis(animationIndex, viewportHeightCssPx)
+        val delay = (delayMillis(animationIndex, viewportHeightCssPx) *
+            entryStaggerMultiplier).roundToInt()
         val raw = ((elapsedMillis - delay) / CLASSIC_INNER_ENTRY_MS).coerceIn(0f, 1f)
         val remaining = 1f - cubicBezier(raw, .2f, .25f, .25f, 1f)
         return PhoneStartInnerFrame(
