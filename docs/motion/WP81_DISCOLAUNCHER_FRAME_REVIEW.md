@@ -92,7 +92,11 @@ from world x=+viewport into the Start viewport. Keeping the drawing layer at
 x=0 prevents alpha offscreen compositing from clipping its incoming left edge.
 The Start tile layer is rendered in front of the second page as in the
 source's negative-z stacking. The home-page perspective is not added to the
-normal horizontal swipe offset a second time.
+normal horizontal swipe offset a second time. The second page's search circle
+also mirrors Disco's `#search-icon` `.shown` state: it is hidden on a fresh
+Start, enters after 200ms with 250ms opacity interpolation on All Apps,
+and remains for 500ms after a return to Start. It is not painted during a
+Home return that began from the Start page.
 
 The instrumented test now checks a Home-return **while already on Start**
 as well as an All Apps-to-Start Home return, an All Apps launch, and an
