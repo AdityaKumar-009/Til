@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -144,9 +145,18 @@ class PhoneMotionRenderTest {
                 difference(resting, capture("start-home-return-settled")) < .01)
         }
 
-        // A panorama round trip must not start a second Start-entry animation.
+        // A panorama round trip must reveal real All Apps pixels, not merely
+        // keep offscreen/semantics nodes alive (the previous regression).
         compose.onNodeWithTag("phone-bottom-search").performClick()
         compose.mainClock.advanceTimeBy(400)
+        if (mode == LauncherUiMode.PHONE_8) {
+            compose.onNodeWithText("Alpha").assertIsDisplayed()
+            val appsAfterSwipe = capture("apps-after-manual-swipe")
+            assertTrue("All Apps page is black or offscreen after navigation",
+                brightPixelsInAppLabelRegion(appsAfterSwipe) > 100)
+            assertTrue("All Apps must differ from the Start page",
+                difference(resting, appsAfterSwipe) > .01)
+        }
         compose.onNodeWithText("‹").performClick()
         compose.mainClock.advanceTimeBy(320)
         assertTrue("Start flickered or replayed entry after Apps", difference(resting,
@@ -197,7 +207,7 @@ class PhoneMotionRenderTest {
             // Apps page's own forward turn behind the entering Start tiles.
             compose.onNodeWithTag("phone-bottom-search").performClick()
             compose.mainClock.advanceTimeBy(400)
-            compose.onNodeWithText("Alpha").assertExists()
+            compose.onNodeWithText("Alpha").assertIsDisplayed()
             val appsBeforeHome = capture("apps-home-return-before")
             assertTrue("App-list label fixture must be visible before Home",
                 brightPixelsInAppLabelRegion(appsBeforeHome) > 100)
