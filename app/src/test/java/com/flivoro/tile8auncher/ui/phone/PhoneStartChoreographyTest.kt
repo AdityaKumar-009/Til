@@ -103,6 +103,36 @@ class PhoneStartChoreographyTest {
         assertEquals(0f, settled.rotationY, 0f)
     }
 
+    @Test fun homeAppsPageUsesTheSourcePerspectiveOriginAtTheStartPageEdge() {
+        val leftTop = PhoneStartChoreography.projectAppsPagePoint(
+            pageLocalXPx = 0f,
+            pageLocalYPx = 0f,
+            viewportWidthCssPx = width,
+            viewportHeightCssPx = height,
+            rotationYDegrees = 45f,
+        )
+        val rightCenter = PhoneStartChoreography.projectAppsPagePoint(
+            pageLocalXPx = width,
+            pageLocalYPx = height / 2f,
+            viewportWidthCssPx = width,
+            viewportHeightCssPx = height,
+            rotationYDegrees = 45f,
+        )
+        assertEquals(203.2f, leftTop.xCssPx, .5f)
+        assertEquals(85.9f, leftTop.yCssPx, .5f)
+        assertEquals(337.5f, rightCenter.xCssPx, .5f)
+        assertEquals(height / 2f, rightCenter.yCssPx, .001f)
+
+        val settledLeft = PhoneStartChoreography.projectAppsPagePoint(
+            pageLocalXPx = 0f,
+            pageLocalYPx = height / 2f,
+            viewportWidthCssPx = width,
+            viewportHeightCssPx = height,
+            rotationYDegrees = 0f,
+        )
+        assertEquals(width, settledLeft.xCssPx, .001f)
+    }
+
     @Test fun classicBackReturnMatchesDiscoBackKeyframeMatrixAndReveal() {
         val start = PhoneStartChoreography.sample(
             mode = eight,
@@ -121,6 +151,14 @@ class PhoneStartChoreographyTest {
         assertEquals(-124.74597f, start.translationXPx, .001f)
         assertEquals(-52.23689f, start.translationZPx, .001f)
         assertEquals(-1.5f, start.pivotX, .001f)
+        val pivotX = -120f
+        val pivotToTileX = -pivotX
+        val rotatedTileX = pivotX + pivotToTileX * kotlin.math.cos(Math.toRadians(-80.0)).toFloat()
+        val rotatedTileZ = -pivotToTileX * kotlin.math.sin(Math.toRadians(-80.0)).toFloat()
+        assertEquals("The resulting back pose must equal Disco's composed CSS transform X",
+            -223.90818f, rotatedTileX + start.translationXPx, .002f)
+        assertEquals("The resulting back pose must equal Disco's composed CSS transform Z",
+            65.94005f, rotatedTileZ + start.translationZPx, .002f)
 
         val firstRevealSegment = PhoneStartChoreography.sample(
             mode = eight,
@@ -183,9 +221,11 @@ class PhoneStartChoreographyTest {
         assertEquals(-1000f / 3f, selectedFinished.translationXPx, .001f)
         assertEquals(0f, selectedFinished.alpha, 0f)
 
-        val letter = PhoneStartChoreography.sampleAppListExit(400, 0f, height, width, letter = true)
+        val letter = PhoneStartChoreography.sampleAppListExit(
+            400, 0f, height, width, letter = true, tileLeftCssPx = 81f, tileWidthCssPx = 280f,
+        )
         assertEquals(-width - 1000f / 3f, letter.translationXPx, .001f)
-        assertEquals(0f, letter.pivotX, 0f)
+        assertEquals(-81f / 280f, letter.pivotX, .001f)
     }
 
     @Test fun classicSamplesStayFiniteAndReachRestStates() {

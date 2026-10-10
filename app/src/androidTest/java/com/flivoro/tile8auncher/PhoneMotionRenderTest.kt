@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -167,11 +168,9 @@ class PhoneMotionRenderTest {
             compose.onNodeWithTag("wp81-home-return-app-page").assertExists()
             compose.onNodeWithText("Alpha").assertExists()
             assertTrue("Disco's Apps page begins transparent before its delayed turn",
-                brightPixelsInAppLabelRegion(homeReturnStart) < 5)
-            val appsPageStartBounds = compose.onNodeWithTag("wp81-home-return-app-page")
-                .fetchSemanticsNode().boundsInRoot
+                brightPixelsInAppsSearchRegion(homeReturnStart) < 5)
             var homeReturnMidpoint: Bitmap? = null
-            var appsPageMovingBounds: androidx.compose.ui.geometry.Rect? = null
+            var appsPageVisibleFrame: Bitmap? = null
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 val frame = capture("home-return-${elapsed.toString().padStart(3, '0')}")
@@ -179,15 +178,11 @@ class PhoneMotionRenderTest {
                     assertTrue("First Start tiles should appear after the banner's index-zero lead",
                         chromaticFraction(frame) > .0005)
                 }
-                if (elapsed == 160) {
-                    appsPageMovingBounds = compose.onNodeWithTag("wp81-home-return-app-page")
-                        .fetchSemanticsNode().boundsInRoot
-                }
+                if (elapsed == 160) appsPageVisibleFrame = frame
                 if (elapsed == 256) homeReturnMidpoint = frame
             }
-            val appsPageEndBounds = checkNotNull(appsPageMovingBounds)
-            assertTrue("All Apps page must turn around its left-of-page hinge behind Start",
-                abs(appsPageStartBounds.left - appsPageEndBounds.left) > 10f)
+            assertTrue("All Apps search control must be visibly projected behind Start",
+                brightPixelsInAppsSearchRegion(checkNotNull(appsPageVisibleFrame)) > 5)
             assertTrue("WP8.1 Start tiles must enter during the Home return",
                 difference(homeReturnStart, checkNotNull(homeReturnMidpoint)) > .001)
             val homeReturnSettled = capture("home-return-settled")
@@ -215,6 +210,26 @@ class PhoneMotionRenderTest {
             val appListExit = capture("apps-exit-$exitEnd-handoff")
             compose.runOnIdle { assertEquals("Expected app-list launch completion", 1, completions) }
             assertTrue("App-list content must be black at handoff", centralBrightness(appListExit) < .01)
+
+            // Android Back follows DiscoLauncher's back-resume route: reset the
+            // panorama to Start and turn those tiles in from their back pose.
+            compose.runOnIdle {
+                selected.value = null
+                launching.value = false
+                resumeUsesBackMotion.value = true
+                entrance.intValue++
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            capture("apps-back-return-000")
+            compose.onNodeWithText("Alpha").assertIsNotDisplayed()
+            for (elapsed in frameStep..entryEnd step frameStep) {
+                compose.mainClock.advanceTimeBy(frameStep.toLong())
+                capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
+            }
+            val appListBackSettled = capture("apps-back-return-settled")
+            assertTrue("Back return from All Apps must settle on Start",
+                difference(resting, appListBackSettled) < .01)
         }
     }
 
@@ -300,6 +315,26 @@ class PhoneMotionRenderTest {
                 val pixel = bitmap.getPixel(x, y)
                 if (((pixel shr 16) and 255) > 220 &&
                     ((pixel shr 8) and 255) > 220 && (pixel and 255) > 220
+                ) count++
+            }
+        }
+        return count
+    }
+
+    private fun brightPixelsInAppsSearchRegion(bitmap: Bitmap): Int {
+        val left = (bitmap.width * .55f).toInt()
+        val right = (bitmap.width * .99f).toInt()
+        val top = (bitmap.height * .08f).toInt()
+        val bottom = (bitmap.height * .18f).toInt()
+        var count = 0
+        for (y in top until bottom step 2) {
+            for (x in left until right step 2) {
+                val pixel = bitmap.getPixel(x, y)
+                val red = (pixel shr 16) and 255
+                val green = (pixel shr 8) and 255
+                val blue = pixel and 255
+                if (minOf(red, green, blue) > 60 &&
+                    maxOf(red, green, blue) - minOf(red, green, blue) < 50
                 ) count++
             }
         }

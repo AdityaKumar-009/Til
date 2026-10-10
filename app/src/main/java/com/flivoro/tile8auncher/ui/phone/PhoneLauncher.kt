@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.ui.phone
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Matrix as PlatformMatrix
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -60,11 +61,13 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -224,6 +227,9 @@ fun PhoneLauncherSurface(
     var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var homeBannerBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     val viewportHeightCssPx = (paneBounds.height / densityScale).takeIf { it > 0f } ?: 850f
+    val appListContentLeftCssPx = 18f
+    val appListContentWidthCssPx =
+        (surfaceBounds.width / densityScale - 32f).coerceAtLeast(1f)
     val listPhase = PhoneMotionPhase.FORWARD_OUT
     // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
     // can expire before Compose has even presented the first animation frame.
@@ -321,6 +327,27 @@ fun PhoneLauncherSurface(
                 ).toLong())
                 suppressReturnPaneTransition = false
             }
+        }
+    }
+
+    LaunchedEffect(entranceRequest, resumeUsesBackMotion) {
+        if (entranceRequest > 0 && resumeUsesBackMotion &&
+            mode == LauncherUiMode.PHONE_8 && showApps
+        ) {
+            // DiscoLauncher always resets the horizontal panorama to Start on
+            // activity resume. The Back path turns Start tiles in, but does not
+            // run the forward All Apps page turn used by the Home button path.
+            Snapshot.withMutableSnapshot {
+                suppressReturnPaneTransition = true
+                showApps = false
+                alphabetOpen = false
+                editing = null
+                actionCenterOpen = false
+            }
+            delay(PhoneStartChoreography.totalMillis(
+                mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
+            ).toLong())
+            suppressReturnPaneTransition = false
         }
     }
 
@@ -482,19 +509,30 @@ fun PhoneLauncherSurface(
                         }
                     }
                 } else {
+                    val animateHomeAppsPage = mode == LauncherUiMode.PHONE_8 &&
+                        suppressReturnPaneTransition && !resumeUsesBackMotion
+                    val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
+                        suppressReturnPaneTransition && resumeUsesBackMotion
                     Column(Modifier.fillMaxSize()
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
                                 else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
-                            if (mode == LauncherUiMode.PHONE_8 && suppressReturnPaneTransition) {
+                            if (animateHomeAppsPage) {
                                 val page = PhoneStartChoreography.sampleAppsPageEntry(
                                     elapsedMillis = motionClock.value.roundToInt(),
                                     viewportWidthCssPx = surfaceBounds.width / densityScale,
                                 )
                                 alpha = page.alpha
-                                rotationY = page.rotationY
-                                translationX = page.translationXPx * densityScale
-                                transformOrigin = TransformOrigin(page.pivotX, .5f)
+                                rotationY = 0f
+                                translationX = 0f
+                                transformOrigin = TransformOrigin.Center
+                                cameraDistance =
+                                    PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX * densityScale
+                            } else if (snapAppsPageAway) {
+                                alpha = 1f
+                                rotationY = 0f
+                                translationX = surfaceBounds.width
+                                transformOrigin = TransformOrigin.Center
                                 cameraDistance =
                                     PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX * densityScale
                             } else {
@@ -505,6 +543,51 @@ fun PhoneLauncherSurface(
                                 cameraDistance = 1000f * densityScale
                             }
                         }
+                        .then(if (animateHomeAppsPage) Modifier.drawWithContent {
+                            val viewportWidthCssPx = size.width / densityScale
+                            val viewportHeightCssPx = size.height / densityScale
+                            val page = PhoneStartChoreography.sampleAppsPageEntry(
+                                elapsedMillis = motionClock.value.roundToInt(),
+                                viewportWidthCssPx = viewportWidthCssPx,
+                            )
+                            val pageWidthPx = size.width
+                            val pageHeightPx = size.height
+                            val source = floatArrayOf(
+                                0f, 0f,
+                                pageWidthPx, 0f,
+                                pageWidthPx, pageHeightPx,
+                                0f, pageHeightPx,
+                            )
+                            fun projected(xPx: Float, yPx: Float): PhoneAppsPageProjectedPoint =
+                                PhoneStartChoreography.projectAppsPagePoint(
+                                    pageLocalXPx = xPx / densityScale,
+                                    pageLocalYPx = yPx / densityScale,
+                                    viewportWidthCssPx = viewportWidthCssPx,
+                                    viewportHeightCssPx = viewportHeightCssPx,
+                                    rotationYDegrees = page.rotationY,
+                                )
+                            val corners = listOf(
+                                projected(0f, 0f),
+                                projected(pageWidthPx, 0f),
+                                projected(pageWidthPx, pageHeightPx),
+                                projected(0f, pageHeightPx),
+                            )
+                            val destination = FloatArray(8)
+                            corners.forEachIndexed { index, point ->
+                                destination[index * 2] = point.xCssPx * densityScale
+                                destination[index * 2 + 1] = point.yCssPx * densityScale
+                            }
+                            val perspective = PlatformMatrix()
+                            if (!perspective.setPolyToPoly(source, 0, destination, 0, 4)) {
+                                drawContent()
+                                return@drawWithContent
+                            }
+                            val canvas = drawContext.canvas.nativeCanvas
+                            val saveCount = canvas.save()
+                            canvas.concat(perspective)
+                            drawContent()
+                            canvas.restoreToCount(saveCount)
+                        } else Modifier)
                         .padding(start = 18.dp, end = 14.dp)
                         .then(if (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8) {
                             Modifier.testTag("wp81-home-return-app-page")
@@ -522,12 +605,15 @@ fun PhoneLauncherSurface(
                                                 animationIndex = 1f,
                                                 viewportHeightCssPx = viewportHeightCssPx,
                                                 viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                                tileLeftCssPx = appListContentLeftCssPx,
+                                                tileWidthCssPx = appListContentWidthCssPx,
                                             )
                                             alpha = motion.alpha
                                             rotationY = motion.rotationY
                                             translationX = motion.translationXPx * densityScale
                                             transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                                            cameraDistance = 1000f * densityScale
+                                            cameraDistance =
+                                                PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
                                         }
                                     }.clickable { phone8SearchVisible = true }
                                         .padding(horizontal = 8.dp, vertical = 4.dp))
@@ -610,12 +696,15 @@ fun PhoneLauncherSurface(
                                                     viewportHeightCssPx = viewportHeightCssPx,
                                                     viewportWidthCssPx = surfaceBounds.width / densityScale,
                                                     letter = true,
+                                                    tileLeftCssPx = appListContentLeftCssPx,
+                                                    tileWidthCssPx = appListContentWidthCssPx,
                                                 )
                                                 alpha = motion.alpha
                                                 rotationY = motion.rotationY
                                                 translationX = motion.translationXPx * densityScale
                                                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                                                cameraDistance = 1000f * densityScale
+                                                cameraDistance =
+                                                    PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
                                             }
                                         }.clickable(
                                             enabled = letter == "#" ||
@@ -645,6 +734,8 @@ fun PhoneLauncherSurface(
                                                         viewportHeightCssPx = viewportHeightCssPx,
                                                         viewportWidthCssPx = surfaceBounds.width / densityScale,
                                                         selected = exitTileId == "phone_app_${app.packageName}",
+                                                        tileLeftCssPx = appListContentLeftCssPx,
+                                                        tileWidthCssPx = appListContentWidthCssPx,
                                                     )
                                                     alpha = rowMotion.alpha
                                                     rotationY = rowMotion.rotationY
@@ -653,9 +744,8 @@ fun PhoneLauncherSurface(
                                                     scaleX = 1f
                                                     scaleY = 1f
                                                     transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
-                                                    cameraDistance = maxOf(
-                                                        1000f * densityScale, 2f * bounds.width, 2f * bounds.height,
-                                                    )
+                                                    cameraDistance =
+                                                        PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
                                                 } else {
                                                     alpha = 1f
                                                     rotationY = 0f
@@ -676,7 +766,7 @@ fun PhoneLauncherSurface(
                                                     transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
                                                 }
                                                 cameraDistance = if (mode == LauncherUiMode.PHONE_8) {
-                                                    1000f * densityScale
+                                                    PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
                                                 } else maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                             }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
@@ -1000,7 +1090,7 @@ private fun PhoneTile(
             rotationY = inner.rotationY
             translationX = inner.translationXPx
             transformOrigin = TransformOrigin.Center
-            cameraDistance = 1000f * density
+            cameraDistance = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * density
         } else Modifier,
         modifier = modifier
             .onGloballyPositioned {

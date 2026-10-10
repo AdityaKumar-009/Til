@@ -30,6 +30,12 @@ internal data class PhoneAppsPageEntryFrame(
     val pivotX: Float,
 )
 
+/** A point projected through DiscoLauncher’s CSS perspective for the second slide page. */
+internal data class PhoneAppsPageProjectedPoint(
+    val xCssPx: Float,
+    val yCssPx: Float,
+)
+
 /**
  * Windows Phone 8.1 Start tile choreography follows DiscoLauncher’s
  * `src/styles/appTransition.scss` and `src/scripts/appTransition.js` timing and
@@ -93,6 +99,32 @@ internal object PhoneStartChoreography {
             rotationY = 45f * (1f - progress),
             translationXPx = viewportWidthCssPx,
             pivotX = -1f,
+        )
+    }
+
+    /**
+     * Projects the All Apps page as DiscoLauncher lays it out: the page starts one
+     * viewport to the right, and both `perspective-origin` and `transform-origin`
+     * are at the Start page's left edge (`-100% 50%` on the Apps page).
+     */
+    fun projectAppsPagePoint(
+        pageLocalXPx: Float,
+        pageLocalYPx: Float,
+        viewportWidthCssPx: Float,
+        viewportHeightCssPx: Float,
+        rotationYDegrees: Float,
+        cameraDistanceCssPx: Float = CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX,
+    ): PhoneAppsPageProjectedPoint {
+        val angle = rotationYDegrees * DEG_TO_RAD
+        val worldX = viewportWidthCssPx + pageLocalXPx
+        val rotatedX = worldX * cos(angle)
+        val rotatedZ = -worldX * sin(angle)
+        val perspectiveScale = cameraDistanceCssPx /
+            (cameraDistanceCssPx - rotatedZ).coerceAtLeast(cameraDistanceCssPx * .1f)
+        return PhoneAppsPageProjectedPoint(
+            xCssPx = rotatedX * perspectiveScale,
+            yCssPx = viewportHeightCssPx * .5f +
+                (pageLocalYPx - viewportHeightCssPx * .5f) * perspectiveScale,
         )
     }
 
@@ -270,6 +302,8 @@ internal object PhoneStartChoreography {
         viewportWidthCssPx: Float,
         selected: Boolean = false,
         letter: Boolean = false,
+        tileLeftCssPx: Float = 0f,
+        tileWidthCssPx: Float = 1f,
     ): PhoneStartMotionFrame {
         val delay = if (selected) CLASSIC_APPS_SELECTED_DELAY_MS.roundToInt()
         else delayMillis(animationIndex, viewportHeightCssPx)
@@ -283,7 +317,7 @@ internal object PhoneStartChoreography {
             translationYPx = 0f,
             translationZPx = 0f,
             scale = 1f,
-            pivotX = 0f,
+            pivotX = if (tileWidthCssPx > 0f) -tileLeftCssPx / tileWidthCssPx else 0f,
         )
     }
 
