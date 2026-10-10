@@ -15,7 +15,7 @@ class PhoneStartChoreographyTest {
         assertEquals(500, PhoneStartChoreography.totalMillis(eight, true, height))
         assertEquals(550, PhoneStartChoreography.totalMillis(eight, false, height))
         assertEquals(500, PhoneStartChoreography.totalMillis(eight, true, 637.5f))
-        assertEquals(525, PhoneStartChoreography.totalMillis(eight, false, 637.5f))
+        assertEquals(527, PhoneStartChoreography.totalMillis(eight, false, 637.5f))
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
@@ -29,14 +29,12 @@ class PhoneStartChoreographyTest {
     }
 
     @Test fun nativeForwardTimingIsIndependentOfDeviceHeightAndSlowedReference() {
-        assertEquals(450, PhoneStartChoreography.classicNativeForwardTotalMillis(850f))
-        assertEquals(450, PhoneStartChoreography.classicNativeForwardTotalMillis(648f))
+        assertEquals(527, PhoneStartChoreography.classicNativeForwardTotalMillis(850f))
+        assertEquals(527, PhoneStartChoreography.classicNativeForwardTotalMillis(648f))
         assertEquals(0f, classicFrame(false, 199, 1f).alpha, 0f)
         assertEquals(80f, classicFrame(false, 200, 1f).rotationY, .001f)
         assertEquals(0f, classicFrame(false, 450, 1f).rotationY, .001f)
-        val glyph = PhoneStartChoreography.sampleInnerEntry(450, 1f, height, 1f)
-        assertEquals(0f, glyph.rotationY, .001f)
-        assertEquals(0f, glyph.translationXPx, .001f)
+
     }
 
     @Test fun nativeForwardCornersTrackMeasuredPhoneFaceRatherThanAFixedHinge() {
@@ -60,6 +58,56 @@ class PhoneStartChoreographyTest {
                     cameraDistanceCssPx = PhoneStartChoreography.nativeCameraDistance(508f))
                 assertEquals("native x at ${time}ms corner $index", measured[index*2], point.xCssPx, 10f)
                 assertEquals("native y at ${time}ms corner $index", measured[index*2+1], point.yCssPx, 10f)
+            }
+        }
+    }
+
+    @Test fun nativeDiagonalWaveTracksLeftRightAndWideFaces() {
+        // Independent 30 Hz recording: accept half a source frame (16 ms),
+        // but require one common timestamp to fit all four face corners.
+        data class Observation(val time: Int, val points: FloatArray)
+        data class Face(val left: Float, val top: Float, val width: Float,
+            val height: Float, val observations: List<Observation>)
+        val faces = listOf(
+            Face(28f, 293f, 219f, 218f, listOf(
+                Observation(178, floatArrayOf(118.0f, 299.0f, 199.0f, 311.0f, 199.0f, 497.0f, 118.0f, 506.2f)),
+                Observation(212, floatArrayOf(92.0f, 295.1f, 258.0f, 304.3f, 258.0f, 502.5f, 92.0f, 508.8f)),
+                Observation(245, floatArrayOf(57.0f, 292.8f, 265.0f, 297.7f, 265.0f, 506.9f, 57.0f, 510.5f)),
+                Observation(279, floatArrayOf(50.0f, 292.6f, 263.0f, 296.2f, 263.0f, 507.4f, 50.0f, 511.0f)),
+            )),
+            Face(260f, 293f, 219f, 218f, listOf(
+                Observation(112, floatArrayOf(190.0f, 314.2f, 250.0f, 323.6f, 250.0f, 488.0f, 190.0f, 495.0f)),
+                Observation(145, floatArrayOf(237.0f, 309.6f, 344.0f, 318.8f, 344.0f, 492.0f, 237.0f, 498.2f)),
+                Observation(178, floatArrayOf(274.0f, 302.8f, 438.0f, 309.7f, 438.0f, 498.4f, 274.0f, 503.0f)),
+                Observation(212, floatArrayOf(277.0f, 298.6f, 469.0f, 302.7f, 469.0f, 503.2f, 277.0f, 506.3f)),
+            )),
+            Face(28f, 524f, 451f, 218f, listOf(
+                Observation(112, floatArrayOf(105.0f, 518.7f, 293.0f, 498.9f, 293.0f, 666.6f, 105.0f, 724.4f)),
+                Observation(145, floatArrayOf(96.0f, 522.7f, 369.0f, 498.4f, 369.0f, 680.0f, 96.0f, 729.9f)),
+                Observation(178, floatArrayOf(72.0f, 524.8f, 447.0f, 505.8f, 447.0f, 702.8f, 72.0f, 736.7f)),
+                Observation(212, floatArrayOf(55.0f, 525.4f, 475.0f, 512.1f, 475.0f, 722.9f, 55.0f, 737.5f)),
+            )),
+        )
+        val firstWave = PhoneStartChoreography.nativeForwardWavePosition(137.5f, 170f, 508f)
+        for (face in faces) {
+            val wave = PhoneStartChoreography.nativeForwardWavePosition(
+                face.left + face.width / 2f, face.top + face.height / 2f, 508f)
+            val index = PhoneStartChoreography.nativeForwardAnimationIndex(wave, firstWave)
+            val corners = listOf(0f to 0f, face.width to 0f,
+                face.width to face.height, 0f to face.height)
+            for (observation in face.observations) {
+                val error = (observation.time - 16..observation.time + 16).minOf { time ->
+                    val frame = PhoneStartChoreography.sample(eight, false, time, 0f, index,
+                        838f, 508f, face.left, tileWidthCssPx = face.width)
+                    corners.mapIndexed { i, (x, y) ->
+                        val point = PhoneStartChoreography.projectPlanePoint(x, y,
+                            face.left, face.top, face.width, face.height, 508f, 838f, frame,
+                            cameraDistanceCssPx = PhoneStartChoreography.nativeCameraDistance(508f))
+                        maxOf(kotlin.math.abs(point.xCssPx - observation.points[i * 2]),
+                            kotlin.math.abs(point.yCssPx - observation.points[i * 2 + 1]))
+                    }.maxOrNull()!!
+                }
+                assertTrue("Native face at ${face.left},${face.top}, ${observation.time}ms: ${error}px", error < 12f)
             }
         }
     }
@@ -113,7 +161,7 @@ class PhoneStartChoreographyTest {
         assertEquals(1f, selectedBeforeDelay.alpha, 0f)
     }
 
-    @Test fun classicReturnTurnsOuterFaceAndInnerContentOnSeparateTracks() {
+    @Test fun classicReturnStaggersFacesWithoutMovingTheirContentsOutside() {
         val firstBeforeDelay = classicFrame(exiting = false, elapsed = 13, index = .07f)
         val first = classicFrame(exiting = false, elapsed = 14, index = .07f)
         val delayed = classicFrame(exiting = false, elapsed = 0, index = 1f)
@@ -125,25 +173,19 @@ class PhoneStartChoreographyTest {
         assertEquals(1f, classicFrame(false, 200, 1f).alpha, 0f)
         assertEquals(0f, classicFrame(false, 700, 1f).rotationY, .001f)
 
-        val content = PhoneStartChoreography.sampleInnerEntry(14, .07f, height, 1f)
-        assertEquals(45f, content.rotationY, .001f)
-        assertEquals(60f, content.translationXPx, .001f)
-        val settledContent = PhoneStartChoreography.sampleInnerEntry(364, .07f, height, 1f)
-        assertEquals(0f, settledContent.rotationY, .001f)
-        assertEquals(0f, settledContent.translationXPx, .001f)
         assertEquals(0f, classicFrame(false, 700, 0f).rotationY, .001f)
     }
 
     @Test fun nativeHomeKeepsTheSecondPageVisibleThroughTheTileCascade() {
-        val hidden = PhoneStartChoreography.sampleAppsPageEntry(49, width)
+        val hidden = PhoneStartChoreography.sampleAppsPageEntry(26, width)
         assertEquals(0f, hidden.alpha, 0f)
         val moving = PhoneStartChoreography.sampleAppsPageEntry(112, width)
         assertEquals(1f, moving.alpha, 0f)
-        assertTrue(moving.rotationY in 20f..50f)
+        assertTrue(moving.rotationY in 40f..60f)
         val corner = PhoneStartChoreography.projectAppsPagePoint(0f, height/2f,
             width, height, moving.rotationY)
-        assertTrue("All Apps must still occupy the right of Start", corner.xCssPx in 180f..300f)
-        val settled = PhoneStartChoreography.sampleAppsPageEntry(400, width)
+        assertTrue("All Apps must still occupy the right of Start", corner.xCssPx in 150f..230f)
+        val settled = PhoneStartChoreography.sampleAppsPageEntry(527, width)
         assertEquals(0f, settled.rotationY, 0f)
         assertEquals(1f, settled.alpha, 0f)
     }

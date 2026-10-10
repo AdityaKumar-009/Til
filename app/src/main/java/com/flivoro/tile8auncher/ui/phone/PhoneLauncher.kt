@@ -1292,6 +1292,17 @@ private fun PhoneStartGrid(
         val animationOrder = visibleSlotIndices.asReversed().withIndex()
             .associate { (rank, slotIndex) -> slotIndex to rank }
         val visibleSlotCount = visibleSlotIndices.size
+        val forwardWavePositions = slots.map { slot ->
+            PhoneStartChoreography.nativeForwardWavePosition(
+                (side + (cell + gap) * slot.column +
+                    (cell * slot.columns + gap * (slot.columns - 1)) / 2).value,
+                (topInsetPx - scrollOffsetPx) / density +
+                    ((cell + gap) * slot.row +
+                        (cell * slot.rows + gap * (slot.rows - 1)) / 2).value,
+                viewportWidthCssPx,
+            )
+        }
+        val firstForwardWavePosition = visibleSlotIndices.minOfOrNull { forwardWavePositions[it] } ?: 0f
         val visibleTops = slots.mapNotNull { slot ->
             val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
             val slotHeight = slot.rows * cellStepPx
@@ -1311,7 +1322,12 @@ private fun PhoneStartGrid(
                     PhoneTile(
                         tile = tile, mode = mode,
                         visibleRowFraction = rowFraction,
-                        animationIndex = animationOrder[index]?.let { rank ->
+                        animationIndex = if (mode == LauncherUiMode.PHONE_8 &&
+                            !isLaunching && !resumeUsesBackMotion) {
+                            PhoneStartChoreography.nativeForwardAnimationIndex(
+                                forwardWavePositions[index], firstForwardWavePosition,
+                            )
+                        } else animationOrder[index]?.let { rank ->
                             PhoneStartChoreography.visibleTileAnimationIndex(rank, visibleSlotCount)
                         } ?: 0f,
                         viewportHeightCssPx = viewportHeightCssPx,
@@ -1444,28 +1460,8 @@ private fun PhoneTile(
         tile = tile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
-        innerModifier = if (mode == LauncherUiMode.PHONE_8 && !exiting && !resumeUsesBackMotion) {
-            Modifier.drawWithContent {
-                val motion = currentMotion()
-                val inner = PhoneStartChoreography.sampleInnerEntry(
-                    elapsedMillis(), animationIndex, viewportHeightCssPx, density,
-                    entryStaggerMultiplier =
-                        PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER,
-                )
-                val outer = tileProjectionMatrix(size.width, size.height, motion)
-                val combined = tileProjectionMatrix(size.width, size.height, motion, inner)
-                val correction = nestedProjectionCorrection(outer, combined, size.width, size.height)
-                if (correction == null) {
-                    drawContent()
-                } else {
-                    val canvas = drawContext.canvas.nativeCanvas
-                    val saveCount = canvas.save()
-                    canvas.concat(correction)
-                    drawContent()
-                    canvas.restoreToCount(saveCount)
-                }
-            }
-        } else Modifier,
+        // Native glyphs and labels remain attached to the tile face throughout its turn.
+        innerModifier = Modifier,
         modifier = modifier
             .onGloballyPositioned {
                 // boundsInWindow clips partially visible tiles, moving their apparent centre.

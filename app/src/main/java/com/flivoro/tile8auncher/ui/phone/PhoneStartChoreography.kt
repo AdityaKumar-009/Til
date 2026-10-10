@@ -46,9 +46,8 @@ internal data class PhoneProjectedPoint(
 internal object PhoneStartChoreography {
     private const val CLASSIC_EXIT_MS = 175f
     private const val CLASSIC_SELECTED_EXIT_MS = 300f
-    private const val CLASSIC_ENTRY_MS = 250f
+    private const val CLASSIC_ENTRY_MS = 225f
     private const val CLASSIC_BACK_ENTRY_MS = 350f
-    private const val CLASSIC_INNER_ENTRY_MS = 250f
     private const val CLASSIC_STAGGER_MS = 200f
     // 1000197575 contains long repeated-frame holds: its 47s return must not
     // set real-time duration. Normal-speed 1000197576, 112.70–113.20s, supplies
@@ -57,8 +56,8 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_SELECTED_DELAY_MS = 200f
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
-    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 50f
-    private const val CLASSIC_APPS_PAGE_ENTRY_MS = 350f
+    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 27f
+    private const val CLASSIC_APPS_PAGE_ENTRY_MS = 500f
     // DiscoLauncher src/script.js sets --app-transition-scale from
     // appTransitionScale(window.innerHeight) at startup. The root CSS default
     // of 1 is only a fallback before that JS initialization.
@@ -70,7 +69,14 @@ internal object PhoneStartChoreography {
     private const val MOBILE_ENTRY_TILE_MS = MobileStartMotion.ENTRY_TILE_MS
 
     /** Fitted from the four face corners, not from total colored-screen area. */
-    fun nativeCameraDistance(viewportWidthCssPx: Float): Float = viewportWidthCssPx * 3.2f
+    fun nativeCameraDistance(viewportWidthCssPx: Float): Float = viewportWidthCssPx * 3.26f
+
+    /** Native's diagonal wave follows position, including mixed-size tile centres. */
+    fun nativeForwardWavePosition(centerX: Float, centerY: Float, viewportWidth: Float): Float =
+        (122f * centerX + 82f * centerY) / viewportWidth.coerceAtLeast(1f)
+
+    fun nativeForwardAnimationIndex(wavePosition: Float, firstWavePosition: Float): Float =
+        (1f - (wavePosition - firstWavePosition) / CLASSIC_STAGGER_MS).coerceIn(0f, 1f)
 
     /** DiscoLauncher’s `baseScale = innerHeight / 850 / 2 + .5`. */
     fun appTransitionScale(viewportHeightCssPx: Float): Float =
@@ -92,10 +98,10 @@ internal object PhoneStartChoreography {
     ): PhoneAppsPageEntryFrame {
         val raw = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) /
             CLASSIC_APPS_PAGE_ENTRY_MS).coerceIn(0f, 1f)
-        val progress = cubicBezier(raw, .25f, .1f, .25f, 1f)
+        val remaining = exponentialRemaining(raw, 2.84)
         return PhoneAppsPageEntryFrame(
             alpha = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) / 16f).coerceIn(0f, 1f),
-            rotationY = 50f * (1f - progress),
+            rotationY = 90f * remaining,
             translationXPx = viewportWidthCssPx,
             pivotX = -1f,
         )
@@ -322,40 +328,30 @@ internal object PhoneStartChoreography {
             )
         }
 
-        // Native Home return has a moving hinge: the face arrives from the
-        // right and from behind the screen. A fixed left-edge hinge reproduces
-        // Disco's CSS approximation, but contradicts both native recordings.
+        // All faces share the page axis behind the screen. A local hinge with
+        // the same positive offset for every tile fits the left phone tile but
+        // incorrectly sends the right-hand tiles outside the screen.
         val progress = nativeEntryRemaining(raw)
+        val angle = 80f * progress * DEG_TO_RAD
         return PhoneStartMotionFrame(
             alpha = if (elapsedMillis < delay) 0f else 1f,
             rotationY = 80f * progress,
-            translationXPx = viewportWidthCssPx * .25f * progress,
+            translationXPx = tileLeftCssPx * (cos(angle) - 1f) +
+                viewportWidthCssPx * .203f * sin(angle),
             translationYPx = 0f,
-            translationZPx = -viewportWidthCssPx * .12f * progress,
+            translationZPx = -tileLeftCssPx * sin(angle) +
+                viewportWidthCssPx * .218f * (cos(angle) - 1f),
             scale = 1f,
             pivotX = 0f,
         )
     }
 
-    fun sampleInnerEntry(
-        elapsedMillis: Int,
-        animationIndex: Float,
-        viewportHeightCssPx: Float,
-        density: Float,
-        entryStaggerMultiplier: Float = 1f,
-    ): PhoneStartInnerFrame {
-        val delay = (animationIndex.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS *
-            entryStaggerMultiplier).roundToInt()
-        val raw = ((elapsedMillis - delay) / CLASSIC_INNER_ENTRY_MS).coerceIn(0f, 1f)
-        val remaining = 1f - cubicBezier(raw, .2f, .25f, .25f, 1f)
-        return PhoneStartInnerFrame(
-            rotationY = 45f * remaining,
-            translationXPx = 60f * density * remaining,
-        )
-    }
-
     private fun nativeEntryRemaining(progress: Float): Float =
-        ((exp(3.0 * (1f - progress.coerceIn(0f, 1f))) - 1.0) / (exp(3.0) - 1.0)).toFloat()
+        exponentialRemaining(progress, 2.55)
+
+    private fun exponentialRemaining(progress: Float, exponent: Double): Float =
+        ((exp(exponent * (1f - progress.coerceIn(0f, 1f))) - 1.0) /
+            (exp(exponent) - 1.0)).toFloat()
 
     /** CSS exit used by DiscoLauncher for app-list rows, letter rows and search icon. */
     fun sampleAppListExit(

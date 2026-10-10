@@ -22,3 +22,15 @@ Independent native corner coordinates are committed as regression expectations (
 Windows 10 Mobile's motion model, Windows 8.1 Desktop renderer, and their settings/layouts were not edited. Changes remain on feature/windows-phone-launcher-modes; main is not merged.
 
 The available videos have different layouts, icons, and recording cadence. The measured coordinate fit concerns the native tile face, not a whole-experience percentage. Arbitrary Android destination-app windows and OS task-switch frames are outside this launcher renderer. Do not label the result a verified 100% match without matching post-build on-device captures.
+
+## Second renderer comparison: shared-axis correction
+
+The first fit only calibrated the left phone face. Actual Android captures revealed three remaining errors: right-side faces appeared beyond the right screen edge, People started too soon, and the independent inner-content transform displaced glyphs outside their faces.
+
+Re-measured 26 distinct face silhouettes across Phone, People, Office and Calendar in 7576 at 112.65–113.10s. Their settled coordinates must be measured in the SAME 508 x 838 resized crop (not the unscaled 512 x 846 crop). A shared page axis behind the screen fits the extracted quadrilaterals with 1.36px RMS when each frame's angle is fitted independently. The implemented camera is 3.26 times width; shared-axis offsets are 0.203 width in X/sine and 0.218 width in Z/(cosine−1). This geometric fit is distinct from clock error.
+
+The shared clock fit gives roughly 225ms face duration and exponential exponent 2.55. A diagonal wave using tile centres, 122ms per viewport width horizontally and 82ms per viewport width vertically, gives representative delays of 200ms Phone, 163ms People, 107ms Office and 97ms Calendar. This replaces reverse model order ONLY for forward WP8.1 entry. Mixed-size tiles therefore follow the same spatial wave. Back and outgoing tile ordering remain unchanged.
+
+The All Apps pane starts at 90 degrees after 27ms, rather than at 50 degrees after 50ms. Its measured leading-edge positions are x=64,152,268,295 at 45,78,112,145ms. Its fitted 500ms/exponent-2.84 turn keeps it visible behind the later faces; the pane is fully parked by 527ms. Frame quantization and an uneven 33ms recording cadence limit the precision of the clock fit.
+
+Removed WP8.1's extra 45-degree/60px glyph motion: native Phone and Office icons and their labels remain attached to the same face projection. Regression expectations now include left, right and wide native faces, with a half-source-frame timing window (±16ms) and a 12px maximum coordinate tolerance, in addition to the earlier phone observations. This is a measured reconstruction, not a claim of whole-experience identity.
