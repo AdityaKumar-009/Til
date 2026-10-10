@@ -12,20 +12,21 @@ in [`tileList.scss`](https://github.com/cherryhoax/DiscoLauncher/blob/4907389358
 so the tile layers use a matching 2000px camera distance and project the X/Z
 matrix offsets through Compose.
 
-`appTransition.js` computes `baseScale = innerHeight / 850 / 2 + .5`, filters
-the visible DOM items, reverses their order, and stores each index to two decimal
-places across `0..1`. The Compose renderer applies the same viewport scale and
-reversed order to visible Start tiles. It includes the page-navigation banner
-as index zero, as DiscoLauncher does.
+`appTransition.js` computes `baseScale = innerHeight / 850 / 2 + .5` for its
+`launchHide()` timeout. It filters visible DOM items, reverses their order, and
+stores each index to two decimal places across `0..1`. The CSS stagger uses the
+root `--app-transition-scale`, whose value is `1`; it does not use `baseScale`.
+The Compose renderer keeps those scales separate and includes the page-navigation
+banner as index zero, as DiscoLauncher does.
 
 ## Start tile exit and return
 
 | Motion | Timing and curve | Transform |
 | --- | --- | --- |
-| Unselected Start exit | 175 ms; delay `index × 200 ms × baseScale`; `cubic-bezier(.75, 0, 1, 0)` | Left-edge turn; compound −30°/−10° rotations; `−25vw` travel; opacity drops only at the final frame |
-| Selected Start exit | 300 ms; delay `200 ms × baseScale`; same curve | Same tile transform and terminal opacity |
-| Start handoff | `selected delay + 300 ms + 200 ms` | Waits for the turned-away pose before requesting the app |
-| Start return from Home | 500 ms; delay `index × 200 ms × baseScale`; `cubic-bezier(.3, 1, .2, 1)` | 70° combined left-edge turn to face-on; forward-resume distance is zero |
+| Unselected Start exit | 175 ms; delay `index × 200 ms`; `cubic-bezier(.75, 0, 1, 0)` | Left-edge turn; compound −30°/−10° rotations; `−25vw` travel; opacity drops only at the final frame |
+| Selected Start exit | 300 ms; delay `200 ms`; same curve | Same tile transform and terminal opacity |
+| Start handoff | `launchHide()`; viewport `baseScale` affects the overall timeout | Waits for the turned-away pose before requesting the app |
+| Start return from Home | 500 ms; delay `index × 200 ms`; `cubic-bezier(.3, 1, .2, 1)` | 70° combined left-edge turn to face-on; forward-resume distance is zero |
 | All Apps page behind Start | 100 ms delay, then 750 ms; `cubic-bezier(.05, 1, .1, 1)` | Second page turns from 45° to face-on and fades from 0 to 1; both its `perspective-origin` and `transform-origin` sit at the Start page's left edge |
 | Start return from Back | 500 ms; same per-tile delay; `cubic-bezier(.05, 1, .1, 1)` | The DiscoLauncher back keyframe's −80° compound turn and X/Z offset, pivoted at the page's left edge; opacity follows its 0–1% reveal keyframes |
 | Start return, inner content | 350 ms; same per-tile delay; `cubic-bezier(.2, .25, .25, 1)` | Forward/Home return only: icon/text begins 60 px to the right and at 45°, independently of the tile background |
@@ -59,17 +60,21 @@ X/Z pose. The old guessed 84° right-edge hinge, unreserved tile ranks, and
 
 ## All Apps exit
 
-The app-list path uses DiscoLauncher’s distinct 200 ms row turn, reversed
-visible-item index, and `.75, 0, 1, 0` exit easing. Its selected row starts at
-300 ms. Rows turn −90° around the list edge and travel by `1000px / -3`; letter
-rows additionally leave by `-100vw`. Their perspective comes from the source
-app list's 2000px camera. The overall handoff uses the same `launchHide()`
-envelope as Start.
+The app-list page now also uses DiscoLauncher’s mobile geometry: a 42px search
+circle at `(25px, 26px)`, rows starting at 81px and ending 19px before the
+viewport edge, 64px row height, 52px icons, and 30px labels. This matters during
+the Home return because the complete All Apps page is projected behind the
+entering Start tiles. App launches from that page use DiscoLauncher’s distinct
+200 ms row turn, reversed visible-item index, and `.75, 0, 1, 0` exit easing.
+The selected row starts at 300 ms. Rows turn −90° around the list edge and
+travel by `1000px / -3`; letter rows additionally leave by `-100vw`. Their
+perspective comes from the source app list's 2000px camera. The overall handoff
+uses the same `launchHide()` envelope as Start.
 
 ## Renderer checks
 
-`PhoneStartChoreographyTest` checks the viewport-scaled total, selected and
-stagger delays, both return paths, the separate Home inner-layer track, the
+`PhoneStartChoreographyTest` checks the viewport-scaled `launchHide()` timeout,
+fixed CSS stagger delays, both return paths, the separate Home inner-layer track, the
 All Apps page's projected corners, terminal transforms, the composed CSS Back
 matrix, app-list letter travel, and finite frame samples. The instrumented
 renderer exports 16 ms WP8.1 frames for Home-return, Start exit/Back-return,

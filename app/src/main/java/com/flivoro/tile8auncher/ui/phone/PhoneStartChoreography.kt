@@ -53,10 +53,12 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_APPS_EXIT_MS = 200f
     private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 100f
     private const val CLASSIC_APPS_PAGE_ENTRY_MS = 750f
+    // DiscoLauncher sets --app-transition-scale to 1. The viewport-derived
+    // baseScale below is used by launchHide(), not by the per-element CSS delays.
+    private const val CLASSIC_ELEMENT_STAGGER_SCALE = 1f
     private const val FLOW_PERSPECTIVE_CSS_PX = 1000f
     const val CLASSIC_TILE_PERSPECTIVE_CSS_PX = 2000f
     const val CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX = 1000f
-    private const val CLASSIC_EXIT_HOLD_MS = 200f
     private const val REFERENCE_VIEWPORT_HEIGHT = 850f
     private const val MOBILE_EXIT_TILE_MS = MobileStartMotion.EXIT_TILE_MS
     private const val MOBILE_ENTRY_TILE_MS = MobileStartMotion.ENTRY_TILE_MS
@@ -128,12 +130,18 @@ internal object PhoneStartChoreography {
         )
     }
 
-    private fun delayMillis(index: Float, viewportHeightCssPx: Float): Int =
-        (index.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx))
+    private fun delayMillis(index: Float, @Suppress("UNUSED_PARAMETER") viewportHeightCssPx: Float): Int =
+        (index.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS * CLASSIC_ELEMENT_STAGGER_SCALE)
             .roundToInt()
 
-    fun selectedExitDelayMillis(viewportHeightCssPx: Float): Int =
-        (CLASSIC_SELECTED_DELAY_MS * appTransitionScale(viewportHeightCssPx)).roundToInt()
+    fun selectedExitDelayMillis(@Suppress("UNUSED_PARAMETER") viewportHeightCssPx: Float): Int =
+        (CLASSIC_SELECTED_DELAY_MS * CLASSIC_ELEMENT_STAGGER_SCALE).roundToInt()
+
+    /** DiscoLauncher's `launchHide()` timeout, including its viewport baseScale. */
+    private fun launchHideMillis(viewportHeightCssPx: Float): Int {
+        val scale = appTransitionScale(viewportHeightCssPx)
+        return ((.2f + .2f * scale + .2f + .1f) * 1000f).roundToInt()
+    }
 
     /** `launchHide()` hides Start 200ms after the selected tile's 300ms exit ends. */
     fun totalMillis(
@@ -141,12 +149,9 @@ internal object PhoneStartChoreography {
         exiting: Boolean,
         viewportHeightCssPx: Float = REFERENCE_VIEWPORT_HEIGHT,
     ): Int = when (mode) {
-        LauncherUiMode.PHONE_8 -> if (exiting) {
-            (selectedExitDelayMillis(viewportHeightCssPx) + CLASSIC_SELECTED_EXIT_MS +
-                CLASSIC_EXIT_HOLD_MS).roundToInt()
-        } else {
+        LauncherUiMode.PHONE_8 -> if (exiting) launchHideMillis(viewportHeightCssPx) else {
             maxOf(
-                (CLASSIC_ENTRY_MS + CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx))
+                (CLASSIC_ENTRY_MS + CLASSIC_STAGGER_MS * CLASSIC_ELEMENT_STAGGER_SCALE)
                     .roundToInt(),
                 (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
             )

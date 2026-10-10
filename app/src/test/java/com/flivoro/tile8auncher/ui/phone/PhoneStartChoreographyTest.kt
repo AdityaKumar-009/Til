@@ -38,6 +38,10 @@ class PhoneStartChoreographyTest {
         assertEquals(200, PhoneStartChoreography.delayMillis(
             eight, true, .95f, height, selected = true,
         ))
+        assertEquals("Disco's CSS app-transition-scale defaults to 1 at every viewport height",
+            200, PhoneStartChoreography.delayMillis(eight, true, 1f, 637.5f))
+        assertEquals(200, PhoneStartChoreography.delayMillis(eight, true, 1f, 637.5f))
+        assertEquals(675, PhoneStartChoreography.totalMillis(eight, true, 637.5f))
 
         val first = classicFrame(exiting = true, elapsed = 0, index = 0f)
         val last = classicFrame(exiting = true, elapsed = 0, index = 1f)

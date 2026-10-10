@@ -305,10 +305,12 @@ class PhoneMotionRenderTest {
     }
 
     private fun brightPixelsInAppLabelRegion(bitmap: Bitmap): Int {
-        val left = (bitmap.width * .16f).toInt()
-        val right = (bitmap.width * .41f).toInt()
-        val top = (bitmap.height * .205f).toInt()
-        val bottom = (bitmap.height * .30f).toInt()
+        // DiscoLauncher places app rows at x=81px; their 52px icon and 12px
+        // title gap put the label around x=145px on a 360px CSS viewport.
+        val left = (bitmap.width * .37f).toInt()
+        val right = (bitmap.width * .95f).toInt()
+        val top = (bitmap.height * .14f).toInt()
+        val bottom = (bitmap.height * .40f).toInt()
         var count = 0
         for (y in top until bottom step 2) {
             for (x in left until right step 2) {

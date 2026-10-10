@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -43,6 +44,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -227,9 +229,13 @@ fun PhoneLauncherSurface(
     var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var homeBannerBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     val viewportHeightCssPx = (paneBounds.height / densityScale).takeIf { it > 0f } ?: 850f
-    val appListContentLeftCssPx = 18f
+    val isClassicPhone = mode == LauncherUiMode.PHONE_8
+    val appListContentLeftCssPx = if (isClassicPhone) 81f else 18f
+    val appListSearchLeftCssPx = 25f
+    val appListSearchSizeCssPx = 42f
     val appListContentWidthCssPx =
-        (surfaceBounds.width / densityScale - 32f).coerceAtLeast(1f)
+        (surfaceBounds.width / densityScale - if (isClassicPhone) 100f else 32f)
+            .coerceAtLeast(1f)
     val listPhase = PhoneMotionPhase.FORWARD_OUT
     // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
     // can expire before Compose has even presented the first animation frame.
@@ -513,7 +519,7 @@ fun PhoneLauncherSurface(
                         suppressReturnPaneTransition && !resumeUsesBackMotion
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
                         suppressReturnPaneTransition && resumeUsesBackMotion
-                    Column(Modifier.fillMaxSize()
+                    Box(Modifier.fillMaxSize()
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
                                 else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
@@ -588,37 +594,17 @@ fun PhoneLauncherSurface(
                             drawContent()
                             canvas.restoreToCount(saveCount)
                         } else Modifier)
-                        .padding(start = 18.dp, end = 14.dp)
                         .then(if (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8) {
                             Modifier.testTag("wp81-home-return-app-page")
                         } else Modifier)) {
-                        if (!isTen && !phone8SearchVisible) {
-                            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
-                                Text("⌕", color = Color.White, fontSize = 30.sp,
-                                    modifier = Modifier.graphicsLayer {
-                                        alpha = 1f
-                                        rotationY = 0f
-                                        translationX = 0f
-                                        if (isLaunching && mode == LauncherUiMode.PHONE_8) {
-                                            val motion = PhoneStartChoreography.sampleAppListExit(
-                                                elapsedMillis = motionClock.value.roundToInt(),
-                                                animationIndex = 1f,
-                                                viewportHeightCssPx = viewportHeightCssPx,
-                                                viewportWidthCssPx = surfaceBounds.width / densityScale,
-                                                tileLeftCssPx = appListContentLeftCssPx,
-                                                tileWidthCssPx = appListContentWidthCssPx,
-                                            )
-                                            alpha = motion.alpha
-                                            rotationY = motion.rotationY
-                                            translationX = motion.translationXPx * densityScale
-                                            transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                                            cameraDistance =
-                                                PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
-                                        }
-                                    }.clickable { phone8SearchVisible = true }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp))
-                            }
-                        }
+                        Column(
+                            Modifier.fillMaxSize().padding(
+                                start = if (isClassicPhone) 81.dp else 18.dp,
+                                end = if (isClassicPhone) 19.dp else 14.dp,
+                                top = if (isClassicPhone) 21.dp else 0.dp,
+                                bottom = if (isClassicPhone) 21.dp else 0.dp,
+                            ),
+                        ) {
                         if (isTen || phone8SearchVisible) {
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.foundation.text.BasicTextField(
@@ -638,7 +624,7 @@ fun PhoneLauncherSurface(
                                 modifier = Modifier.clickable(onClick = onOpenSettings).padding(9.dp))
                         }
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(if (isClassicPhone) 0.dp else 12.dp))
                         val filtered = remember(visibleApps, search) {
                             visibleApps.filter { it.label.contains(search, ignoreCase = true) }
                         }
@@ -679,10 +665,9 @@ fun PhoneLauncherSurface(
                             userScrollEnabled = interactionEnabled && !isLaunching) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
-                                    Text(letter, color = accent,
-                                        fontSize = if (letter == "Recently installed") 20.sp else 29.sp,
-                                        fontWeight = FontWeight.Light,
-                                        modifier = Modifier.fillMaxWidth().graphicsLayer {
+                                    val letterModifier = Modifier.fillMaxWidth()
+                                        .then(if (isClassicPhone) Modifier.height(64.dp) else Modifier)
+                                        .graphicsLayer {
                                             alpha = 1f
                                             rotationY = 0f
                                             translationX = 0f
@@ -710,7 +695,27 @@ fun PhoneLauncherSurface(
                                             enabled = letter == "#" ||
                                                 (letter.length == 1 && letter[0].isLetter()),
                                         ) { alphabetOpen = true }
-                                            .padding(vertical = 10.dp, horizontal = 2.dp))
+                                    if (isClassicPhone && letter.length == 1) {
+                                        Row(letterModifier, verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                Modifier.padding(vertical = 6.dp).size(52.dp)
+                                                    .border(3.dp, accent),
+                                                contentAlignment = Alignment.TopStart,
+                                            ) {
+                                                Text(letter, color = accent, fontSize = 30.sp,
+                                                    fontWeight = FontWeight.Light,
+                                                    modifier = Modifier.padding(start = 8.dp, top = 5.dp))
+                                            }
+                                        }
+                                    } else {
+                                        Text(letter, color = accent,
+                                            fontSize = if (letter == "Recently installed") 20.sp else 29.sp,
+                                            fontWeight = FontWeight.Light,
+                                            modifier = letterModifier.padding(
+                                                vertical = if (isClassicPhone) 0.dp else 10.dp,
+                                                horizontal = if (isClassicPhone) 0.dp else 2.dp,
+                                            ))
+                                    }
                                 }
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
@@ -723,7 +728,8 @@ fun PhoneLauncherSurface(
                                     // The app list is stationary within its horizontally
                                     // moving pane; only actual app launch feathers the rows.
                                     Row(
-                                        Modifier.fillMaxWidth().height(60.dp)
+                                        Modifier.fillMaxWidth()
+                                            .height(if (isClassicPhone) 64.dp else 60.dp)
                                             .graphicsLayer {
                                                 // Draw-layer read avoids relaying every animation
                                                 // tick through lazy-row recomposition.
@@ -775,17 +781,29 @@ fun PhoneLauncherSurface(
                                                 onClick = { onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS) },
                                                 onLongClick = { editing = "app:${app.packageName}" },
                                             )
-                                            .padding(vertical = 5.dp),
+                                            .padding(vertical = if (isClassicPhone) 0.dp else 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Box(Modifier.size(45.dp).background(accent), contentAlignment = Alignment.Center) {
+                                        Box(Modifier
+                                            .then(if (isClassicPhone) Modifier.padding(5.dp) else Modifier)
+                                            .size(if (isClassicPhone) 52.dp else 45.dp)
+                                            .background(accent), contentAlignment = Alignment.Center) {
                                             if (icon != null) androidx.compose.foundation.Image(
-                                                bitmap = icon, contentDescription = null, modifier = Modifier.size(28.dp))
-                                            else Text(app.label.take(1), color = Color.White, fontSize = 22.sp)
+                                                bitmap = icon, contentDescription = null,
+                                                modifier = Modifier.size(if (isClassicPhone) 34.dp else 28.dp))
+                                            else Text(app.label.take(1), color = Color.White,
+                                                fontSize = if (isClassicPhone) 28.sp else 22.sp)
                                         }
-                                        Text(app.label, color = Color.White, fontSize = 18.sp,
+                                        Text(app.label, color = Color.White,
+                                            fontSize = if (isClassicPhone) 30.sp else 18.sp,
+                                            fontWeight = if (isClassicPhone) FontWeight.Light else FontWeight.Normal,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f).padding(start = 14.dp))
+                                            modifier = Modifier.weight(1f)
+                                                .padding(
+                                                    start = if (isClassicPhone) 12.dp else 14.dp,
+                                                    top = if (isClassicPhone) 12.dp else 0.dp,
+                                                    bottom = if (isClassicPhone) 12.dp else 0.dp,
+                                                ))
                                     }
                                 }
                             }
@@ -808,6 +826,38 @@ fun PhoneLauncherSurface(
                                         }
                                 }
                             }
+                        }
+                    }
+                    if (isClassicPhone && !phone8SearchVisible) {
+                        Box(
+                            Modifier.offset(x = appListSearchLeftCssPx.dp, y = 26.dp)
+                                .size(appListSearchSizeCssPx.dp)
+                                .graphicsLayer {
+                                    if (isLaunching) {
+                                        val motion = PhoneStartChoreography.sampleAppListExit(
+                                            elapsedMillis = motionClock.value.roundToInt(),
+                                            animationIndex = 1f,
+                                            viewportHeightCssPx = viewportHeightCssPx,
+                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                            tileLeftCssPx = appListSearchLeftCssPx,
+                                            tileWidthCssPx = appListSearchSizeCssPx,
+                                        )
+                                        alpha = motion.alpha
+                                        rotationY = motion.rotationY
+                                        translationX = motion.translationXPx * densityScale
+                                        transformOrigin = TransformOrigin(motion.pivotX, .5f)
+                                        cameraDistance =
+                                            PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
+                                    }
+                                }
+                                .border(3.dp, Color.White, CircleShape)
+                                .clickable(enabled = interactionEnabled && !isLaunching) {
+                                    phone8SearchVisible = true
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("⌕", color = Color.White, fontSize = 20.sp,
+                                modifier = Modifier.offset(x = 13.dp, y = 10.dp))
                         }
                     }
                 }
