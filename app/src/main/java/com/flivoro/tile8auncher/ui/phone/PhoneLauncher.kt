@@ -324,14 +324,10 @@ fun PhoneLauncherSurface(
         (surfaceBounds.width / densityScale - if (isClassicPhone) 100f else 32f)
             .coerceAtLeast(1f)
     val listPhase = PhoneMotionPhase.FORWARD_OUT
-    // The supplied native WP8.1 footage reveals tiles over ~1.0s, whereas
-    // the previous Disco-only 850ms choreography visually finished too early
-    // after Android's window handoff. Stretch the *presentation clock* only
-    // for forward classic entrances. Keep Disco's original transform keyframes,
-    // 3D pivots and per-tile relative stagger in source-time coordinates.
-    // W10M, app exits and horizontal panorama swipes are deliberately unchanged.
-    val classicForwardSpeed = if (isClassicPhone && !isLaunching && !resumeUsesBackMotion)
-        1.45f else 1f
+    // The native reference's ~1s tile reveal is a CASCADE, not a uniformly
+    // slowed 3D turn. Keep Disco's individual 500/350ms face/glyph easing and
+    // use a longer native-observed tile-to-tile stagger for forward Start entry.
+    // App exit, Back, desktop and W10M retain their independent durations.
     // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
     // can expire before Compose has even presented the first animation frame.
     val duration = if (isLaunching && showApps && mode == LauncherUiMode.PHONE_8) {
@@ -341,10 +337,12 @@ fun PhoneLauncherSurface(
     } else if (isLaunching && showApps) {
         maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
-    } else (PhoneStartChoreography.totalMillis(
+    } else if (isClassicPhone && !isLaunching && !resumeUsesBackMotion) {
+        PhoneStartChoreography.classicNativeForwardTotalMillis(viewportHeightCssPx)
+    } else PhoneStartChoreography.totalMillis(
         mode, exiting = isLaunching,
         viewportHeightCssPx = viewportHeightCssPx,
-    ) * classicForwardSpeed).roundToInt()
+    )
     val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion) {
         Animatable(0f)
     }
@@ -356,10 +354,9 @@ fun PhoneLauncherSurface(
     ) {
         mutableStateOf(isClassicPhone && !isLaunching && !resumeUsesBackMotion)
     }
-    // Sample all classic forward tracks at one slowed source timestamp,
-    // otherwise inner glyphs, Start faces and the All Apps page desynchronize.
-    fun sourceMotionMillis(): Int =
-        (motionClock.value / classicForwardSpeed).roundToInt()
+    // Every layer shares one display-synchronized timeline. Relative tile
+    // cascade delay is calibrated inside the classic choreography.
+    fun sourceMotionMillis(): Int = motionClock.value.roundToInt()
     val exitTileId = remember(isLaunching) { launchingTileId }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
     val latestDuration by rememberUpdatedState(duration)
@@ -575,6 +572,8 @@ fun PhoneLauncherSurface(
                                 viewportWidthCssPx = widthCss,
                                 tileLeftCssPx = leftCss,
                                 resumeUsesBackMotion = resumeUsesBackMotion,
+                                entryStaggerMultiplier =
+                                    PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER,
                                 tileWidthCssPx = (homeBannerBounds.width / densityScale)
                                     .takeIf { it > 0f } ?: 54f,
                             )
@@ -1323,6 +1322,8 @@ private fun PhoneTile(
         resumeUsesBackMotion = resumeUsesBackMotion,
         tileWidthCssPx = tileWidthCssPx,
         selected = selectedTile,
+        entryStaggerMultiplier =
+            PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER,
     )
 
     fun elementLeftCssPx(): Float = if (bounds.width > 0f && viewportBounds.width > 0f) {
@@ -1374,6 +1375,8 @@ private fun PhoneTile(
                 val motion = currentMotion()
                 val inner = PhoneStartChoreography.sampleInnerEntry(
                     elapsedMillis(), animationIndex, viewportHeightCssPx, density,
+                    entryStaggerMultiplier =
+                        PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER,
                 )
                 val outer = tileProjectionMatrix(size.width, size.height, motion)
                 val combined = tileProjectionMatrix(size.width, size.height, motion, inner)
