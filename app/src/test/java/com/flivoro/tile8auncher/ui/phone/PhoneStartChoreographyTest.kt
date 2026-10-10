@@ -26,10 +26,6 @@ class PhoneStartChoreographyTest {
         assertEquals(1f, PhoneStartChoreography.visibleTileAnimationIndex(0, 1), 0f)
         assertEquals(2000f, PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX, 0f)
         assertEquals(1000f, PhoneStartChoreography.CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX, 0f)
-        assertEquals(6000f / 5640f,
-            PhoneStartChoreography.projectedDepthScale(120f, 6000f, 3f), .001f)
-        assertEquals(2000f / 2052.2368f,
-            PhoneStartChoreography.projectedDepthScale(-52.23689f, 6000f, 3f), .001f)
     }
 
     @Test fun classicExitUsesReverseVisibleOrderAndSelectedTileDelay() {
@@ -40,7 +36,6 @@ class PhoneStartChoreographyTest {
         ))
         assertEquals("Disco's CSS app-transition-scale defaults to 1 at every viewport height",
             200, PhoneStartChoreography.delayMillis(eight, true, 1f, 637.5f))
-        assertEquals(200, PhoneStartChoreography.delayMillis(eight, true, 1f, 637.5f))
         assertEquals(675, PhoneStartChoreography.totalMillis(eight, true, 637.5f))
 
         val first = classicFrame(exiting = true, elapsed = 0, index = 0f)
@@ -56,6 +51,15 @@ class PhoneStartChoreographyTest {
 
     @Test fun classicExitUsesFortyDegreeLeftEdgeTurnAndDepthTranslation() {
         val tileLeft = 120f
+        val moving = classicFrame(true, 87, index = 0f, tileLeft = tileLeft)
+        val matrixProgress = -moving.rotationY / 40f
+        val endX = -width * .25f + tileLeft * (kotlin.math.cos(Math.toRadians(30.0)).toFloat() - 1f)
+        assertTrue("The exit sample must be between its source keyframes", matrixProgress in 0f..1f)
+        assertEquals("CSS matrix interpolation lerps the decomposed endpoint X",
+            endX * matrixProgress, moving.translationXPx, .001f)
+        assertEquals("CSS matrix interpolation lerps the decomposed endpoint Z",
+            tileLeft * .5f * matrixProgress, moving.translationZPx, .001f)
+
         val final = classicFrame(true, 400, index = 0f, tileLeft = tileLeft)
         assertEquals(-40f, final.rotationY, .001f)
         assertEquals(-90f + tileLeft * (kotlin.math.cos(Math.PI / 6).toFloat() - 1f),
@@ -90,7 +94,7 @@ class PhoneStartChoreographyTest {
         assertEquals(0f, classicFrame(false, 700, 0f).rotationY, .001f)
     }
 
-    @Test fun classicHomeResumeAlsoTurnsTheAllAppsPageBehindStart() {
+    @Test fun classicHomeResumeUsesDiscoForwardCurveForTheAllAppsPage() {
         val start = PhoneStartChoreography.sampleAppsPageEntry(100, width)
         assertEquals(0f, start.alpha, 0f)
         assertEquals(45f, start.rotationY, 0f)
@@ -100,7 +104,14 @@ class PhoneStartChoreographyTest {
         val moving = PhoneStartChoreography.sampleAppsPageEntry(460, width)
         assertTrue(moving.alpha > 0f && moving.alpha < 1f)
         assertTrue(moving.rotationY > 0f && moving.rotationY < 45f)
+        assertEquals("Opacity and rotation share Disco's forward easing",
+            45f * (1f - moving.alpha), moving.rotationY, .001f)
         assertEquals(width, moving.translationXPx, 0f)
+
+        val nearEnd = PhoneStartChoreography.sampleAppsPageEntry(800, width)
+        assertTrue("Disco's forward curve turns the Apps page almost face-on early",
+            nearEnd.rotationY < 1f)
+        assertEquals(45f * (1f - nearEnd.alpha), nearEnd.rotationY, .001f)
 
         val settled = PhoneStartChoreography.sampleAppsPageEntry(850, width)
         assertEquals(1f, settled.alpha, 0f)
@@ -135,6 +146,37 @@ class PhoneStartChoreographyTest {
             rotationYDegrees = 0f,
         )
         assertEquals(width, settledLeft.xCssPx, .001f)
+    }
+
+    @Test fun classicTileProjectionUsesTheStartPageCameraOrigin() {
+        val entering = classicFrame(exiting = false, elapsed = 14, index = .07f)
+        val hinge = PhoneStartChoreography.projectPlanePoint(
+            localXPx = 0f,
+            localYPx = 0f,
+            elementLeftCssPx = 120f,
+            elementTopCssPx = 80f,
+            elementWidthCssPx = 80f,
+            elementHeightCssPx = 100f,
+            viewportWidthCssPx = width,
+            viewportHeightCssPx = height,
+            motion = entering,
+        )
+        val farTop = PhoneStartChoreography.projectPlanePoint(
+            localXPx = 80f,
+            localYPx = 0f,
+            elementLeftCssPx = 120f,
+            elementTopCssPx = 80f,
+            elementWidthCssPx = 80f,
+            elementHeightCssPx = 100f,
+            viewportWidthCssPx = width,
+            viewportHeightCssPx = height,
+            motion = entering,
+        )
+        assertEquals("The CSS left-edge hinge stays fixed", 120f, hinge.xCssPx, .001f)
+        assertEquals("The camera belongs to the screen-wide parent, not this tile",
+            80f, hinge.yCssPx, .001f)
+        assertEquals(148.55f, farTop.xCssPx, .05f)
+        assertEquals(92.33f, farTop.yCssPx, .05f)
     }
 
     @Test fun classicBackReturnMatchesDiscoBackKeyframeMatrixAndReveal() {

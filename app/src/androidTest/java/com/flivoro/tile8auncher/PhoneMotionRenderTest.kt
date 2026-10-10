@@ -73,9 +73,28 @@ class PhoneMotionRenderTest {
             AppSection("A", listOf(
                 AppInfo("Alpha", "com.example.alpha", "com.example.alpha.Main"),
                 AppInfo("Alpine", "com.example.alpine", "com.example.alpine.Main"),
+                AppInfo("App Social", "com.example.social", "com.example.social.Main"),
             )),
             AppSection("B", listOf(
                 AppInfo("Beta", "com.example.beta", "com.example.beta.Main"),
+                AppInfo("Budíky", "com.example.clocks", "com.example.clocks.Main"),
+            )),
+            AppSection("C", listOf(
+                AppInfo("Cestování", "com.example.travel", "com.example.travel.Main"),
+                AppInfo("Camera", "com.example.camera", "com.example.camera.Main"),
+            )),
+            AppSection("F", listOf(
+                AppInfo("Finance", "com.example.finance", "com.example.finance.Main"),
+                AppInfo("Fotky", "com.example.photos", "com.example.photos.Main"),
+            )),
+            AppSection("H", listOf(
+                AppInfo("HERE Maps", "com.example.maps", "com.example.maps.Main"),
+            )),
+            AppSection("O", listOf(
+                AppInfo("Office", "com.example.office", "com.example.office.Main"),
+            )),
+            AppSection("T", listOf(
+                AppInfo("Telefon", "com.example.phone", "com.example.phone.Main"),
             )),
         )
         val launching = mutableStateOf(false)
@@ -150,8 +169,8 @@ class PhoneMotionRenderTest {
             difference(resting, capture("02-return-settled")) < .01)
 
         if (mode == LauncherUiMode.PHONE_8) {
-            // DiscoLauncher snaps the panorama to Start but still turns the
-            // second All Apps page behind the entering Start tiles.
+            // DiscoLauncher snaps the panorama to Start and runs the second
+            // Apps page's own forward turn behind the entering Start tiles.
             compose.onNodeWithText("⌕").performClick()
             compose.mainClock.advanceTimeBy(400)
             compose.onNodeWithText("Alpha").assertExists()
@@ -170,6 +189,7 @@ class PhoneMotionRenderTest {
             assertTrue("Disco's Apps page begins transparent before its delayed turn",
                 brightPixelsInAppsSearchRegion(homeReturnStart) < 5)
             var homeReturnMidpoint: Bitmap? = null
+            var appsPageRowsFrame: Bitmap? = null
             var appsPageVisibleFrame: Bitmap? = null
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
@@ -178,9 +198,12 @@ class PhoneMotionRenderTest {
                     assertTrue("First Start tiles should appear after the banner's index-zero lead",
                         chromaticFraction(frame) > .0005)
                 }
+                if (elapsed == 112) appsPageRowsFrame = frame
                 if (elapsed == 160) appsPageVisibleFrame = frame
                 if (elapsed == 256) homeReturnMidpoint = frame
             }
+            assertTrue("All Apps row labels must turn into view behind the entering Start tiles",
+                brightPixelsInAppLabelRegion(checkNotNull(appsPageRowsFrame)) > 5)
             assertTrue("All Apps search control must be visibly projected behind Start",
                 brightPixelsInAppsSearchRegion(checkNotNull(appsPageVisibleFrame)) > 5)
             assertTrue("WP8.1 Start tiles must enter during the Home return",

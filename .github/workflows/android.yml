@@ -75,6 +75,17 @@ jobs:
           profile: pixel_2
           disable-animations: false
           script: bash .github/scripts/verify-phone-motion.sh
+      - name: Render WP8.1 Home-return preview video
+        if: always()
+        run: python3 .github/scripts/render-wp81-home-return.py
+      - name: Upload WP8.1 Home-return preview video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp81-home-return-preview
+          path: app/build/motion-preview/Til-WP81-Home-Return-Preview.mp4
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload frame captures and device test results
         if: always()
         uses: actions/upload-artifact@v4

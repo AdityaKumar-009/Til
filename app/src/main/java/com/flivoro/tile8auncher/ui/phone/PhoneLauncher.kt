@@ -113,6 +113,81 @@ import kotlin.math.roundToInt
 /** Phone Start coordinates are independent from Desktop's horizontal tile-group coordinates. */
 internal data class PhoneTileSlot(val column: Int, val row: Int, val columns: Int, val rows: Int)
 
+private fun projectPlaneMatrix(
+    widthPx: Float,
+    heightPx: Float,
+    density: Float,
+    elementLeftCssPx: Float,
+    elementTopCssPx: Float,
+    project: (Float, Float) -> PhoneProjectedPoint,
+): PlatformMatrix {
+    val source = floatArrayOf(0f, 0f, widthPx, 0f, widthPx, heightPx, 0f, heightPx)
+    val destination = FloatArray(8)
+    val corners = arrayOf(
+        0f to 0f,
+        widthPx to 0f,
+        widthPx to heightPx,
+        0f to heightPx,
+    )
+    corners.forEachIndexed { index, (xPx, yPx) ->
+        val point = project(xPx / density, yPx / density)
+        destination[index * 2] = (point.xCssPx - elementLeftCssPx) * density
+        destination[index * 2 + 1] = (point.yCssPx - elementTopCssPx) * density
+    }
+    return PlatformMatrix().also { matrix ->
+        if (!matrix.setPolyToPoly(source, 0, destination, 0, 4)) {
+            matrix.reset()
+        }
+    }
+}
+
+private fun nestedProjectionCorrection(
+    outer: PlatformMatrix,
+    combined: PlatformMatrix,
+    widthPx: Float,
+    heightPx: Float,
+): PlatformMatrix? {
+    val inverseOuter = PlatformMatrix()
+    if (!outer.invert(inverseOuter)) return null
+    val source = floatArrayOf(0f, 0f, widthPx, 0f, widthPx, heightPx, 0f, heightPx)
+    val destination = source.copyOf()
+    combined.mapPoints(destination)
+    inverseOuter.mapPoints(destination)
+    return PlatformMatrix().also { correction ->
+        if (!correction.setPolyToPoly(source, 0, destination, 0, 4)) return null
+    }
+}
+
+private fun appListElementProjectionMatrix(
+    widthPx: Float,
+    heightPx: Float,
+    density: Float,
+    bounds: Rect,
+    viewportBounds: Rect,
+    motion: PhoneStartMotionFrame,
+): PlatformMatrix {
+    val leftCss = (bounds.left - viewportBounds.left) / density
+    val topCss = (bounds.top - viewportBounds.top) / density
+    val widthCss = widthPx / density
+    val heightCss = heightPx / density
+    val viewportWidthCss = viewportBounds.width / density
+    val viewportHeightCss = viewportBounds.height / density
+    return projectPlaneMatrix(widthPx, heightPx, density, leftCss, topCss) { xCss, yCss ->
+        PhoneStartChoreography.projectPlanePoint(
+            localXPx = xCss,
+            localYPx = yCss,
+            elementLeftCssPx = leftCss,
+            elementTopCssPx = topCss,
+            elementWidthCssPx = widthCss,
+            elementHeightCssPx = heightCss,
+            viewportWidthCssPx = viewportWidthCss,
+            viewportHeightCssPx = viewportHeightCss,
+            motion = motion,
+            cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+        )
+    }
+}
+
 /** First-fit cell packing; unlike LazyVerticalGrid it does not waste a row beside small tiles. */
 internal fun packPhoneTiles(sizes: List<TileSize>, columns: Int): List<PhoneTileSlot> {
     require(columns == 4 || columns == 6)
@@ -455,6 +530,7 @@ fun PhoneLauncherSurface(
                             scrollOffsetPx = startScroll.value,
                             elapsedMillis = { motionClock.value.roundToInt() },
                             surfaceBounds = surfaceBounds,
+                            viewportBounds = paneBounds,
                             viewportHeightPx = paneBounds.height,
                             interactionEnabled = interactionEnabled,
                             launchingTileId = exitTileId,
@@ -466,48 +542,73 @@ fun PhoneLauncherSurface(
                             onClick = { tile, bounds -> onLaunch(tile, bounds, LaunchOrigin.START) },
                             onLongClick = { editing = it },
                         )
+                        fun bannerMotion(): PhoneStartMotionFrame {
+                            val widthCss = (paneBounds.width / densityScale)
+                                .takeIf { it > 0f } ?: (surfaceBounds.width / densityScale)
+                            val leftCss = if (homeBannerBounds.width > 0f) {
+                                (homeBannerBounds.left - paneBounds.left) / densityScale
+                            } else widthCss - 54f
+                            return PhoneStartChoreography.sample(
+                                mode = mode,
+                                exiting = isLaunching,
+                                elapsedMillis = motionClock.value.roundToInt(),
+                                mobileRowFraction = 0f,
+                                animationIndex = 0f,
+                                viewportHeightCssPx = (paneBounds.height / densityScale)
+                                    .takeIf { it > 0f } ?: 850f,
+                                viewportWidthCssPx = widthCss,
+                                tileLeftCssPx = leftCss,
+                                resumeUsesBackMotion = resumeUsesBackMotion,
+                                tileWidthCssPx = (homeBannerBounds.width / densityScale)
+                                    .takeIf { it > 0f } ?: 54f,
+                            )
+                        }
                         Spacer(Modifier.height(30.dp))
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                                 .onGloballyPositioned { homeBannerBounds = it.boundsInWindow() }
-                                .graphicsLayer {
-                                if (mode == LauncherUiMode.PHONE_8) {
-                                    val widthCss = surfaceBounds.width / densityScale
-                                    val leftCss = if (homeBannerBounds.width > 0f) {
-                                        (homeBannerBounds.left - surfaceBounds.left) / densityScale
-                                    } else widthCss - 54f
-                                    val bannerMotion = PhoneStartChoreography.sample(
-                                        mode = mode,
-                                        exiting = isLaunching,
-                                        elapsedMillis = motionClock.value.roundToInt(),
-                                        mobileRowFraction = 0f,
-                                        animationIndex = 0f,
-                                        viewportHeightCssPx = (paneBounds.height / densityScale)
-                                            .takeIf { it > 0f } ?: 850f,
-                                        viewportWidthCssPx = widthCss,
-                                        tileLeftCssPx = leftCss,
-                                        resumeUsesBackMotion = resumeUsesBackMotion,
-                                        tileWidthCssPx = (homeBannerBounds.width / densityScale)
-                                            .takeIf { it > 0f } ?: 54f,
-                                    )
-                                    val cameraDistancePx =
-                                        PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
-                                    val depthScale = PhoneStartChoreography.projectedDepthScale(
-                                        bannerMotion.translationZPx, cameraDistancePx, densityScale,
-                                    )
-                                    alpha = bannerMotion.alpha
-                                    rotationY = bannerMotion.rotationY
-                                    translationX = bannerMotion.translationXPx * densityScale * depthScale
-                                    scaleX = bannerMotion.scale * depthScale
-                                    scaleY = bannerMotion.scale * depthScale
-                                    transformOrigin = TransformOrigin(bannerMotion.pivotX, .5f)
-                                    cameraDistance = cameraDistancePx
-                                } else {
+                                .then(if (mode == LauncherUiMode.PHONE_8) {
+                                    Modifier.graphicsLayer {
+                                        alpha = bannerMotion().alpha
+                                        rotationY = 0f
+                                        translationX = 0f
+                                        translationY = 0f
+                                        scaleX = 1f
+                                        scaleY = 1f
+                                    }.drawWithContent {
+                                        val frame = bannerMotion()
+                                        val leftCss = (homeBannerBounds.left - paneBounds.left) / densityScale
+                                        val topCss = (homeBannerBounds.top - paneBounds.top) / densityScale
+                                        val widthCss = size.width / densityScale
+                                        val heightCss = size.height / densityScale
+                                        val pageWidthCss = paneBounds.width / densityScale
+                                        val pageHeightCss = paneBounds.height / densityScale
+                                        val matrix = projectPlaneMatrix(
+                                            size.width, size.height, densityScale, leftCss, topCss,
+                                        ) { xCss, yCss ->
+                                            PhoneStartChoreography.projectPlanePoint(
+                                                localXPx = xCss,
+                                                localYPx = yCss,
+                                                elementLeftCssPx = leftCss,
+                                                elementTopCssPx = topCss,
+                                                elementWidthCssPx = widthCss,
+                                                elementHeightCssPx = heightCss,
+                                                viewportWidthCssPx = pageWidthCss,
+                                                viewportHeightCssPx = pageHeightCss,
+                                                motion = frame,
+                                            )
+                                        }
+                                        val canvas = drawContext.canvas.nativeCanvas
+                                        val saveCount = canvas.save()
+                                        canvas.concat(matrix)
+                                        drawContent()
+                                        canvas.restoreToCount(saveCount)
+                                    }
+                                } else Modifier.graphicsLayer {
                                     alpha = if (isTen) MobileStartMotion.wallpaperAlpha(
                                         isLaunching, motionClock.value.roundToInt(),
                                     ) else if (isLaunching && motionClock.value >= duration) 0f else 1f
-                                }
-                            },
+                                }),
                             horizontalArrangement = Arrangement.End,
                         ) {
                             Text("→", color = Color.White, fontSize = 34.sp,
@@ -564,7 +665,7 @@ fun PhoneLauncherSurface(
                                 pageWidthPx, pageHeightPx,
                                 0f, pageHeightPx,
                             )
-                            fun projected(xPx: Float, yPx: Float): PhoneAppsPageProjectedPoint =
+                            fun projected(xPx: Float, yPx: Float): PhoneProjectedPoint =
                                 PhoneStartChoreography.projectAppsPagePoint(
                                     pageLocalXPx = xPx / densityScale,
                                     pageLocalYPx = yPx / densityScale,
@@ -665,33 +766,40 @@ fun PhoneLauncherSurface(
                             userScrollEnabled = interactionEnabled && !isLaunching) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
+                                    var headerBounds by remember(letter) { mutableStateOf(Rect.Zero) }
+                                    fun headerMotion(): PhoneStartMotionFrame =
+                                        PhoneStartChoreography.sampleAppListExit(
+                                            elapsedMillis = motionClock.value.roundToInt(),
+                                            animationIndex = PhoneStartChoreography.appListAnimationIndex(
+                                                positions[letter] ?: 0,
+                                                firstVisibleListIndex, lastVisibleListIndex,
+                                            ),
+                                            viewportHeightCssPx = viewportHeightCssPx,
+                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                            letter = true,
+                                            tileLeftCssPx = appListContentLeftCssPx,
+                                            tileWidthCssPx = appListContentWidthCssPx,
+                                        )
                                     val letterModifier = Modifier.fillMaxWidth()
                                         .then(if (isClassicPhone) Modifier.height(64.dp) else Modifier)
-                                        .graphicsLayer {
-                                            alpha = 1f
-                                            rotationY = 0f
-                                            translationX = 0f
-                                            if (isLaunching && mode == LauncherUiMode.PHONE_8) {
-                                                val motion = PhoneStartChoreography.sampleAppListExit(
-                                                    elapsedMillis = motionClock.value.roundToInt(),
-                                                    animationIndex = PhoneStartChoreography.appListAnimationIndex(
-                                                        positions[letter] ?: 0,
-                                                        firstVisibleListIndex, lastVisibleListIndex,
-                                                    ),
-                                                    viewportHeightCssPx = viewportHeightCssPx,
-                                                    viewportWidthCssPx = surfaceBounds.width / densityScale,
-                                                    letter = true,
-                                                    tileLeftCssPx = appListContentLeftCssPx,
-                                                    tileWidthCssPx = appListContentWidthCssPx,
-                                                )
-                                                alpha = motion.alpha
-                                                rotationY = motion.rotationY
-                                                translationX = motion.translationXPx * densityScale
-                                                transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                                                cameraDistance =
-                                                    PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
-                                            }
-                                        }.clickable(
+                                        .then(if (mode == LauncherUiMode.PHONE_8) {
+                                            Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
+                                                .graphicsLayer { alpha = if (isLaunching) headerMotion().alpha else 1f }
+                                                .drawWithContent {
+                                                    if (!isLaunching || headerBounds.width <= 0f) {
+                                                        drawContent()
+                                                    } else {
+                                                        val canvas = drawContext.canvas.nativeCanvas
+                                                        val saveCount = canvas.save()
+                                                        canvas.concat(appListElementProjectionMatrix(
+                                                            size.width, size.height, densityScale,
+                                                            headerBounds, paneBounds, headerMotion(),
+                                                        ))
+                                                        drawContent()
+                                                        canvas.restoreToCount(saveCount)
+                                                    }
+                                                }
+                                        } else Modifier).clickable(
                                             enabled = letter == "#" ||
                                                 (letter.length == 1 && letter[0].isLetter()),
                                         ) { alphabetOpen = true }
@@ -725,57 +833,53 @@ fun PhoneLauncherSurface(
                                         listIndex, firstVisibleListIndex, lastVisibleListIndex,
                                     )
                                     val ordinal = (listIndex - appsState.firstVisibleItemIndex).coerceIn(0, 6)
+                                    fun appRowMotion(): PhoneStartMotionFrame =
+                                        PhoneStartChoreography.sampleAppListExit(
+                                            elapsedMillis = motionClock.value.roundToInt(),
+                                            animationIndex = animationIndex,
+                                            viewportHeightCssPx = viewportHeightCssPx,
+                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                            selected = exitTileId == "phone_app_${app.packageName}",
+                                            tileLeftCssPx = appListContentLeftCssPx,
+                                            tileWidthCssPx = appListContentWidthCssPx,
+                                        )
                                     // The app list is stationary within its horizontally
                                     // moving pane; only actual app launch feathers the rows.
                                     Row(
                                         Modifier.fillMaxWidth()
                                             .height(if (isClassicPhone) 64.dp else 60.dp)
-                                            .graphicsLayer {
-                                                // Draw-layer read avoids relaying every animation
-                                                // tick through lazy-row recomposition.
-                                                if (isLaunching && mode == LauncherUiMode.PHONE_8) {
-                                                    val rowMotion = PhoneStartChoreography.sampleAppListExit(
-                                                        elapsedMillis = motionClock.value.roundToInt(),
-                                                        animationIndex = animationIndex,
-                                                        viewportHeightCssPx = viewportHeightCssPx,
-                                                        viewportWidthCssPx = surfaceBounds.width / densityScale,
-                                                        selected = exitTileId == "phone_app_${app.packageName}",
-                                                        tileLeftCssPx = appListContentLeftCssPx,
-                                                        tileWidthCssPx = appListContentWidthCssPx,
-                                                    )
-                                                    alpha = rowMotion.alpha
-                                                    rotationY = rowMotion.rotationY
-                                                    translationX = rowMotion.translationXPx * densityScale
-                                                    translationY = 0f
-                                                    scaleX = 1f
-                                                    scaleY = 1f
-                                                    transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
-                                                    cameraDistance =
-                                                        PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
-                                                } else {
-                                                    alpha = 1f
-                                                    rotationY = 0f
-                                                    translationX = 0f
-                                                    translationY = 0f
-                                                    scaleX = 1f
-                                                    scaleY = 1f
-                                                    val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
-                                                        mode, listPhase, motionClock.value.roundToInt(),
-                                                        ordinal,
-                                                        selectedTile = exitTileId == "phone_app_${app.packageName}",
-                                                    ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
-                                                    alpha = rowMotion.alpha
-                                                    rotationY = rowMotion.rotationY
-                                                    translationY = rowMotion.offsetYPx * density
-                                                    scaleX = rowMotion.scale
-                                                    scaleY = rowMotion.scale
-                                                    transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
-                                                }
-                                                cameraDistance = if (mode == LauncherUiMode.PHONE_8) {
-                                                    PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
-                                                } else maxOf(900f, 2f * bounds.width, 2f * bounds.height)
-                                            }
                                             .onGloballyPositioned { bounds = it.boundsInWindow() }
+                                            .then(if (mode == LauncherUiMode.PHONE_8) {
+                                                Modifier.graphicsLayer {
+                                                    alpha = if (isLaunching) appRowMotion().alpha else 1f
+                                                }.drawWithContent {
+                                                    if (!isLaunching || bounds.width <= 0f) {
+                                                        drawContent()
+                                                    } else {
+                                                        val canvas = drawContext.canvas.nativeCanvas
+                                                        val saveCount = canvas.save()
+                                                        canvas.concat(appListElementProjectionMatrix(
+                                                            size.width, size.height, densityScale,
+                                                            bounds, paneBounds, appRowMotion(),
+                                                        ))
+                                                        drawContent()
+                                                        canvas.restoreToCount(saveCount)
+                                                    }
+                                                }
+                                            } else Modifier.graphicsLayer {
+                                                val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
+                                                    mode, listPhase, motionClock.value.roundToInt(),
+                                                    ordinal,
+                                                    selectedTile = exitTileId == "phone_app_${app.packageName}",
+                                                ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
+                                                alpha = rowMotion.alpha
+                                                rotationY = rowMotion.rotationY
+                                                translationY = rowMotion.offsetYPx * densityScale
+                                                scaleX = rowMotion.scale
+                                                scaleY = rowMotion.scale
+                                                transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
+                                                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+                                            })
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
                                                 onClick = { onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS) },
@@ -829,25 +933,33 @@ fun PhoneLauncherSurface(
                         }
                     }
                     if (isClassicPhone && !phone8SearchVisible) {
+                        var searchIconBounds by remember { mutableStateOf(Rect.Zero) }
+                        fun searchIconMotion(): PhoneStartMotionFrame =
+                            PhoneStartChoreography.sampleAppListExit(
+                                elapsedMillis = motionClock.value.roundToInt(),
+                                animationIndex = 1f,
+                                viewportHeightCssPx = viewportHeightCssPx,
+                                viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                tileLeftCssPx = appListSearchLeftCssPx,
+                                tileWidthCssPx = appListSearchSizeCssPx,
+                            )
                         Box(
                             Modifier.offset(x = appListSearchLeftCssPx.dp, y = 26.dp)
                                 .size(appListSearchSizeCssPx.dp)
-                                .graphicsLayer {
-                                    if (isLaunching) {
-                                        val motion = PhoneStartChoreography.sampleAppListExit(
-                                            elapsedMillis = motionClock.value.roundToInt(),
-                                            animationIndex = 1f,
-                                            viewportHeightCssPx = viewportHeightCssPx,
-                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
-                                            tileLeftCssPx = appListSearchLeftCssPx,
-                                            tileWidthCssPx = appListSearchSizeCssPx,
-                                        )
-                                        alpha = motion.alpha
-                                        rotationY = motion.rotationY
-                                        translationX = motion.translationXPx * densityScale
-                                        transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                                        cameraDistance =
-                                            PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
+                                .onGloballyPositioned { searchIconBounds = it.boundsInWindow() }
+                                .graphicsLayer { alpha = if (isLaunching) searchIconMotion().alpha else 1f }
+                                .drawWithContent {
+                                    if (!isLaunching || searchIconBounds.width <= 0f) {
+                                        drawContent()
+                                    } else {
+                                        val canvas = drawContext.canvas.nativeCanvas
+                                        val saveCount = canvas.save()
+                                        canvas.concat(appListElementProjectionMatrix(
+                                            size.width, size.height, densityScale,
+                                            searchIconBounds, paneBounds, searchIconMotion(),
+                                        ))
+                                        drawContent()
+                                        canvas.restoreToCount(saveCount)
                                     }
                                 }
                                 .border(3.dp, Color.White, CircleShape)
@@ -1022,6 +1134,7 @@ private fun PhoneStartGrid(
     scrollOffsetPx: Int,
     elapsedMillis: () -> Int,
     surfaceBounds: Rect,
+    viewportBounds: Rect,
     viewportHeightPx: Float,
     interactionEnabled: Boolean,
     launchingTileId: String?,
@@ -1084,6 +1197,7 @@ private fun PhoneStartGrid(
                         tileLeftCssPx = (side + (cell + gap) * pos.column).value,
                         tileWidthCssPx = (cell * pos.columns + gap * (pos.columns - 1)).value,
                         surfaceBounds = surfaceBounds,
+                        viewportBounds = viewportBounds,
                         interactionEnabled = interactionEnabled,
                         exiting = isLaunching,
                         elapsedMillis = elapsedMillis,
@@ -1116,6 +1230,7 @@ private fun PhoneTile(
     tileWidthCssPx: Float,
     resumeUsesBackMotion: Boolean,
     surfaceBounds: Rect,
+    viewportBounds: Rect,
     interactionEnabled: Boolean,
     exiting: Boolean,
     elapsedMillis: () -> Int,
@@ -1129,19 +1244,99 @@ private fun PhoneTile(
     // Read the master timebase during graphics rendering, not during composition.
     // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
+    val density = LocalDensity.current.density
     val icon = rememberAppIcon(repository, tile.packageName)
+
+    fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
+        val mobile = MobileStartMotion.sample(
+            exiting, elapsedMillis(), visibleRowFraction,
+            bounds.center.x, bounds.center.y,
+            surfaceBounds.center.x, surfaceBounds.center.y, selectedTile,
+        )
+        PhoneStartMotionFrame(
+            alpha = mobile.alpha,
+            rotationY = mobile.rotationY,
+            translationXPx = mobile.translationXPx,
+            translationYPx = mobile.translationYPx,
+            translationZPx = 0f,
+            scale = mobile.scale,
+            pivotX = mobile.pivotX,
+        )
+    } else PhoneStartChoreography.sample(
+        mode = mode, exiting = exiting, elapsedMillis = elapsedMillis(),
+        mobileRowFraction = visibleRowFraction,
+        animationIndex = animationIndex,
+        viewportHeightCssPx = viewportHeightCssPx,
+        viewportWidthCssPx = viewportWidthCssPx,
+        tileLeftCssPx = tileLeftCssPx,
+        resumeUsesBackMotion = resumeUsesBackMotion,
+        tileWidthCssPx = tileWidthCssPx,
+        selected = selectedTile,
+    )
+
+    fun elementLeftCssPx(): Float = if (bounds.width > 0f && viewportBounds.width > 0f) {
+        (bounds.left - viewportBounds.left) / density
+    } else tileLeftCssPx
+
+    fun elementTopCssPx(): Float = if (bounds.height > 0f && viewportBounds.height > 0f) {
+        (bounds.top - viewportBounds.top) / density
+    } else 0f
+
+    fun tileProjectionMatrix(
+        widthPx: Float,
+        heightPx: Float,
+        motion: PhoneStartMotionFrame,
+        inner: PhoneStartInnerFrame? = null,
+    ): PlatformMatrix {
+        val leftCss = elementLeftCssPx()
+        val topCss = elementTopCssPx()
+        val widthCss = widthPx / density
+        val heightCss = heightPx / density
+        val pageWidthCss = (viewportBounds.width / density)
+            .takeIf { it > 0f } ?: viewportWidthCssPx
+        val pageHeightCss = (viewportBounds.height / density)
+            .takeIf { it > 0f } ?: viewportHeightCssPx
+        val cssInner = inner?.copy(translationXPx = inner.translationXPx / density)
+        return projectPlaneMatrix(widthPx, heightPx, density, leftCss, topCss) { xCss, yCss ->
+            PhoneStartChoreography.projectPlanePoint(
+                localXPx = xCss,
+                localYPx = yCss,
+                elementLeftCssPx = leftCss,
+                elementTopCssPx = topCss,
+                elementWidthCssPx = widthCss,
+                elementHeightCssPx = heightCss,
+                viewportWidthCssPx = pageWidthCss,
+                viewportHeightCssPx = pageHeightCss,
+                motion = motion,
+                inner = cssInner,
+                cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+            )
+        }
+    }
+
     WindowsTileFace(
         tile = tile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
-        innerModifier = if (mode == LauncherUiMode.PHONE_8 && !exiting && !resumeUsesBackMotion) Modifier.graphicsLayer {
-            val inner = PhoneStartChoreography.sampleInnerEntry(
-                elapsedMillis(), animationIndex, viewportHeightCssPx, density,
-            )
-            rotationY = inner.rotationY
-            translationX = inner.translationXPx
-            transformOrigin = TransformOrigin.Center
-            cameraDistance = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * density
+        innerModifier = if (mode == LauncherUiMode.PHONE_8 && !exiting && !resumeUsesBackMotion) {
+            Modifier.drawWithContent {
+                val motion = currentMotion()
+                val inner = PhoneStartChoreography.sampleInnerEntry(
+                    elapsedMillis(), animationIndex, viewportHeightCssPx, density,
+                )
+                val outer = tileProjectionMatrix(size.width, size.height, motion)
+                val combined = tileProjectionMatrix(size.width, size.height, motion, inner)
+                val correction = nestedProjectionCorrection(outer, combined, size.width, size.height)
+                if (correction == null) {
+                    drawContent()
+                } else {
+                    val canvas = drawContext.canvas.nativeCanvas
+                    val saveCount = canvas.save()
+                    canvas.concat(correction)
+                    drawContent()
+                    canvas.restoreToCount(saveCount)
+                }
+            }
         } else Modifier,
         modifier = modifier
             .onGloballyPositioned {
@@ -1149,41 +1344,34 @@ private fun PhoneTile(
                 // The zoom anchor must use the full, untransformed tile geometry.
                 bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
             }
-            .graphicsLayer {
-                val motion = if (mode == LauncherUiMode.MOBILE_10) MobileStartMotion.sample(
-                    exiting, elapsedMillis(), visibleRowFraction,
-                    bounds.center.x, bounds.center.y,
-                    surfaceBounds.center.x, surfaceBounds.center.y, selectedTile,
-                ) else PhoneStartChoreography.sample(
-                    mode = mode, exiting = exiting, elapsedMillis = elapsedMillis(),
-                    mobileRowFraction = visibleRowFraction,
-                    animationIndex = animationIndex,
-                    viewportHeightCssPx = viewportHeightCssPx,
-                    viewportWidthCssPx = viewportWidthCssPx,
-                    tileLeftCssPx = tileLeftCssPx,
-                    resumeUsesBackMotion = resumeUsesBackMotion,
-                    tileWidthCssPx = tileWidthCssPx,
-                    selected = selectedTile,
-                )
+            .then(if (mode == LauncherUiMode.PHONE_8) {
+                Modifier.graphicsLayer {
+                    alpha = currentMotion().alpha
+                    rotationY = 0f
+                    translationX = 0f
+                    translationY = 0f
+                    scaleX = 1f
+                    scaleY = 1f
+                }.drawWithContent {
+                    val motion = currentMotion()
+                    val matrix = tileProjectionMatrix(size.width, size.height, motion)
+                    val canvas = drawContext.canvas.nativeCanvas
+                    val saveCount = canvas.save()
+                    canvas.concat(matrix)
+                    drawContent()
+                    canvas.restoreToCount(saveCount)
+                }
+            } else Modifier.graphicsLayer {
+                val motion = currentMotion()
                 alpha = motion.alpha
                 rotationY = motion.rotationY
-                val unitScale = if (mode == LauncherUiMode.MOBILE_10) 1f else density
-                val cameraDistancePx = if (mode == LauncherUiMode.PHONE_8) {
-                    PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * density
-                } else
-                    maxOf(900f, 2f * bounds.width, 2f * bounds.height)
-                val depthScale = if (mode == LauncherUiMode.PHONE_8) {
-                    PhoneStartChoreography.projectedDepthScale(
-                        motion.translationZPx, cameraDistancePx, density,
-                    )
-                } else 1f
-                translationX = motion.translationXPx * unitScale * depthScale
-                translationY = motion.translationYPx * unitScale
-                scaleX = motion.scale * depthScale
-                scaleY = motion.scale * depthScale
+                translationX = motion.translationXPx
+                translationY = motion.translationYPx
+                scaleX = motion.scale
+                scaleY = motion.scale
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
-                cameraDistance = cameraDistancePx
-            }
+                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+            })
             .phoneToolkitTilePress(
                 enabled = interactionEnabled && !exiting,
                 onClick = onClick,

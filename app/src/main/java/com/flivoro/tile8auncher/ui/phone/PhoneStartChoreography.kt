@@ -31,16 +31,16 @@ internal data class PhoneAppsPageEntryFrame(
 )
 
 /** A point projected through DiscoLauncher’s CSS perspective for the second slide page. */
-internal data class PhoneAppsPageProjectedPoint(
+internal data class PhoneProjectedPoint(
     val xCssPx: Float,
     val yCssPx: Float,
 )
 
 /**
- * Windows Phone 8.1 Start tile choreography follows DiscoLauncher’s
- * `src/styles/appTransition.scss` and `src/scripts/appTransition.js` timing and
- * transform sequence. CSS-pixel inputs are supplied in dp and converted to
- * physical pixels at the Compose graphics layer. W10M stays on MobileStartMotion.
+ * Windows Phone 8.1 Start choreography follows DiscoLauncher’s
+ * `src/styles/appTransition.scss` and `src/scripts/appTransition.js`. CSS-pixel
+ * inputs are supplied in dp and converted to physical pixels at the Compose
+ * graphics layer. W10M stays on MobileStartMotion.
  */
 internal object PhoneStartChoreography {
     private const val CLASSIC_EXIT_MS = 175f
@@ -67,13 +67,6 @@ internal object PhoneStartChoreography {
     fun appTransitionScale(viewportHeightCssPx: Float): Float =
         (viewportHeightCssPx / REFERENCE_VIEWPORT_HEIGHT / 2f + .5f).coerceAtLeast(.5f)
 
-    /** Projects a CSS Z offset into Compose's 2D layer scale at the reference camera. */
-    fun projectedDepthScale(depthCssPx: Float, cameraDistancePx: Float, density: Float): Float {
-        val denominator = (cameraDistancePx - depthCssPx * density)
-            .coerceAtLeast(cameraDistancePx * .1f)
-        return (cameraDistancePx / denominator).coerceIn(.25f, 4f)
-    }
-
     /** DiscoLauncher reverses visible tiles and normalizes their indices to 0..1. */
     fun visibleTileAnimationIndex(reverseRank: Int, visibleCount: Int): Float {
         if (visibleCount <= 0) return 0f
@@ -88,6 +81,7 @@ internal object PhoneStartChoreography {
      * Start: 100 ms delay, then 750 ms from 45°/transparent to face-on/opaque.
      * The CSS declaration spells the delay as `var(.1s)`, which is invalid CSS;
      * this ports the evident intended 0.1s value from the same declaration.
+     * The source uses the same forward-resume easing for opacity and page angle.
      */
     fun sampleAppsPageEntry(
         elapsedMillis: Int,
@@ -116,17 +110,62 @@ internal object PhoneStartChoreography {
         viewportHeightCssPx: Float,
         rotationYDegrees: Float,
         cameraDistanceCssPx: Float = CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX,
-    ): PhoneAppsPageProjectedPoint {
+    ): PhoneProjectedPoint {
         val angle = rotationYDegrees * DEG_TO_RAD
         val worldX = viewportWidthCssPx + pageLocalXPx
         val rotatedX = worldX * cos(angle)
         val rotatedZ = -worldX * sin(angle)
         val perspectiveScale = cameraDistanceCssPx /
             (cameraDistanceCssPx - rotatedZ).coerceAtLeast(cameraDistanceCssPx * .1f)
-        return PhoneAppsPageProjectedPoint(
+        return PhoneProjectedPoint(
             xCssPx = rotatedX * perspectiveScale,
             yCssPx = viewportHeightCssPx * .5f +
                 (pageLocalYPx - viewportHeightCssPx * .5f) * perspectiveScale,
+        )
+    }
+
+    /**
+     * Projects one point through the Start/App-list page camera after the CSS
+     * transform around an element's origin. Unlike a per-tile Android camera,
+     * DiscoLauncher places perspective on the parent page, centered on the page.
+     */
+    fun projectPlanePoint(
+        localXPx: Float,
+        localYPx: Float,
+        elementLeftCssPx: Float,
+        elementTopCssPx: Float,
+        elementWidthCssPx: Float,
+        elementHeightCssPx: Float,
+        viewportWidthCssPx: Float,
+        viewportHeightCssPx: Float,
+        motion: PhoneStartMotionFrame,
+        inner: PhoneStartInnerFrame? = null,
+        cameraDistanceCssPx: Float = CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+    ): PhoneProjectedPoint {
+        val innerAngle = (inner?.rotationY ?: 0f) * DEG_TO_RAD
+        val innerDx = localXPx - elementWidthCssPx * .5f
+        val innerX = elementWidthCssPx * .5f + innerDx * cos(innerAngle) +
+            (inner?.translationXPx ?: 0f)
+        val innerY = localYPx
+        val innerZ = -innerDx * sin(innerAngle)
+
+        val pivotX = motion.pivotX * elementWidthCssPx
+        val outerDx = (innerX - pivotX) * motion.scale
+        val outerDy = (innerY - elementHeightCssPx * .5f) * motion.scale
+        val outerDz = innerZ * motion.scale
+        val outerAngle = motion.rotationY * DEG_TO_RAD
+        val rotatedX = outerDx * cos(outerAngle) + outerDz * sin(outerAngle)
+        val rotatedZ = -outerDx * sin(outerAngle) + outerDz * cos(outerAngle)
+        val worldX = elementLeftCssPx + pivotX + rotatedX + motion.translationXPx
+        val worldY = elementTopCssPx + elementHeightCssPx * .5f + outerDy + motion.translationYPx
+        val worldZ = rotatedZ + motion.translationZPx
+        val perspectiveScale = cameraDistanceCssPx /
+            (cameraDistanceCssPx - worldZ).coerceAtLeast(cameraDistanceCssPx * .1f)
+        val perspectiveOriginX = viewportWidthCssPx * .5f
+        val perspectiveOriginY = viewportHeightCssPx * .5f
+        return PhoneProjectedPoint(
+            xCssPx = perspectiveOriginX + (worldX - perspectiveOriginX) * perspectiveScale,
+            yCssPx = perspectiveOriginY + (worldY - perspectiveOriginY) * perspectiveScale,
         )
     }
 
@@ -218,18 +257,18 @@ internal object PhoneStartChoreography {
         val raw = ((elapsedMillis - delay) / duration).coerceIn(0f, 1f)
 
         if (exiting) {
-            // appTransition.scss: translateX(-25vw), then the -30°/-10° compound
-            // turn. The returned X/Z offsets and left-edge pivot preserve its 3D matrix.
+            // CSS converts the mismatched `rotateY(0)` and compound end transform
+            // to matrices, then interpolates the decomposed translation and rotation.
+            // The endpoint is the -40° compound turn around the tile's left edge.
             val progress = cubicBezier(raw, .75f, 0f, 1f, 0f)
-            val angle = 30f * progress * DEG_TO_RAD
-            val offset = tileLeftCssPx * progress
+            val endTranslationX = -viewportWidthCssPx * .25f +
+                tileLeftCssPx * (cos(30f * DEG_TO_RAD) - 1f)
             return PhoneStartMotionFrame(
                 alpha = if (raw >= 1f) 0f else 1f,
                 rotationY = -40f * progress,
-                translationXPx = -viewportWidthCssPx * .25f * progress +
-                    offset * (cos(angle) - 1f),
+                translationXPx = endTranslationX * progress,
                 translationYPx = 0f,
-                translationZPx = offset * sin(angle),
+                translationZPx = tileLeftCssPx * .5f * progress,
                 scale = 1f,
                 pivotX = 0f,
             )
