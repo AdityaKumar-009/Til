@@ -10,8 +10,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -43,7 +45,7 @@ class PhoneMotionRenderTest {
     }
 
     @Test fun classicDiscoLauncherExitAndReturnAreCapturedAtEveryFrame() {
-        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 800, 560)
+        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 880, 560)
     }
 
     private fun captureMode(
@@ -148,8 +150,8 @@ class PhoneMotionRenderTest {
             difference(resting, capture("02-return-settled")) < .01)
 
         if (mode == LauncherUiMode.PHONE_8) {
-            // A system Home return from All Apps must discard that pane immediately;
-            // only the WP8.1 Start tiles run their 3D return choreography.
+            // DiscoLauncher snaps the panorama to Start but still turns the
+            // second All Apps page behind the entering Start tiles.
             compose.onNodeWithText("⌕").performClick()
             compose.mainClock.advanceTimeBy(400)
             compose.onNodeWithText("Alpha").assertExists()
@@ -163,27 +165,34 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val homeReturnStart = capture("home-return-000")
-            assertTrue("All Apps must be invisible in the first Home-return frame",
+            compose.onNodeWithTag("wp81-home-return-app-page").assertExists()
+            compose.onNodeWithText("Alpha").assertExists()
+            assertTrue("Disco's Apps page begins transparent before its delayed turn",
                 brightPixelsInAppLabelRegion(homeReturnStart) < 5)
-            assertTrue("Start tiles must already be rendered in the first Home-return frame",
-                coloredFraction(homeReturnStart) > .0005)
-            compose.mainClock.advanceTimeBy(16)
-            val homeReturnMoving = capture("home-return-016")
-            assertTrue("All Apps must remain invisible while Start tiles turn",
-                brightPixelsInAppLabelRegion(homeReturnMoving) < 5)
-            assertTrue("Start tiles must remain rendered while turning",
-                coloredFraction(homeReturnMoving) > .0005)
+            val appsPageStartBounds = compose.onNodeWithTag("wp81-home-return-app-page")
+                .fetchSemanticsNode().boundsInRoot
             var homeReturnMidpoint: Bitmap? = null
-            for (elapsed in (frameStep * 2)..entryEnd step frameStep) {
+            var appsPageMovingBounds: androidx.compose.ui.geometry.Rect? = null
+            for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 val frame = capture("home-return-${elapsed.toString().padStart(3, '0')}")
-                assertTrue("All Apps content reappeared at ${elapsed}ms during the Start return",
-                    brightPixelsInAppLabelRegion(frame) < 5)
+                if (elapsed == 32) {
+                    assertTrue("First Start tiles should appear after the banner's index-zero lead",
+                        chromaticFraction(frame) > .0005)
+                }
+                if (elapsed == 160) {
+                    appsPageMovingBounds = compose.onNodeWithTag("wp81-home-return-app-page")
+                        .fetchSemanticsNode().boundsInRoot
+                }
                 if (elapsed == 256) homeReturnMidpoint = frame
             }
+            val appsPageEndBounds = checkNotNull(appsPageMovingBounds)
+            assertTrue("All Apps page must turn around its left-of-page hinge behind Start",
+                abs(appsPageStartBounds.left - appsPageEndBounds.left) > 10f)
             assertTrue("WP8.1 Start tiles must enter during the Home return",
                 difference(homeReturnStart, checkNotNull(homeReturnMidpoint)) > .001)
             val homeReturnSettled = capture("home-return-settled")
+            compose.onNodeWithTag("wp81-home-return-app-page").assertDoesNotExist()
             assertTrue("Home return must settle on the original Start layout",
                 difference(resting, homeReturnSettled) < .01)
 
@@ -245,6 +254,23 @@ class PhoneMotionRenderTest {
             for (x in bitmap.width / 10 until bitmap.width * 9 / 10 step 4) {
                 val pixel = bitmap.getPixel(x, y)
                 if (maxOf((pixel shr 16) and 255, (pixel shr 8) and 255, pixel and 255) > 120) colored++
+                count++
+            }
+        }
+        return colored.toDouble() / count
+    }
+
+    private fun chromaticFraction(bitmap: Bitmap): Double {
+        var colored = 0
+        var count = 0
+        for (y in bitmap.height / 10 until bitmap.height * 8 / 10 step 4) {
+            for (x in bitmap.width / 10 until bitmap.width * 9 / 10 step 4) {
+                val pixel = bitmap.getPixel(x, y)
+                val red = (pixel shr 16) and 255
+                val green = (pixel shr 8) and 255
+                val blue = pixel and 255
+                val maximum = maxOf(red, green, blue)
+                if (maximum > 120 && maximum - minOf(red, green, blue) > 30) colored++
                 count++
             }
         }
