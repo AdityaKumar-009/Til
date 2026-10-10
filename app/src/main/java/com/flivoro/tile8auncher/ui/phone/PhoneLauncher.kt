@@ -1005,7 +1005,9 @@ fun PhoneLauncherSurface(
                 Text("⊞", fontSize = 29.sp, color = Color.White,
                     modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = false; actionCenterOpen = false }.padding(horizontal = 25.dp))
                 Text("⌕", fontSize = 28.sp, color = Color.White,
-                    modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(horizontal = 25.dp))
+                    modifier = Modifier.testTag("phone-bottom-search")
+                        .clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }
+                        .padding(horizontal = 25.dp))
             }
         }
 
