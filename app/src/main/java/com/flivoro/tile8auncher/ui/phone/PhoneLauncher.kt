@@ -340,6 +340,14 @@ fun PhoneLauncherSurface(
     val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion) {
         Animatable(0f)
     }
+    // This is a lifecycle phase, not a condition tied to the currently
+    // selected panorama page. A completed Home return must NOT replay its
+    // second-page 3D projection when the user swipes Apps -> Start later.
+    var classicForwardEntranceActive by remember(
+        mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion,
+    ) {
+        mutableStateOf(isClassicPhone && !isLaunching && !resumeUsesBackMotion)
+    }
     val exitTileId = remember(isLaunching) { launchingTileId }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
     val latestDuration by rememberUpdatedState(duration)
@@ -347,6 +355,7 @@ fun PhoneLauncherSurface(
         snapshotFlow { paneBounds.width > 0f && surfaceBounds.height > 0f }.first { it }
         val animationDuration = latestDuration
         motionClock.animateTo(animationDuration.toFloat(), tween(animationDuration, easing = LinearEasing))
+        classicForwardEntranceActive = false
         if (isLaunching) {
             // Let the completed pose be submitted before the external Activity is requested.
             withFrameNanos { }
@@ -622,9 +631,8 @@ fun PhoneLauncherSurface(
                         // an offscreen pane clipped at x=+one viewport. Outside that
                         // short entrance, the second page stays at x=+width and
                         // both panes share the same panorama translation.
-                        val homeTurnRunning = isClassicPhone && !isLaunching &&
-                            !resumeUsesBackMotion && !showApps &&
-                            motionClock.value < PhoneStartChoreography.totalMillis(
+                        val homeTurnRunning = classicForwardEntranceActive &&
+                            !showApps && motionClock.value < PhoneStartChoreography.totalMillis(
                                 mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
                             )
                         translationX = if (homeTurnRunning) 0f
@@ -639,8 +647,7 @@ fun PhoneLauncherSurface(
                     // ONLY while Start is selected. Previously the projector stayed
                     // enabled after showApps=true, so settled app rows were pushed one
                     // full viewport to the right and the All Apps screen looked black.
-                    val animateHomeAppsPage = mode == LauncherUiMode.PHONE_8 &&
-                        !isLaunching && !resumeUsesBackMotion && !showApps
+                    val animateHomeAppsPage = classicForwardEntranceActive && !showApps
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
                         suppressReturnPaneTransition && resumeUsesBackMotion
                     Box(Modifier.fillMaxSize()
@@ -1183,7 +1190,7 @@ private fun PhoneStartGrid(
     // Classic phone tiles use a tighter spacing than Til's desktop Metro grid.
     // Keep the desktop and Windows 10 Mobile grid geometry unchanged.
     val gap = if (mode == LauncherUiMode.PHONE_8) 3.dp else 4.dp
-    val side = if (mode == LauncherUiMode.PHONE_8) 10.dp else 10.dp
+    val side = 10.dp
     val density = LocalDensity.current.density
     // Keep clipping/visibility tied to the pane height, but use the full
     // source window height to calculate Disco's CSS stagger scale.
