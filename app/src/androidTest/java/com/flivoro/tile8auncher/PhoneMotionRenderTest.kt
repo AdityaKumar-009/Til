@@ -145,7 +145,7 @@ class PhoneMotionRenderTest {
         }
 
         // A panorama round trip must not start a second Start-entry animation.
-        compose.onNodeWithText("⌕").performClick()
+        compose.onNodeWithTag("phone-bottom-search").performClick()
         compose.mainClock.advanceTimeBy(400)
         compose.onNodeWithText("‹").performClick()
         compose.mainClock.advanceTimeBy(320)
@@ -193,7 +193,7 @@ class PhoneMotionRenderTest {
         if (mode == LauncherUiMode.PHONE_8) {
             // DiscoLauncher snaps the panorama to Start and runs the second
             // Apps page's own forward turn behind the entering Start tiles.
-            compose.onNodeWithText("⌕").performClick()
+            compose.onNodeWithTag("phone-bottom-search").performClick()
             compose.mainClock.advanceTimeBy(400)
             compose.onNodeWithText("Alpha").assertExists()
             val appsBeforeHome = capture("apps-home-return-before")
@@ -242,7 +242,7 @@ class PhoneMotionRenderTest {
                 difference(resting, homeReturnSettled) < .01)
 
             // Exercise the separate app-list row/letter turn on the real Compose layers.
-            compose.onNodeWithText("⌕").performClick()
+            compose.onNodeWithTag("phone-bottom-search").performClick()
             compose.mainClock.advanceTimeBy(400)
             capture("apps-rest")
             compose.runOnIdle { completions = 0 }
