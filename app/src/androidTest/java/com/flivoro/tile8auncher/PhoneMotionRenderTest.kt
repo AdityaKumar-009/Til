@@ -9,6 +9,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -78,6 +80,7 @@ class PhoneMotionRenderTest {
         )
         val launching = mutableStateOf(false)
         val selected = mutableStateOf<String?>(null)
+        val home = mutableIntStateOf(0)
         val entrance = mutableIntStateOf(0)
         val resumeUsesBackMotion = mutableStateOf(false)
         var completions = 0
@@ -87,7 +90,7 @@ class PhoneMotionRenderTest {
             MaterialTheme {
                 PhoneLauncherSurface(
                     mode = mode, tiles = tiles, sections = sections,
-                    appsRepository = repository, homeRequest = 0,
+                    appsRepository = repository, homeRequest = home.intValue,
                     entranceRequest = entrance.intValue, launchingTileId = selected.value,
                     isLaunching = launching.value, interactionEnabled = !launching.value,
                     wallpaperStyle = 0, resumeUsesBackMotion = resumeUsesBackMotion.value,
@@ -147,6 +150,22 @@ class PhoneMotionRenderTest {
             difference(resting, capture("02-return-settled")) < .01)
 
         if (mode == LauncherUiMode.PHONE_8) {
+            // A system Home return from All Apps must discard that pane immediately;
+            // only the WP8.1 Start tiles run their 3D return choreography.
+            compose.onNodeWithText("⌕").performClick()
+            compose.mainClock.advanceTimeBy(400)
+            compose.onNodeWithText("Alpha").assertExists()
+            compose.runOnIdle { home.intValue++ }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            val homeReturnStart = capture("home-return-000")
+            compose.mainClock.advanceTimeBy(16)
+            val homeReturnMoving = capture("home-return-016")
+            compose.onNodeWithText("Alpha").assertDoesNotExist()
+            assertTrue("WP8.1 Start tiles must keep their own return animation",
+                difference(homeReturnStart, homeReturnMoving) > .001)
+            compose.mainClock.advanceTimeBy(800)
+
             // Exercise the separate app-list row/letter turn on the real Compose layers.
             compose.onNodeWithText("⌕").performClick()
             compose.mainClock.advanceTimeBy(400)

@@ -33,6 +33,11 @@ Android Home intents use DiscoLauncher's forward-resume path. Returning from a
 launched app with Android Back uses its separate back-resume path; the latter
 does not run the independent inner-content animation.
 
+When Android Home returns while All Apps was open, WP8.1 snaps the page state
+back to Start and runs only the Start tile return. It does not replay the manual
+270 ms Start/Apps panorama underneath the tile turn. Manual Start↔Apps gestures
+keep the reference panorama slide.
+
 The exit and Back matrices preserve their X/Z translation and left-edge origin
 in the Compose layer, projecting Z offsets with the same 2000px distance. The
 Home entrance keeps the tile face and inner content on separate layers. The

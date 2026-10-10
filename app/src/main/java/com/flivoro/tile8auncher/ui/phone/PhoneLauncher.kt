@@ -5,6 +5,8 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -51,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
@@ -202,6 +205,7 @@ fun PhoneLauncherSurface(
     var order by remember(mode) { mutableStateOf(PhoneLayoutStore.order(context, mode, tiles)) }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
     var showApps by remember(mode) { mutableStateOf(false) }
+    var suppressReturnPaneTransition by remember(mode) { mutableStateOf(false) }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
     var search by remember(mode) { mutableStateOf("") }
@@ -298,10 +302,22 @@ fun PhoneLauncherSurface(
 
     LaunchedEffect(homeRequest) {
         if (homeRequest > 0) {
-            showApps = false
-            alphabetOpen = false
-            editing = null
-            actionCenterOpen = false
+            // A system Home return already has a per-tile 3D Start choreography.
+            // Do not also animate the whole All Apps panorama out underneath it.
+            // Keep the manual Start <-> Apps panorama animation unchanged.
+            Snapshot.withMutableSnapshot {
+                suppressReturnPaneTransition = mode == LauncherUiMode.PHONE_8
+                showApps = false
+                alphabetOpen = false
+                editing = null
+                actionCenterOpen = false
+            }
+            if (suppressReturnPaneTransition) {
+                // AnimatedContent reads the suppression flag when it creates this
+                // state transition. Clear it on the next frame for future gestures.
+                withFrameNanos { }
+                suppressReturnPaneTransition = false
+            }
         }
     }
 
@@ -362,19 +378,22 @@ fun PhoneLauncherSurface(
                 modifier = Modifier.weight(1f).fillMaxWidth()
                     .onGloballyPositioned { paneBounds = it.boundsInWindow() }.then(gestureModifier),
                 transitionSpec = {
-                    // 60fps reference 1000197576.mp4, 134.90–135.17s:
-                    // the entire Start/Apps panorama moves horizontally, with no
-                    // per-row fade or separate turnstile. Two full-width panes translate.
-                    val duration = if (isTen) 260 else 270
-                    val panEase = androidx.compose.animation.core.Easing {
-                        PhoneMotionTimeline.exponentialEaseOut6(it)
-                    }
-                    if (targetState) {
-                        slideInHorizontally(tween(duration, easing = panEase)) { it } togetherWith
-                            slideOutHorizontally(tween(duration, easing = panEase)) { -it }
+                    if (suppressReturnPaneTransition && mode == LauncherUiMode.PHONE_8) {
+                        EnterTransition.None togetherWith ExitTransition.None
                     } else {
-                        slideInHorizontally(tween(duration, easing = panEase)) { -it } togetherWith
-                            slideOutHorizontally(tween(duration, easing = panEase)) { it }
+                        // 60fps reference 1000197576.mp4, 134.90–135.17s:
+                        // manual Start <-> Apps navigation moves the full panorama.
+                        val duration = if (isTen) 260 else 270
+                        val panEase = androidx.compose.animation.core.Easing {
+                            PhoneMotionTimeline.exponentialEaseOut6(it)
+                        }
+                        if (targetState) {
+                            slideInHorizontally(tween(duration, easing = panEase)) { it } togetherWith
+                                slideOutHorizontally(tween(duration, easing = panEase)) { -it }
+                        } else {
+                            slideInHorizontally(tween(duration, easing = panEase)) { -it } togetherWith
+                                slideOutHorizontally(tween(duration, easing = panEase)) { it }
+                        }
                     }
                 },
                 label = "Phone start apps pivot",
