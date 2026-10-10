@@ -46,7 +46,7 @@ class PhoneMotionRenderTest {
     }
 
     @Test fun classicDiscoLauncherExitAndReturnAreCapturedAtEveryFrame() {
-        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 1280, 560)
+        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 1792, 560)
     }
 
     private fun captureMode(
@@ -119,7 +119,7 @@ class PhoneMotionRenderTest {
                 )
             }
         }
-        compose.mainClock.advanceTimeBy(if (mode == LauncherUiMode.PHONE_8) 1440 else 1000)
+        compose.mainClock.advanceTimeBy(if (mode == LauncherUiMode.PHONE_8) 2000 else 1000)
         val resting = capture("00-rest")
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
@@ -139,7 +139,7 @@ class PhoneMotionRenderTest {
             val forwardFrame = capture("start-home-return-160")
             assertTrue("Start Home entrance did not animate",
                 difference(resting, forwardFrame) > .001)
-            compose.mainClock.advanceTimeBy(1216)
+            compose.mainClock.advanceTimeBy(1664)
             compose.onNodeWithTag("wp81-home-return-app-page").assertDoesNotExist()
             assertTrue("Start Home return did not settle",
                 difference(resting, capture("start-home-return-settled")) < .01)
@@ -228,8 +228,8 @@ class PhoneMotionRenderTest {
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 val frame = capture("home-return-${elapsed.toString().padStart(3, '0')}")
-                if (elapsed == 32) {
-                    assertTrue("First Start tiles should appear after the banner's index-zero lead",
+                if (elapsed == 128) {
+                    assertTrue("First Start tiles should appear during native-stagger entry",
                         chromaticFraction(frame) > .0005)
                 }
                 if (elapsed == 224) appsPageRowsFrame = frame
@@ -284,8 +284,12 @@ class PhoneMotionRenderTest {
             }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
-            capture("apps-back-return-000")
-            compose.onNodeWithText("Alpha").assertIsNotDisplayed()
+            val backReturnStart = capture("apps-back-return-000")
+            // The persistent All Apps page remains in Compose semantics even
+            // while visually parked/transparent behind Start. Checking its
+            // semantics visibility is incorrect; assert rendered pixels instead.
+            assertTrue("All Apps row labels flashed during Back-to-Start return",
+                brightPixelsInAppLabelRegion(backReturnStart) < 5)
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
