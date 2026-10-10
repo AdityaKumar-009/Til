@@ -150,10 +150,7 @@ class PhoneMotionRenderTest {
             // Regression: returning Home when the previous launcher page was already
             // Start must STILL compose and animate the second All Apps slide page.
             // AnimatedContent previously omitted it altogether in this path.
-            compose.runOnIdle {
-                resumeUsesBackMotion.value = false
-                home.intValue++
-            }
+            compose.onNodeWithTag("phone-bottom-home").performClick()
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             compose.onNodeWithTag("wp81-home-return-app-page").assertExists()

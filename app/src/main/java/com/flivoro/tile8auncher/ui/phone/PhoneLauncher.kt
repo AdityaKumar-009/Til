@@ -273,6 +273,10 @@ fun PhoneLauncherSurface(
     onOpenAppInfo: (String) -> Unit,
     resumeUsesBackMotion: Boolean = false,
 ) {
+    var classicHomeTap by remember(mode) { mutableStateOf(0) }
+    var classicHomeEntrance by remember(mode) { mutableStateOf(-1) }
+    val motionHomeRequest = homeRequest + classicHomeTap
+    val motionUsesBack = resumeUsesBackMotion && classicHomeEntrance != entranceRequest
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
     val densityScale = LocalDensity.current.density
@@ -285,10 +289,10 @@ fun PhoneLauncherSurface(
     // New Home/Back/launch-return requests must reset the actual panorama
     // synchronously with composition. Delaying this until LaunchedEffect runs
     // exposed one stale All Apps frame when restoring Start.
-    var showApps by remember(mode, entranceRequest, homeRequest) { mutableStateOf(false) }
-    var suppressReturnPaneTransition by remember(mode, entranceRequest, homeRequest) {
+    var showApps by remember(mode, entranceRequest, motionHomeRequest) { mutableStateOf(false) }
+    var suppressReturnPaneTransition by remember(mode, entranceRequest, motionHomeRequest) {
         mutableStateOf(mode == LauncherUiMode.PHONE_8 &&
-            (entranceRequest > 0 || homeRequest > 0))
+            (entranceRequest > 0 || motionHomeRequest > 0))
     }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
@@ -343,22 +347,22 @@ fun PhoneLauncherSurface(
     } else if (isLaunching && showApps) {
         maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
-    } else if (isClassicPhone && !isLaunching && !resumeUsesBackMotion) {
+    } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
         PhoneStartChoreography.classicNativeForwardTotalMillis(viewportHeightCssPx)
     } else PhoneStartChoreography.totalMillis(
         mode, exiting = isLaunching,
         viewportHeightCssPx = viewportHeightCssPx,
     )
-    val motionClock = remember(mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion) {
+    val motionClock = remember(mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack) {
         Animatable(0f)
     }
     // This is a lifecycle phase, not a condition tied to the currently
     // selected panorama page. A completed Home return must NOT replay its
     // second-page 3D projection when the user swipes Apps -> Start later.
     var classicForwardEntranceActive by remember(
-        mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion,
+        mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack,
     ) {
-        mutableStateOf(isClassicPhone && !isLaunching && !resumeUsesBackMotion)
+        mutableStateOf(isClassicPhone && !isLaunching && !motionUsesBack)
     }
     // Every layer shares one display-synchronized timeline. Relative tile
     // cascade delay is calibrated inside the classic choreography.
@@ -366,7 +370,7 @@ fun PhoneLauncherSurface(
     val exitTileId = remember(isLaunching) { launchingTileId }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
     val latestDuration by rememberUpdatedState(duration)
-    LaunchedEffect(mode, entranceRequest, homeRequest, isLaunching, resumeUsesBackMotion) {
+    LaunchedEffect(mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack) {
         snapshotFlow { paneBounds.width > 0f && surfaceBounds.height > 0f }.first { it }
         val animationDuration = latestDuration
         motionClock.animateTo(animationDuration.toFloat(), tween(animationDuration, easing = LinearEasing))
@@ -425,8 +429,8 @@ fun PhoneLauncherSurface(
         PhoneLayoutStore.saveOrder(context, mode, order)
     }
 
-    LaunchedEffect(homeRequest) {
-        if (homeRequest > 0) {
+    LaunchedEffect(motionHomeRequest) {
+        if (motionHomeRequest > 0) {
             // DiscoLauncher snaps its panorama to Start, while the Start tiles
             // and the second All Apps page run their independent 3D entries.
             Snapshot.withMutableSnapshot {
@@ -445,12 +449,12 @@ fun PhoneLauncherSurface(
         }
     }
 
-    LaunchedEffect(entranceRequest, resumeUsesBackMotion) {
+    LaunchedEffect(entranceRequest, motionUsesBack) {
         if (entranceRequest > 0 && mode == LauncherUiMode.PHONE_8) {
             // The pane was already snapped when the entrance event changed
             // composition keys. Keep it parked there for the full 3D return,
             // including returns that previously had showApps=true.
-            if (resumeUsesBackMotion) {
+            if (motionUsesBack) {
                 Snapshot.withMutableSnapshot {
                     alphabetOpen = false
                     editing = null
@@ -606,7 +610,7 @@ fun PhoneLauncherSurface(
                             interactionEnabled = interactionEnabled,
                             launchingTileId = exitTileId,
                             isLaunching = isLaunching,
-                            resumeUsesBackMotion = resumeUsesBackMotion,
+                            resumeUsesBackMotion = motionUsesBack,
                             mode = mode,
                             tileOpacity = tileOpacity,
                             appsRepository = appsRepository,
@@ -628,7 +632,7 @@ fun PhoneLauncherSurface(
                                 viewportHeightCssPx = viewportHeightCssPx,
                                 viewportWidthCssPx = widthCss,
                                 tileLeftCssPx = leftCss,
-                                resumeUsesBackMotion = resumeUsesBackMotion,
+                                resumeUsesBackMotion = motionUsesBack,
                                 entryStaggerMultiplier =
                                     PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER,
                                 tileWidthCssPx = (homeBannerBounds.width / densityScale)
@@ -711,7 +715,7 @@ fun PhoneLauncherSurface(
                     // full viewport to the right and the All Apps screen looked black.
                     val animateHomeAppsPage = classicForwardEntranceActive && !showApps
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
-                        suppressReturnPaneTransition && resumeUsesBackMotion
+                        suppressReturnPaneTransition && motionUsesBack
                     Box(Modifier.fillMaxSize()
                         .graphicsLayer {
                             val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
@@ -1086,7 +1090,15 @@ fun PhoneLauncherSurface(
                         }
                     }.padding(horizontal = 25.dp))
                 Text("⊞", fontSize = 29.sp, color = Color.White,
-                    modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = false; actionCenterOpen = false }.padding(horizontal = 25.dp))
+                    modifier = Modifier.testTag("phone-bottom-home")
+                        .clickable(enabled = interactionEnabled && !isLaunching) {
+                            if (isClassicPhone) {
+                                classicHomeEntrance = entranceRequest
+                                classicHomeTap++
+                            }
+                            showApps = false
+                            actionCenterOpen = false
+                        }.padding(horizontal = 25.dp))
                 Text("⌕", fontSize = 28.sp, color = Color.White,
                     modifier = Modifier.testTag("phone-bottom-search")
                         .clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }
@@ -1249,10 +1261,6 @@ private fun PhoneStartGrid(
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
-    // Classic phone tiles use a tighter spacing than Til's desktop Metro grid.
-    // Keep the desktop and Windows 10 Mobile grid geometry unchanged.
-    val gap = if (mode == LauncherUiMode.PHONE_8) 3.dp else 4.dp
-    val side = 10.dp
     val density = LocalDensity.current.density
     // Keep clipping/visibility tied to the pane height, but use the full
     // source window height to calculate Disco's CSS stagger scale.
@@ -1260,6 +1268,13 @@ private fun PhoneStartGrid(
         .takeIf { it > 0f } ?: viewportHeightPx / density
     val viewportWidthCssPx = surfaceBounds.width / density
     BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Native 480-unit viewport: 12-unit gutters; 24-unit four-column
+        // margins, 12-unit six-column margins. Scale with viewport width,
+        // not Android density. Keep W10M's established 4dp/10dp geometry.
+        val gap = if (mode == LauncherUiMode.PHONE_8) maxWidth * .025f else 4.dp
+        val side = if (mode == LauncherUiMode.PHONE_8) {
+            maxWidth * if (columns == 6) .025f else .05f
+        } else 10.dp
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
         val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
         val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 18.dp).toPx() }
