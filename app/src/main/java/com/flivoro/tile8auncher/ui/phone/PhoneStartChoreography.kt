@@ -53,9 +53,9 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_APPS_EXIT_MS = 200f
     private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 100f
     private const val CLASSIC_APPS_PAGE_ENTRY_MS = 750f
-    // DiscoLauncher sets --app-transition-scale to 1. The viewport-derived
-    // baseScale below is used by launchHide(), not by the per-element CSS delays.
-    private const val CLASSIC_ELEMENT_STAGGER_SCALE = 1f
+    // DiscoLauncher src/script.js sets --app-transition-scale from
+    // appTransitionScale(window.innerHeight) at startup. The root CSS default
+    // of 1 is only a fallback before that JS initialization.
     private const val FLOW_PERSPECTIVE_CSS_PX = 1000f
     const val CLASSIC_TILE_PERSPECTIVE_CSS_PX = 2000f
     const val CLASSIC_APPS_PAGE_PERSPECTIVE_CSS_PX = 1000f
@@ -169,12 +169,12 @@ internal object PhoneStartChoreography {
         )
     }
 
-    private fun delayMillis(index: Float, @Suppress("UNUSED_PARAMETER") viewportHeightCssPx: Float): Int =
-        (index.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS * CLASSIC_ELEMENT_STAGGER_SCALE)
-            .roundToInt()
+    private fun delayMillis(index: Float, viewportHeightCssPx: Float): Int =
+        (index.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS *
+            appTransitionScale(viewportHeightCssPx)).roundToInt()
 
-    fun selectedExitDelayMillis(@Suppress("UNUSED_PARAMETER") viewportHeightCssPx: Float): Int =
-        (CLASSIC_SELECTED_DELAY_MS * CLASSIC_ELEMENT_STAGGER_SCALE).roundToInt()
+    fun selectedExitDelayMillis(viewportHeightCssPx: Float): Int =
+        (CLASSIC_SELECTED_DELAY_MS * appTransitionScale(viewportHeightCssPx)).roundToInt()
 
     /** DiscoLauncher's `launchHide()` timeout, including its viewport baseScale. */
     private fun launchHideMillis(viewportHeightCssPx: Float): Int {
@@ -190,8 +190,8 @@ internal object PhoneStartChoreography {
     ): Int = when (mode) {
         LauncherUiMode.PHONE_8 -> if (exiting) launchHideMillis(viewportHeightCssPx) else {
             maxOf(
-                (CLASSIC_ENTRY_MS + CLASSIC_STAGGER_MS * CLASSIC_ELEMENT_STAGGER_SCALE)
-                    .roundToInt(),
+                (CLASSIC_ENTRY_MS +
+                    CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx)).roundToInt(),
                 (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
             )
         }
