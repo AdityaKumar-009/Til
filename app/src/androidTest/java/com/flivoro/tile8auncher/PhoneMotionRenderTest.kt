@@ -122,6 +122,28 @@ class PhoneMotionRenderTest {
         val resting = capture("00-rest")
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
+        if (mode == LauncherUiMode.PHONE_8) {
+            // Regression: returning Home when the previous launcher page was already
+            // Start must STILL compose and animate the second All Apps slide page.
+            // AnimatedContent previously omitted it altogether in this path.
+            compose.runOnIdle {
+                resumeUsesBackMotion.value = false
+                home.intValue++
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithTag("wp81-home-return-app-page").assertExists()
+            compose.onNodeWithText("Alpha").assertExists()
+            compose.mainClock.advanceTimeBy(160)
+            val forwardFrame = capture("start-home-return-160")
+            assertTrue("Start Home entrance did not animate",
+                difference(resting, forwardFrame) > .001)
+            compose.mainClock.advanceTimeBy(784)
+            compose.onNodeWithTag("wp81-home-return-app-page").assertDoesNotExist()
+            assertTrue("Start Home return did not settle",
+                difference(resting, capture("start-home-return-settled")) < .01)
+        }
+
         // A panorama round trip must not start a second Start-entry animation.
         compose.onNodeWithText("⌕").performClick()
         compose.mainClock.advanceTimeBy(400)
