@@ -862,6 +862,7 @@ fun PhoneLauncherSurface(
                     }
                 }
             }
+            }
             Row(Modifier.fillMaxWidth().height(48.dp).background(Color.Black),
                 horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Text("‹", fontSize = 36.sp, color = Color.White,
