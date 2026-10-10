@@ -165,18 +165,27 @@ class PhoneMotionRenderTest {
             val homeReturnStart = capture("home-return-000")
             assertTrue("All Apps must be invisible in the first Home-return frame",
                 brightPixelsInAppLabelRegion(homeReturnStart) < 5)
+            assertTrue("Start tiles must already be rendered in the first Home-return frame",
+                coloredFraction(homeReturnStart) > .0005)
             compose.mainClock.advanceTimeBy(16)
             val homeReturnMoving = capture("home-return-016")
             assertTrue("All Apps must remain invisible while Start tiles turn",
                 brightPixelsInAppLabelRegion(homeReturnMoving) < 5)
-            assertTrue("WP8.1 Start tiles must keep their own return animation",
-                difference(homeReturnStart, homeReturnMoving) > .001)
+            assertTrue("Start tiles must remain rendered while turning",
+                coloredFraction(homeReturnMoving) > .0005)
+            var homeReturnMidpoint: Bitmap? = null
             for (elapsed in (frameStep * 2)..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
-                capture("home-return-${elapsed.toString().padStart(3, '0')}")
+                val frame = capture("home-return-${elapsed.toString().padStart(3, '0')}")
+                assertTrue("All Apps content reappeared at ${elapsed}ms during the Start return",
+                    brightPixelsInAppLabelRegion(frame) < 5)
+                if (elapsed == 256) homeReturnMidpoint = frame
             }
+            assertTrue("WP8.1 Start tiles must enter during the Home return",
+                difference(homeReturnStart, checkNotNull(homeReturnMidpoint)) > .001)
+            val homeReturnSettled = capture("home-return-settled")
             assertTrue("Home return must settle on the original Start layout",
-                difference(resting, capture("home-return-settled")) < .01)
+                difference(resting, homeReturnSettled) < .01)
 
             // Exercise the separate app-list row/letter turn on the real Compose layers.
             compose.onNodeWithText("⌕").performClick()
