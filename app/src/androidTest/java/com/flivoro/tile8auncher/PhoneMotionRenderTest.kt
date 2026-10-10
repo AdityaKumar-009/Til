@@ -46,7 +46,7 @@ class PhoneMotionRenderTest {
     }
 
     @Test fun classicDiscoLauncherExitAndReturnAreCapturedAtEveryFrame() {
-        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 880, 560)
+        captureMode(LauncherUiMode.PHONE_8, "wp81-", 16, 800, 1280, 560)
     }
 
     private fun captureMode(
@@ -119,7 +119,7 @@ class PhoneMotionRenderTest {
                 )
             }
         }
-        compose.mainClock.advanceTimeBy(1000)
+        compose.mainClock.advanceTimeBy(if (mode == LauncherUiMode.PHONE_8) 1440 else 1000)
         val resting = capture("00-rest")
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
@@ -139,7 +139,7 @@ class PhoneMotionRenderTest {
             val forwardFrame = capture("start-home-return-160")
             assertTrue("Start Home entrance did not animate",
                 difference(resting, forwardFrame) > .001)
-            compose.mainClock.advanceTimeBy(784)
+            compose.mainClock.advanceTimeBy(1216)
             compose.onNodeWithTag("wp81-home-return-app-page").assertDoesNotExist()
             assertTrue("Start Home return did not settle",
                 difference(resting, capture("start-home-return-settled")) < .01)
@@ -232,9 +232,9 @@ class PhoneMotionRenderTest {
                     assertTrue("First Start tiles should appear after the banner's index-zero lead",
                         chromaticFraction(frame) > .0005)
                 }
-                if (elapsed == 112) appsPageRowsFrame = frame
-                if (elapsed == 160) appsPageVisibleFrame = frame
-                if (elapsed == 256) homeReturnMidpoint = frame
+                if (elapsed == 224) appsPageRowsFrame = frame
+                if (elapsed == 320) appsPageVisibleFrame = frame
+                if (elapsed == 416) homeReturnMidpoint = frame
             }
             val visibleAppLabelPixels = brightPixelsInAppLabelRegion(
                 checkNotNull(appsPageRowsFrame), minimumChannelValue = 40,
