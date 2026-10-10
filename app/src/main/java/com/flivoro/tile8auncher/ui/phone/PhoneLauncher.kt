@@ -635,8 +635,12 @@ fun PhoneLauncherSurface(
                     // introduction as well as on every explicit Home return.
                     // The shared clock only restarts for lifecycle/launch events,
                     // not on a normal Start <-> All Apps panorama swipe.
+                    // A forward return draws the second page into the Start viewport
+                    // ONLY while Start is selected. Previously the projector stayed
+                    // enabled after showApps=true, so settled app rows were pushed one
+                    // full viewport to the right and the All Apps screen looked black.
                     val animateHomeAppsPage = mode == LauncherUiMode.PHONE_8 &&
-                        !isLaunching && !resumeUsesBackMotion
+                        !isLaunching && !resumeUsesBackMotion && !showApps
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
                         suppressReturnPaneTransition && resumeUsesBackMotion
                     Box(Modifier.fillMaxSize()
@@ -1176,8 +1180,10 @@ private fun PhoneStartGrid(
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
-    val gap = 4.dp
-    val side = 10.dp
+    // Classic phone tiles use a tighter spacing than Til's desktop Metro grid.
+    // Keep the desktop and Windows 10 Mobile grid geometry unchanged.
+    val gap = if (mode == LauncherUiMode.PHONE_8) 3.dp else 4.dp
+    val side = if (mode == LauncherUiMode.PHONE_8) 10.dp else 10.dp
     val density = LocalDensity.current.density
     // Keep clipping/visibility tied to the pane height, but use the full
     // source window height to calculate Disco's CSS stagger scale.
