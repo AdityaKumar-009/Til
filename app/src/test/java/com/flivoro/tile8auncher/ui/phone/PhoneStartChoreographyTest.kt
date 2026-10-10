@@ -30,23 +30,23 @@ class PhoneStartChoreographyTest {
 
     @Test fun nativeForwardStaggerKeepsTileFaceAndInnerGlyphSynchronized() {
         val slow = PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER
-        assertEquals(5.5f, slow, 0f)
-        assertEquals(1600, PhoneStartChoreography.classicNativeForwardTotalMillis(850f))
-        assertEquals(1469, PhoneStartChoreography.classicNativeForwardTotalMillis(648f))
+        assertEquals(3.0f, slow, 0f)
+        assertEquals(1100, PhoneStartChoreography.classicNativeForwardTotalMillis(850f))
+        assertEquals(1029, PhoneStartChoreography.classicNativeForwardTotalMillis(648f))
         val delayedFace = PhoneStartChoreography.sample(
-            mode = eight, exiting = false, elapsedMillis = 800,
+            mode = eight, exiting = false, elapsedMillis = 500,
             mobileRowFraction = 0f, animationIndex = 1f,
             viewportHeightCssPx = 850f, viewportWidthCssPx = width,
             tileLeftCssPx = 10f, entryStaggerMultiplier = slow,
         )
         val delayedInner = PhoneStartChoreography.sampleInnerEntry(
-            800, 1f, 850f, 1f, entryStaggerMultiplier = slow,
+            500, 1f, 850f, 1f, entryStaggerMultiplier = slow,
         )
         assertEquals(0f, delayedFace.alpha, 0f)
         assertEquals(70f, delayedFace.rotationY, 0f)
         assertEquals(45f, delayedInner.rotationY, 0f)
         val movingFace = PhoneStartChoreography.sample(
-            mode = eight, exiting = false, elapsedMillis = 1200,
+            mode = eight, exiting = false, elapsedMillis = 800,
             mobileRowFraction = 0f, animationIndex = 1f,
             viewportHeightCssPx = 850f, viewportWidthCssPx = width,
             tileLeftCssPx = 10f, entryStaggerMultiplier = slow,
