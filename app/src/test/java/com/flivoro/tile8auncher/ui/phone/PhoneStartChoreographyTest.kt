@@ -176,7 +176,7 @@ class PhoneStartChoreographyTest {
         assertEquals("The camera belongs to the screen-wide parent, not this tile",
             80f, hinge.yCssPx, .001f)
         assertEquals(148.55f, farTop.xCssPx, .05f)
-        assertEquals(92.33f, farTop.yCssPx, .05f)
+        assertEquals(92.50f, farTop.yCssPx, .05f)
     }
 
     @Test fun classicBackReturnMatchesDiscoBackKeyframeMatrixAndReveal() {

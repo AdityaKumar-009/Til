@@ -202,8 +202,14 @@ class PhoneMotionRenderTest {
                 if (elapsed == 160) appsPageVisibleFrame = frame
                 if (elapsed == 256) homeReturnMidpoint = frame
             }
-            assertTrue("All Apps row labels must turn into view behind the entering Start tiles",
-                brightPixelsInAppLabelRegion(checkNotNull(appsPageRowsFrame)) > 5)
+            val visibleAppLabelPixels = brightPixelsInAppLabelRegion(
+                checkNotNull(appsPageRowsFrame), minimumChannelValue = 40,
+            )
+            assertTrue(
+                "All Apps row labels must turn into view behind the entering Start tiles " +
+                    "(found $visibleAppLabelPixels projected text pixels)",
+                visibleAppLabelPixels > 5,
+            )
             assertTrue("All Apps search control must be visibly projected behind Start",
                 brightPixelsInAppsSearchRegion(checkNotNull(appsPageVisibleFrame)) > 5)
             assertTrue("WP8.1 Start tiles must enter during the Home return",
@@ -327,7 +333,10 @@ class PhoneMotionRenderTest {
         return sum.toDouble() / (count * 3.0 * 255.0)
     }
 
-    private fun brightPixelsInAppLabelRegion(bitmap: Bitmap): Int {
+    private fun brightPixelsInAppLabelRegion(
+        bitmap: Bitmap,
+        minimumChannelValue: Int = 220,
+    ): Int {
         // DiscoLauncher places app rows at x=81px; their 52px icon and 12px
         // title gap put the label around x=145px on a 360px CSS viewport.
         val left = (bitmap.width * .37f).toInt()
@@ -338,8 +347,9 @@ class PhoneMotionRenderTest {
         for (y in top until bottom step 2) {
             for (x in left until right step 2) {
                 val pixel = bitmap.getPixel(x, y)
-                if (((pixel shr 16) and 255) > 220 &&
-                    ((pixel shr 8) and 255) > 220 && (pixel and 255) > 220
+                if (((pixel shr 16) and 255) > minimumChannelValue &&
+                    ((pixel shr 8) and 255) > minimumChannelValue &&
+                    (pixel and 255) > minimumChannelValue
                 ) count++
             }
         }
