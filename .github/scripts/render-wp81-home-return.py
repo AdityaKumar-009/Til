@@ -20,12 +20,13 @@ def main() -> None:
     if before is None or settled is None or start is None:
         raise SystemExit("WP8.1 Home-return captures are missing; preview was not rendered.")
 
-    frame_pattern = re.compile(r"wp81-home-return-(\d{3})\.png$")
+    frame_pattern = re.compile(r"wp81-home-return-(\d{3,4})\.png$")
     transition_frames = sorted(
         (path for path in ROOT.rglob("wp81-home-return-*.png")
          if frame_pattern.match(path.name)),
         key=lambda path: int(frame_pattern.match(path.name).group(1)),
     )
+    # Include the four-digit timestamps of the native-stagger entrance.
     if len(transition_frames) < 20:
         raise SystemExit(f"Only {len(transition_frames)} WP8.1 transition frames were captured.")
 
