@@ -610,7 +610,18 @@ fun PhoneLauncherSurface(
                 }
                 Box(
                     Modifier.fillMaxSize().zIndex(0f).graphicsLayer {
-                        translationX = paneBounds.width * (1f - panoramaProgress)
+                        // During Disco's forward Home entry, render the All Apps
+                        // turn directly into viewport/world coordinates, not inside
+                        // an offscreen pane clipped at x=+one viewport. Outside that
+                        // short entrance, the second page stays at x=+width and
+                        // both panes share the same panorama translation.
+                        val homeTurnRunning = isClassicPhone && !isLaunching &&
+                            !resumeUsesBackMotion && !showApps &&
+                            motionClock.value < PhoneStartChoreography.totalMillis(
+                                mode, exiting = false, viewportHeightCssPx = viewportHeightCssPx,
+                            )
+                        translationX = if (homeTurnRunning) 0f
+                            else paneBounds.width * (1f - panoramaProgress)
                     },
                 ) {
                     // Play Disco's forward second-page entry on first launcher
@@ -683,11 +694,11 @@ fun PhoneLauncherSurface(
                             )
                             val destination = FloatArray(8)
                             corners.forEachIndexed { index, point ->
-                                // projectAppsPagePoint returns panorama/world X. The outer
-                                // pane is already translated +one viewport; convert back
-                                // to page-local X to avoid translating the page twice.
-                                destination[index * 2] =
-                                    (point.xCssPx - viewportWidthCssPx) * densityScale
+                                // The whole Apps turn is projected in viewport/world
+                                // coordinates while the outer page is at x=0; the
+                                // normal +viewport pane translation is not applied
+                                // concurrently with this projected transition.
+                                destination[index * 2] = point.xCssPx * densityScale
                                 destination[index * 2 + 1] = point.yCssPx * densityScale
                             }
                             val perspective = PlatformMatrix()
