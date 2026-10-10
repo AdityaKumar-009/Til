@@ -297,7 +297,10 @@ fun PhoneLauncherSurface(
     var surfaceBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var homeBannerBounds by remember(mode) { mutableStateOf(Rect.Zero) }
-    val viewportHeightCssPx = (paneBounds.height / densityScale).takeIf { it > 0f } ?: 850f
+    // Disco reads window.innerHeight (the whole CSS viewport), not just
+    // the Start/Apps content pane below status and navigation surfaces.
+    val viewportHeightCssPx = (surfaceBounds.height / densityScale)
+        .takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
     // Disco's #search-icon starts hidden and gets the .shown class only when
     // the user moves into All Apps. Its CSS enters after 200ms over 250ms,
@@ -551,8 +554,7 @@ fun PhoneLauncherSurface(
                                 elapsedMillis = motionClock.value.roundToInt(),
                                 mobileRowFraction = 0f,
                                 animationIndex = 0f,
-                                viewportHeightCssPx = (paneBounds.height / densityScale)
-                                    .takeIf { it > 0f } ?: 850f,
+                                viewportHeightCssPx = viewportHeightCssPx,
                                 viewportWidthCssPx = widthCss,
                                 tileLeftCssPx = leftCss,
                                 resumeUsesBackMotion = resumeUsesBackMotion,
@@ -1177,7 +1179,10 @@ private fun PhoneStartGrid(
     val gap = 4.dp
     val side = 10.dp
     val density = LocalDensity.current.density
-    val viewportHeightCssPx = viewportHeightPx / density
+    // Keep clipping/visibility tied to the pane height, but use the full
+    // source window height to calculate Disco's CSS stagger scale.
+    val viewportHeightCssPx = (surfaceBounds.height / density)
+        .takeIf { it > 0f } ?: viewportHeightPx / density
     val viewportWidthCssPx = surfaceBounds.width / density
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
