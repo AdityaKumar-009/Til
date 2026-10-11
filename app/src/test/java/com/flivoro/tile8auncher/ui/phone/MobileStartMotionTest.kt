@@ -21,6 +21,33 @@ class MobileStartMotionTest {
         assertEquals(652.5f, 621f + mix.translationYPx, 8f)
     }
 
+    @Test fun appBackRetracesExitForEveryRowAndSelectedDelay() {
+        assertEquals(MobileStartMotion.EXIT_TOTAL_MS, MobileStartMotion.reverseExitMillis(0))
+        assertEquals(0, MobileStartMotion.reverseExitMillis(MobileStartMotion.EXIT_TOTAL_MS))
+        for (row in listOf(0f, .25f, .5f, .75f, 1f)) {
+            for (selected in listOf(false, true)) {
+                for (elapsed in 0..MobileStartMotion.EXIT_TOTAL_MS step 17) {
+                    val reverseFrame = MobileStartMotion.sample(
+                        true, MobileStartMotion.reverseExitMillis(elapsed),
+                        row, 419f, 621f, 254f, 456f, selected,
+                    )
+                    val exitingFrame = MobileStartMotion.sample(
+                        true, MobileStartMotion.EXIT_TOTAL_MS - elapsed,
+                        row, 419f, 621f, 254f, 456f, selected,
+                    )
+                    assertEquals(exitingFrame.scale, reverseFrame.scale, 0f)
+                    assertEquals(exitingFrame.alpha, reverseFrame.alpha, 0f)
+                    assertEquals(exitingFrame.translationXPx, reverseFrame.translationXPx, 0f)
+                    assertEquals(exitingFrame.translationYPx, reverseFrame.translationYPx, 0f)
+                }
+            }
+        }
+        assertEquals(0f, MobileStartMotion.wallpaperAlpha(
+            true, MobileStartMotion.reverseExitMillis(0)), 0f)
+        assertEquals(1f, MobileStartMotion.wallpaperAlpha(
+            true, MobileStartMotion.reverseExitMillis(MobileStartMotion.EXIT_TOTAL_MS)), 0f)
+    }
+
     @Test fun returnTracksMeasuredScaleAndLocationInsteadOfAnUpwardSlide() {
         // Fitted return origin 18.780s. f566 and f570 are independently tracked glyphs.
         val mix = frame(false, 105, .75f, 419f, 621f)

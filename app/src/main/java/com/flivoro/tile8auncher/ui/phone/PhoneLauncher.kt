@@ -50,6 +50,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshots.Snapshot
@@ -273,6 +274,8 @@ fun PhoneLauncherSurface(
     onOpenSettings: () -> Unit,
     onOpenAppInfo: (String) -> Unit,
     resumeUsesBackMotion: Boolean = false,
+    screenOffRequest: Int = 0,
+    returningTileId: String? = null,
 ) {
     var classicHomeTap by remember(mode) { mutableStateOf(0) }
     var classicHomeEntrance by remember(mode) { mutableStateOf(-1) }
@@ -287,13 +290,15 @@ fun PhoneLauncherSurface(
     val desktopById = remember(tiles) { tiles.associateBy(TileModel::id) }
     var order by remember(mode) { mutableStateOf(PhoneLayoutStore.order(context, mode, tiles)) }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
-    // New Home/Back/launch-return requests must reset the actual panorama
-    // synchronously with composition. Delaying this until LaunchedEffect runs
-    // exposed one stale All Apps frame when restoring Start.
-    var showApps by remember(mode, entranceRequest, motionHomeRequest) { mutableStateOf(false) }
-    var suppressReturnPaneTransition by remember(mode, entranceRequest, motionHomeRequest) {
+    // Back returns to the previously visible page. Only Home and screen-off reset to Start;
+    // entranceRequest must not recreate showApps or wipe the app drawer's scroll position.
+    var showApps by rememberSaveable(mode, motionHomeRequest, screenOffRequest) {
+        mutableStateOf(false)
+    }
+    var suppressReturnPaneTransition by remember(mode, entranceRequest, motionHomeRequest, screenOffRequest) {
         mutableStateOf(mode == LauncherUiMode.PHONE_8 &&
-            (entranceRequest > 0 || motionHomeRequest > 0))
+            (motionHomeRequest > 0 || screenOffRequest > 0 ||
+                (entranceRequest > 0 && !motionUsesBack)))
     }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
@@ -316,20 +321,8 @@ fun PhoneLauncherSurface(
     val viewportHeightCssPx = (surfaceBounds.height / densityScale)
         .takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
-    val appsEntryClock = remember(mode) {
-        Animatable(MobileStartMotion.ENTRY_TOTAL_MS.toFloat())
-    }
-    LaunchedEffect(mode, showApps, isLaunching) {
-        if (mode != LauncherUiMode.MOBILE_10 || !showApps || isLaunching) {
-            appsEntryClock.snapTo(MobileStartMotion.ENTRY_TOTAL_MS.toFloat())
-        } else {
-            appsEntryClock.snapTo(0f)
-            appsEntryClock.animateTo(
-                MobileStartMotion.ENTRY_TOTAL_MS.toFloat(),
-                tween(MobileStartMotion.ENTRY_TOTAL_MS, easing = LinearEasing),
-            )
-        }
-    }
+    // W10M All Apps stays settled on an ordinary Start -> Apps swipe. Its rows move
+    // only for app launch and the corresponding inverse motion on Back.
     // Disco's #search-icon starts hidden and gets the .shown class only when
     // the user moves into All Apps. Its CSS enters after 200ms over 250ms,
     // then hides 500ms after returning to Start.
@@ -367,6 +360,8 @@ fun PhoneLauncherSurface(
     } else if (isLaunching && showApps) {
         maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
+    } else if (isTen && motionUsesBack && !isLaunching) {
+        MobileStartMotion.EXIT_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
         PhoneStartChoreography.classicNativeForwardTotalMillis(viewportHeightCssPx)
     } else PhoneStartChoreography.totalMillis(
@@ -387,7 +382,14 @@ fun PhoneLauncherSurface(
     // Every layer shares one display-synchronized timeline. Relative tile
     // cascade delay is calibrated inside the classic choreography.
     fun sourceMotionMillis(): Int = motionClock.value.roundToInt()
+    fun mobileReturnMillis(): Int = MobileStartMotion.reverseExitMillis(sourceMotionMillis())
+    fun mobileWallpaperAlpha(): Float = MobileStartMotion.wallpaperAlpha(
+        exiting = isLaunching || motionUsesBack,
+        elapsedMillis = if (!isLaunching && motionUsesBack) mobileReturnMillis()
+            else sourceMotionMillis(),
+    )
     val exitTileId = remember(isLaunching) { launchingTileId }
+    val returnTileId = returningTileId.takeIf { isTen && motionUsesBack && !isLaunching }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
     val latestDuration by rememberUpdatedState(duration)
     LaunchedEffect(mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack) {
@@ -566,7 +568,7 @@ fun PhoneLauncherSurface(
         .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
         if (isTen) {
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = MobileStartMotion.wallpaperAlpha(isLaunching, sourceMotionMillis())
+                alpha = mobileWallpaperAlpha()
             }) {
                 WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
@@ -578,7 +580,7 @@ fun PhoneLauncherSurface(
             if (isTen) {
                 Row(Modifier.fillMaxWidth().height(22.dp).padding(end = 18.dp)
                     .graphicsLayer {
-                        alpha = MobileStartMotion.wallpaperAlpha(isLaunching, sourceMotionMillis())
+                        alpha = mobileWallpaperAlpha()
                     },
                     horizontalArrangement = Arrangement.End) {
                     Text("⌄", color = Color.White, fontSize = 20.sp,
@@ -629,7 +631,7 @@ fun PhoneLauncherSurface(
                             viewportBounds = paneBounds,
                             viewportHeightPx = paneBounds.height,
                             interactionEnabled = interactionEnabled,
-                            launchingTileId = exitTileId,
+                            launchingTileId = if (isLaunching) exitTileId else returnTileId,
                             isLaunching = isLaunching,
                             resumeUsesBackMotion = motionUsesBack,
                             mode = mode,
@@ -702,9 +704,8 @@ fun PhoneLauncherSurface(
                                         canvas.restoreToCount(saveCount)
                                     }
                                 } else Modifier.graphicsLayer {
-                                    alpha = if (isTen) MobileStartMotion.wallpaperAlpha(
-                                        isLaunching, sourceMotionMillis(),
-                                    ) else if (isLaunching && motionClock.value >= duration) 0f else 1f
+                                    alpha = if (isTen) mobileWallpaperAlpha()
+                                    else if (isLaunching && motionClock.value >= duration) 0f else 1f
                                 }),
                             horizontalArrangement = Arrangement.End,
                         ) {
@@ -899,10 +900,14 @@ fun PhoneLauncherSurface(
                                 firstVisibleListTop,
                                 lastVisibleListTop,
                             )
+                            val backReturn = !exiting && motionUsesBack
                             val motion = MobileStartMotion.sample(
-                                exiting = exiting,
-                                elapsedMillis = if (exiting) sourceMotionMillis()
-                                    else appsEntryClock.value.roundToInt(),
+                                exiting = exiting || backReturn,
+                                elapsedMillis = when {
+                                    exiting -> sourceMotionMillis()
+                                    backReturn -> mobileReturnMillis()
+                                    else -> MobileStartMotion.ENTRY_TOTAL_MS
+                                },
                                 row = rowFraction,
                                 centerX = bounds.center.x,
                                 centerY = bounds.center.y,
@@ -1020,7 +1025,8 @@ fun PhoneLauncherSurface(
                                             animationIndex = animationIndex,
                                             viewportHeightCssPx = viewportHeightCssPx,
                                             viewportWidthCssPx = surfaceBounds.width / densityScale,
-                                            selected = exitTileId == "phone_app_${app.packageName}",
+                                            selected = (if (isLaunching) exitTileId else returnTileId) ==
+                                                            "phone_app_${app.packageName}",
                                             tileLeftCssPx = appListContentLeftCssPx,
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
@@ -1059,7 +1065,8 @@ fun PhoneLauncherSurface(
                                                     val motion = mobileAppsMotion(
                                                         mobileBounds,
                                                         exiting = isLaunching,
-                                                        selected = exitTileId == "phone_app_${app.packageName}",
+                                                        selected = (if (isLaunching) exitTileId else returnTileId) ==
+                                                            "phone_app_${app.packageName}",
                                                     )
                                                     alpha = motion.alpha
                                                     translationX = motion.translationXPx
@@ -1493,10 +1500,15 @@ private fun PhoneTile(
     val icon = rememberAppIcon(repository, tile.packageName)
 
     fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
+        val backReturn = resumeUsesBackMotion && !exiting
         val mobile = MobileStartMotion.sample(
-            exiting, elapsedMillis(), visibleRowFraction,
-            bounds.center.x, bounds.center.y,
-            surfaceBounds.center.x, surfaceBounds.center.y, selectedTile,
+            exiting = exiting || backReturn,
+            elapsedMillis = if (backReturn) MobileStartMotion.reverseExitMillis(elapsedMillis())
+                else elapsedMillis(),
+            row = visibleRowFraction,
+            centerX = bounds.center.x, centerY = bounds.center.y,
+            viewportCenterX = surfaceBounds.center.x, viewportCenterY = surfaceBounds.center.y,
+            selected = selectedTile,
         )
         PhoneStartMotionFrame(
             alpha = mobile.alpha,

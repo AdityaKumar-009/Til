@@ -135,6 +135,9 @@ class MainActivity : ComponentActivity() {
     private var classicPhoneResumeGeneration = 0
     private var pendingClassicHomeReturn = false
     private var classicExternalAppLaunched = false
+    private var mobileExternalAppLaunched = false
+    private var mobileReturnSourceTileId by mutableStateOf<String?>(null)
+    private var screenOffRequest by mutableIntStateOf(0)
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -147,6 +150,9 @@ class MainActivity : ComponentActivity() {
                     startupEntrancePending = true
                     waitingForUserPresent = true
                     entranceReady = false
+                    screenOffRequest++
+                    mobileExternalAppLaunched = false
+                    mobileReturnSourceTileId = null
                     activeInAppTile = null
                     pendingLaunchIntent = null
                     if (flipState.isRunning) flipState = FlipAnimationState()
@@ -204,6 +210,8 @@ class MainActivity : ComponentActivity() {
                     entranceRequest = entranceRequest,
                     entranceKind = entranceKind,
                     resumeUsesBackMotion = phoneResumeUsesBackMotion,
+                    screenOffRequest = screenOffRequest,
+                    returningPhoneTileId = mobileReturnSourceTileId,
                     entranceReady = entranceReady,
                     onOpenInAppTile = { activeInAppTile = it },
                     onCloseInAppTile = {
@@ -346,12 +354,15 @@ class MainActivity : ComponentActivity() {
                 scheduleClassicPhoneResume()
             } else {
                 entranceReady = true
+                val mobileBackReturn = LauncherFeatureStore.launcherUiMode(this) ==
+                    LauncherUiMode.MOBILE_10 && mobileExternalAppLaunched && !homeWasPending
+                mobileExternalAppLaunched = false
+                phoneResumeUsesBackMotion = mobileBackReturn
                 if (!homeWasPending) {
                     entranceKind = StartEntranceKind.RETURN
-                    phoneResumeUsesBackMotion = true
                     entranceRequest++
                 } else {
-                    phoneResumeUsesBackMotion = false
+                    mobileReturnSourceTileId = null
                 }
             }
         }
@@ -368,6 +379,8 @@ class MainActivity : ComponentActivity() {
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
             phoneResumeUsesBackMotion = false
+            mobileExternalAppLaunched = false
+            mobileReturnSourceTileId = null
             if (flipState.isRunning) {
                 requestFlipReverse(FlipReverseReason.HOME)
                 return
@@ -537,12 +550,19 @@ class MainActivity : ComponentActivity() {
         }
         try {
             launchHandoffPending = true
-            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
-                classicExternalAppLaunched = true
+            when (LauncherFeatureStore.launcherUiMode(this)) {
+                LauncherUiMode.PHONE_8 -> classicExternalAppLaunched = true
+                LauncherUiMode.MOBILE_10 -> {
+                    mobileExternalAppLaunched = true
+                    mobileReturnSourceTileId = tile.id
+                }
+                else -> Unit
             }
             startActivityWithCustomAnim(preparedIntent)
         } catch (_: Exception) {
             classicExternalAppLaunched = false
+            mobileExternalAppLaunched = false
+            mobileReturnSourceTileId = null
             launchHandoffPending = false
             activeInAppTile = tile
             flipState = FlipAnimationState()
@@ -574,9 +594,11 @@ fun Tile8LauncherApp(
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
     resumeUsesBackMotion: Boolean = false,
+    screenOffRequest: Int = 0,
+    returningPhoneTileId: String? = null,
     entranceReady: Boolean = true,
 ) {
-    var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
+    var currentScreen by rememberSaveable { mutableStateOf(LauncherScreen.START) }
     val drawerProgress = remember { mutableFloatStateOf(0f) }
     val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
     val initialStartScrollIndex = remember { appsRepository.getStartScrollIndex() }
@@ -740,14 +762,18 @@ fun Tile8LauncherApp(
         }
     }
 
-    // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
-    // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
+    // A temporary entrance gate (including a recreated Activity after app launch) must not
+    // discard the saved page. Only an actual screen-off event explicitly resets navigation.
     LaunchedEffect(entranceReady) {
         if (!entranceReady) {
             showCharms = false
             selectedTileForCustomization = null
             showPinAppsDialog = false
             showPowerDialog = false
+        }
+    }
+    LaunchedEffect(screenOffRequest) {
+        if (screenOffRequest > 0) {
             currentScreen = LauncherScreen.START
             drawerResetRequest++
         }
@@ -918,6 +944,8 @@ fun Tile8LauncherApp(
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
                         resumeUsesBackMotion = localPhoneResumeUsesBackMotion,
+                        screenOffRequest = screenOffRequest,
+                        returningTileId = returningPhoneTileId,
                         onLaunch = { tile, bounds, origin ->
                             if (entranceReady && !flipState.isRunning &&
                                 !bindOrPickDefaultTile(tile, bounds)
