@@ -178,7 +178,7 @@ class PhoneMotionRenderTest {
             assertTrue("W10M All Apps rows did not animate into place",
                 difference(appsEntering, appsEntered) > .001)
             assertTrue("W10M All Apps row labels did not finish entering",
-                brightPixelsInAppLabelRegion(appsEntered) > 25)
+                brightPixelsInMobileAppLabelRegion(appsEntered) > 25)
         } else {
             compose.mainClock.advanceTimeBy(400)
         }
@@ -350,7 +350,7 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeBy(700)
             val appsRest = capture("w10-apps-launch-rest")
             assertTrue("W10M All Apps app row fixture is not visible",
-                brightPixelsInAppLabelRegion(appsRest) > 25)
+                brightPixelsInMobileAppLabelRegion(appsRest) > 25)
             compose.runOnIdle { completions = 0 }
             compose.onNodeWithText("Alpha").performClick()
             compose.mainClock.advanceTimeByFrame()
@@ -462,6 +462,26 @@ class PhoneMotionRenderTest {
                 if (((pixel shr 16) and 255) > minimumChannelValue &&
                     ((pixel shr 8) and 255) > minimumChannelValue &&
                     (pixel and 255) > minimumChannelValue
+                ) count++
+            }
+        }
+        return count
+    }
+
+    private fun brightPixelsInMobileAppLabelRegion(bitmap: Bitmap): Int {
+        // W10M list rows start near x=78px on a 360px CSS viewport, unlike
+        // WP8.1's narrower 62px icon and x=145px label column.
+        val left = (bitmap.width * .18f).toInt()
+        val right = (bitmap.width * .90f).toInt()
+        val top = (bitmap.height * .20f).toInt()
+        val bottom = (bitmap.height * .80f).toInt()
+        var count = 0
+        for (y in top until bottom step 2) {
+            for (x in left until right step 2) {
+                val pixel = bitmap.getPixel(x, y)
+                if (((pixel shr 16) and 255) > 220 &&
+                    ((pixel shr 8) and 255) > 220 &&
+                    (pixel and 255) > 220
                 ) count++
             }
         }
