@@ -19,6 +19,30 @@ class PhoneStartChoreographyTest {
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
+    @Test fun classicAllAppsBackRewindsExitTracksWithSelectedDelay() {
+        val total = PhoneStartChoreography.totalMillis(eight, exiting = true, height)
+        assertEquals(500, total)
+        assertEquals(total, PhoneStartChoreography.reverseAppListExitMillis(0, height))
+        assertEquals(0, PhoneStartChoreography.reverseAppListExitMillis(total, height))
+        for (time in listOf(0, 16, 80, 160, 240, 320, 400, 480, 500)) {
+            val mirrored = PhoneStartChoreography.reverseAppListExitMillis(time, height)
+            for (selected in listOf(false, true)) for (letter in listOf(false, true)) {
+                val forward = PhoneStartChoreography.sampleAppListExit(
+                    total - time, .45f, height, width,
+                    selected = selected, letter = letter, tileLeftCssPx = 80f, tileWidthCssPx = 270f)
+                val backward = PhoneStartChoreography.sampleAppListExit(
+                    mirrored, .45f, height, width,
+                    selected = selected, letter = letter, tileLeftCssPx = 80f, tileWidthCssPx = 270f)
+                assertEquals(forward, backward)
+            }
+        }
+        assertEquals(0f, PhoneStartChoreography.sampleAppListExit(
+            total, .45f, height, width, selected = true).alpha, 0f)
+        assertEquals(1f, PhoneStartChoreography.sampleAppListExit(
+            PhoneStartChoreography.reverseAppListExitMillis(total, height),
+            .45f, height, width, selected = true).alpha, 0f)
+    }
+
     @Test fun classicCascadeReservesIndexZeroForTheIconBanner() {
         assertEquals(.07f, PhoneStartChoreography.visibleTileAnimationIndex(0, 15), 0f)
         assertEquals(.53f, PhoneStartChoreography.visibleTileAnimationIndex(7, 15), 0f)

@@ -364,6 +364,9 @@ fun PhoneLauncherSurface(
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
     } else if (isTen && motionUsesBack && !isLaunching) {
         MobileStartMotion.EXIT_TOTAL_MS
+    } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
+        PhoneStartChoreography.totalMillis(mode, exiting = true,
+            viewportHeightCssPx = viewportHeightCssPx)
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
         PhoneStartChoreography.classicNativeForwardTotalMillis(viewportHeightCssPx)
     } else PhoneStartChoreography.totalMillis(
@@ -385,13 +388,19 @@ fun PhoneLauncherSurface(
     // cascade delay is calibrated inside the classic choreography.
     fun sourceMotionMillis(): Int = motionClock.value.roundToInt()
     fun mobileReturnMillis(): Int = MobileStartMotion.reverseExitMillis(sourceMotionMillis())
+    fun classicAppsMotionMillis(): Int =
+        if (isClassicPhone && showApps && motionUsesBack && !isLaunching) {
+            PhoneStartChoreography.reverseAppListExitMillis(
+                sourceMotionMillis(), viewportHeightCssPx)
+        } else sourceMotionMillis()
+    val classicAppsMotionActive = isClassicPhone && showApps && (isLaunching || motionUsesBack)
     fun mobileWallpaperAlpha(): Float = MobileStartMotion.wallpaperAlpha(
         exiting = isLaunching || motionUsesBack,
         elapsedMillis = if (!isLaunching && motionUsesBack) mobileReturnMillis()
             else sourceMotionMillis(),
     )
     val exitTileId = remember(isLaunching) { launchingTileId }
-    val returnTileId = returningTileId.takeIf { isTen && motionUsesBack && !isLaunching }
+    val returnTileId = returningTileId.takeIf { motionUsesBack && !isLaunching }
     val latestExitFinished by rememberUpdatedState(onExitFinished)
     val latestDuration by rememberUpdatedState(duration)
     LaunchedEffect(mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack) {
@@ -949,7 +958,7 @@ fun PhoneLauncherSurface(
                                     var headerBounds by remember(letter) { mutableStateOf(Rect.Zero) }
                                     fun headerMotion(): PhoneStartMotionFrame =
                                         PhoneStartChoreography.sampleAppListExit(
-                                            elapsedMillis = sourceMotionMillis(),
+                                            elapsedMillis = classicAppsMotionMillis(),
                                             animationIndex = PhoneStartChoreography.appListAnimationIndex(
                                                 positions[letter] ?: 0,
                                                 firstVisibleListIndex, lastVisibleListIndex,
@@ -965,9 +974,9 @@ fun PhoneLauncherSurface(
                                             .padding(bottom = (11f * classicUnit).dp) else Modifier)
                                         .then(if (mode == LauncherUiMode.PHONE_8) {
                                             Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
-                                                .graphicsLayer { alpha = if (isLaunching) headerMotion().alpha else 1f }
+                                                .graphicsLayer { alpha = if (classicAppsMotionActive) headerMotion().alpha else 1f }
                                                 .drawWithContent {
-                                                    if (!isLaunching || headerBounds.width <= 0f) {
+                                                    if (!classicAppsMotionActive || headerBounds.width <= 0f) {
                                                         drawContent()
                                                     } else {
                                                         val canvas = drawContext.canvas.nativeCanvas
@@ -1030,7 +1039,7 @@ fun PhoneLauncherSurface(
                                     val ordinal = (listIndex - appsState.firstVisibleItemIndex).coerceIn(0, 6)
                                     fun appRowMotion(): PhoneStartMotionFrame =
                                         PhoneStartChoreography.sampleAppListExit(
-                                            elapsedMillis = sourceMotionMillis(),
+                                            elapsedMillis = classicAppsMotionMillis(),
                                             animationIndex = animationIndex,
                                             viewportHeightCssPx = viewportHeightCssPx,
                                             viewportWidthCssPx = surfaceBounds.width / densityScale,
@@ -1054,9 +1063,9 @@ fun PhoneLauncherSurface(
                                             }
                                             .then(if (mode == LauncherUiMode.PHONE_8) {
                                                 Modifier.graphicsLayer {
-                                                    alpha = if (isLaunching) appRowMotion().alpha else 1f
+                                                    alpha = if (classicAppsMotionActive) appRowMotion().alpha else 1f
                                                 }.drawWithContent {
-                                                    if (!isLaunching || bounds.width <= 0f) {
+                                                    if (!classicAppsMotionActive || bounds.width <= 0f) {
                                                         drawContent()
                                                     } else {
                                                         val canvas = drawContext.canvas.nativeCanvas
@@ -1152,7 +1161,7 @@ fun PhoneLauncherSurface(
                         var searchIconBounds by remember { mutableStateOf(Rect.Zero) }
                         fun searchIconMotion(): PhoneStartMotionFrame =
                             PhoneStartChoreography.sampleAppListExit(
-                                elapsedMillis = sourceMotionMillis(),
+                                elapsedMillis = classicAppsMotionMillis(),
                                 animationIndex = 1f,
                                 viewportHeightCssPx = viewportHeightCssPx,
                                 viewportWidthCssPx = surfaceBounds.width / densityScale,
@@ -1165,10 +1174,10 @@ fun PhoneLauncherSurface(
                                 .onGloballyPositioned { searchIconBounds = it.boundsInWindow() }
                                 .graphicsLayer {
                                     alpha = appSearchIconAlpha.value *
-                                        (if (isLaunching) searchIconMotion().alpha else 1f)
+                                        (if (classicAppsMotionActive) searchIconMotion().alpha else 1f)
                                 }
                                 .drawWithContent {
-                                    if (!isLaunching || searchIconBounds.width <= 0f) {
+                                    if (!classicAppsMotionActive || searchIconBounds.width <= 0f) {
                                         drawContent()
                                     } else {
                                         val canvas = drawContext.canvas.nativeCanvas

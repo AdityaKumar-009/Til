@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
     private var pendingClassicHomeReturn = false
     private var classicExternalAppLaunched = false
     private var mobileExternalAppLaunched = false
-    private var mobileReturnSourceTileId by mutableStateOf<String?>(null)
+    private var phoneReturnSourceTileId by mutableStateOf<String?>(null)
     private var screenOffRequest by mutableIntStateOf(0)
 
     private val userPresentReceiver = object : BroadcastReceiver() {
@@ -152,7 +152,7 @@ class MainActivity : ComponentActivity() {
                     entranceReady = false
                     screenOffRequest++
                     mobileExternalAppLaunched = false
-                    mobileReturnSourceTileId = null
+                    phoneReturnSourceTileId = null
                     activeInAppTile = null
                     pendingLaunchIntent = null
                     if (flipState.isRunning) flipState = FlipAnimationState()
@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
                     entranceKind = entranceKind,
                     resumeUsesBackMotion = phoneResumeUsesBackMotion,
                     screenOffRequest = screenOffRequest,
-                    returningPhoneTileId = mobileReturnSourceTileId,
+                    returningPhoneTileId = phoneReturnSourceTileId,
                     entranceReady = entranceReady,
                     onOpenInAppTile = { activeInAppTile = it },
                     onCloseInAppTile = {
@@ -362,7 +362,7 @@ class MainActivity : ComponentActivity() {
                     entranceKind = StartEntranceKind.RETURN
                     entranceRequest++
                 } else {
-                    mobileReturnSourceTileId = null
+                    phoneReturnSourceTileId = null
                 }
             }
         }
@@ -380,7 +380,7 @@ class MainActivity : ComponentActivity() {
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
             phoneResumeUsesBackMotion = false
             mobileExternalAppLaunched = false
-            mobileReturnSourceTileId = null
+            phoneReturnSourceTileId = null
             if (flipState.isRunning) {
                 requestFlipReverse(FlipReverseReason.HOME)
                 return
@@ -551,10 +551,13 @@ class MainActivity : ComponentActivity() {
         try {
             launchHandoffPending = true
             when (LauncherFeatureStore.launcherUiMode(this)) {
-                LauncherUiMode.PHONE_8 -> classicExternalAppLaunched = true
+                LauncherUiMode.PHONE_8 -> {
+                    classicExternalAppLaunched = true
+                    phoneReturnSourceTileId = tile.id
+                }
                 LauncherUiMode.MOBILE_10 -> {
                     mobileExternalAppLaunched = true
-                    mobileReturnSourceTileId = tile.id
+                    phoneReturnSourceTileId = tile.id
                 }
                 else -> Unit
             }
@@ -562,7 +565,7 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             classicExternalAppLaunched = false
             mobileExternalAppLaunched = false
-            mobileReturnSourceTileId = null
+            phoneReturnSourceTileId = null
             launchHandoffPending = false
             activeInAppTile = tile
             flipState = FlipAnimationState()

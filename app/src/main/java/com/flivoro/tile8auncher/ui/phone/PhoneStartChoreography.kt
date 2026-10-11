@@ -359,6 +359,17 @@ internal object PhoneStartChoreography {
         )
     }
 
+    /**
+     * Reverse the shared exit clock; preserve each row's original stagger,
+     * easing, hinge and the selected app's longer delay.
+     * The pane stays at All Apps; only its elements turn back.
+     */
+    fun reverseAppListExitMillis(
+        returnElapsedMillis: Int,
+        viewportHeightCssPx: Float,
+    ): Int = (totalMillis(LauncherUiMode.PHONE_8, exiting = true,
+        viewportHeightCssPx = viewportHeightCssPx) - returnElapsedMillis).coerceAtLeast(0)
+
     /** App-list DOM order is reversed and reserves two trailing indices for its controls. */
     fun appListAnimationIndex(itemIndex: Int, firstVisible: Int, lastVisible: Int): Float {
         val count = (lastVisible - firstVisible + 1).coerceAtLeast(1)

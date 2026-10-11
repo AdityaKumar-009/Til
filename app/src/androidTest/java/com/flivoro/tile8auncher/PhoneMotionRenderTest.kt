@@ -107,6 +107,7 @@ class PhoneMotionRenderTest {
         )
         val launching = mutableStateOf(false)
         val selected = mutableStateOf<String?>(null)
+        val lastLaunchedTileId = mutableStateOf<String?>(null)
         val home = mutableIntStateOf(0)
         val entrance = mutableIntStateOf(0)
         val resumeUsesBackMotion = mutableStateOf(false)
@@ -121,7 +122,12 @@ class PhoneMotionRenderTest {
                     entranceRequest = entrance.intValue, launchingTileId = selected.value,
                     isLaunching = launching.value, interactionEnabled = !launching.value,
                     wallpaperStyle = 0, resumeUsesBackMotion = resumeUsesBackMotion.value,
-                    onLaunch = { tile, _, _ -> selected.value = tile.id; launching.value = true },
+                    returningTileId = lastLaunchedTileId.value,
+                    onLaunch = { tile, _, _ ->
+                        selected.value = tile.id
+                        lastLaunchedTileId.value = tile.id
+                        launching.value = true
+                    },
                     onExitFinished = { completions++ }, onOpenSettings = {}, onOpenAppInfo = {},
                 )
             }
@@ -308,10 +314,12 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             capture("apps-exit-000")
+            var exitFrame240: Bitmap? = null
             repeat(exitEnd / frameStep) { frame ->
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 val elapsed = (frame + 1) * frameStep
-                capture("apps-exit-${elapsed.toString().padStart(3, '0')}")
+                val image = capture("apps-exit-${elapsed.toString().padStart(3, '0')}")
+                if (elapsed == 240) exitFrame240 = image
                 if (elapsed == beforeCompletion) compose.runOnIdle {
                     assertEquals("App-list launch completed before its exit envelope", 0, completions)
                 }
@@ -320,8 +328,8 @@ class PhoneMotionRenderTest {
             compose.runOnIdle { assertEquals("Expected app-list launch completion", 1, completions) }
             assertTrue("App-list content must be black at handoff", centralBrightness(appListExit) < .01)
 
-            // Android Back from an app opened in All Apps must restore that page
-            // immediately. No intermediate Start frame or Start -> Apps panorama slide.
+            // The original All Apps 3D exit is reversed on the same panorama.
+            // Back must start on the exit's black pose, NOT the Start page.
             compose.runOnIdle {
                 selected.value = null
                 launching.value = false
@@ -331,16 +339,23 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val backReturnStart = capture("apps-back-return-000")
-            assertTrue("WP8.1 Back briefly showed Start instead of All Apps",
-                brightPixelsInAppLabelRegion(backReturnStart) > 100)
-            assertTrue("WP8.1 Back restarted the panorama at Start",
-                difference(appsBeforeHome, backReturnStart) < .02)
+            assertTrue("WP8.1 Back revealed the list before its reverse turn",
+                brightPixelsInAppLabelRegion(backReturnStart) < 5)
+            assertTrue("WP8.1 Back showed Start tiles instead of the hidden Apps pose",
+                centralBrightness(backReturnStart) < .01)
+            var backFrame256: Bitmap? = null
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
-                capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
+                val image = capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
+                if (elapsed == 256) backFrame256 = image
             }
+            // Return t=256ms mirrors exit t=244ms, within 4ms of this exit capture.
+            assertTrue("WP8.1 Back did not mirror the All Apps exit transform",
+                difference(checkNotNull(exitFrame240), checkNotNull(backFrame256)) < .08)
             val appListBackSettled = capture("apps-back-return-settled")
-            assertTrue("WP8.1 Back should remain in All Apps, not animate over from Start",
+            assertTrue("WP8.1 reverse never revealed the All Apps rows",
+                difference(backReturnStart, appListBackSettled) > .01)
+            assertTrue("WP8.1 Back should finish on All Apps, without a panorama slide",
                 difference(appsBeforeHome, appListBackSettled) < .02)
         } else if (mode == LauncherUiMode.MOBILE_10) {
             // W10M All Apps uses the same centered row zoom/fade as Start when
