@@ -296,9 +296,10 @@ fun PhoneLauncherSurface(
         mutableStateOf(false)
     }
     var suppressReturnPaneTransition by remember(mode, entranceRequest, motionHomeRequest, screenOffRequest) {
-        mutableStateOf(mode == LauncherUiMode.PHONE_8 &&
-            (motionHomeRequest > 0 || screenOffRequest > 0 ||
-                (entranceRequest > 0 && !motionUsesBack)))
+        // A request counter > 0 means an event occurred in the past, NOT that Home is
+        // currently returning. When the saved page is All Apps, never park the pane at Start.
+        mutableStateOf(mode == LauncherUiMode.PHONE_8 && !showApps && !motionUsesBack &&
+            (entranceRequest > 0 || motionHomeRequest > 0 || screenOffRequest > 0))
     }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
@@ -451,8 +452,12 @@ fun PhoneLauncherSurface(
         PhoneLayoutStore.saveOrder(context, mode, order)
     }
 
+    // Handle only a NEW Home request. Relaunching/recomposing the phone surface must not
+    // replay an old Home event and overwrite the saved All Apps destination.
+    var lastHandledHomeRequest by remember(mode) { mutableIntStateOf(motionHomeRequest) }
     LaunchedEffect(motionHomeRequest) {
-        if (motionHomeRequest > 0) {
+        if (motionHomeRequest != lastHandledHomeRequest) {
+            lastHandledHomeRequest = motionHomeRequest
             // DiscoLauncher snaps its panorama to Start, while the Start tiles
             // and the second All Apps page run their independent 3D entries.
             Snapshot.withMutableSnapshot {
@@ -497,7 +502,10 @@ fun PhoneLauncherSurface(
         }
     }
 
-    val classicPanorama = remember(mode) { Animatable(0f) }
+    // On Android app Back the launcher may be composed again from saved UI state.
+    // Restore the physical pane position before its first frame, not via a 270 ms
+    // Start-to-All-Apps tween. Ordinary user swipes still animate this same Animatable.
+    val classicPanorama = remember(mode) { Animatable(if (showApps) 1f else 0f) }
     val panoramaScope = rememberCoroutineScope()
     var classicDragPosition by remember(mode) { mutableStateOf<Float?>(null) }
     var classicReleasePosition by remember(mode) { mutableStateOf<Float?>(null) }

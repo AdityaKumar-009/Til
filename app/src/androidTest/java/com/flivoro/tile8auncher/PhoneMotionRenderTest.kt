@@ -169,16 +169,16 @@ class PhoneMotionRenderTest {
         // keep offscreen/semantics nodes alive (the previous regression).
         compose.onNodeWithTag("phone-bottom-search").performClick()
         if (mode == LauncherUiMode.MOBILE_10) {
-            // The pane has finished its horizontal move while W10M's app rows
-            // are still completing the same bottom-up zoom used on Start.
+            // A horizontal swipe must not replay row-entrance choreography.
+            // Once the panorama reaches All Apps, its contents stay frame-stable.
             compose.mainClock.advanceTimeBy(280)
-            val appsEntering = capture("w10-all-apps-entering")
-            compose.mainClock.advanceTimeBy(400)
             val appsEntered = capture("w10-all-apps-entered")
-            assertTrue("W10M All Apps rows did not animate into place",
-                difference(appsEntering, appsEntered) > .001)
-            assertTrue("W10M All Apps row labels did not finish entering",
-                brightPixelsInMobileAppLabelRegion(appsEntered) > 25)
+            compose.mainClock.advanceTimeBy(400)
+            val appsSettled = capture("w10-all-apps-settled")
+            assertTrue("W10M All Apps row labels are missing",
+                brightPixelsInMobileAppLabelRegion(appsSettled) > 25)
+            assertTrue("W10M All Apps rows animated after the page finished sliding",
+                difference(appsEntered, appsSettled) < .01)
         } else {
             compose.mainClock.advanceTimeBy(400)
         }
@@ -320,8 +320,8 @@ class PhoneMotionRenderTest {
             compose.runOnIdle { assertEquals("Expected app-list launch completion", 1, completions) }
             assertTrue("App-list content must be black at handoff", centralBrightness(appListExit) < .01)
 
-            // Android Back follows DiscoLauncher's back-resume route: reset the
-            // panorama to Start and turn those tiles in from their back pose.
+            // Android Back from an app opened in All Apps must restore that page
+            // immediately. No intermediate Start frame or Start -> Apps panorama slide.
             compose.runOnIdle {
                 selected.value = null
                 launching.value = false
@@ -331,18 +331,17 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val backReturnStart = capture("apps-back-return-000")
-            // The persistent All Apps page remains in Compose semantics even
-            // while visually parked/transparent behind Start. Checking its
-            // semantics visibility is incorrect; assert rendered pixels instead.
-            assertTrue("All Apps row labels flashed during Back-to-Start return",
-                brightPixelsInAppLabelRegion(backReturnStart) < 5)
+            assertTrue("WP8.1 Back briefly showed Start instead of All Apps",
+                brightPixelsInAppLabelRegion(backReturnStart) > 100)
+            assertTrue("WP8.1 Back restarted the panorama at Start",
+                difference(appsBeforeHome, backReturnStart) < .02)
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
             }
             val appListBackSettled = capture("apps-back-return-settled")
-            assertTrue("Back return from All Apps must settle on Start",
-                difference(resting, appListBackSettled) < .01)
+            assertTrue("WP8.1 Back should remain in All Apps, not animate over from Start",
+                difference(appsBeforeHome, appListBackSettled) < .02)
         } else if (mode == LauncherUiMode.MOBILE_10) {
             // W10M All Apps uses the same centered row zoom/fade as Start when
             // an app opens, with the page held until its wallpaper fade ends.
