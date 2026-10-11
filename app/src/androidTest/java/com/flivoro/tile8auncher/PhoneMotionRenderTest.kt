@@ -403,9 +403,11 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             val appsBackFirst = capture("w10-apps-back-return-000")
             assertTrue("W10M All Apps Back must start hidden", centralBrightness(appsBackFirst) < .01)
+            assertNoStartTilesInAppsGutter(appsBackFirst, 0)
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
-                capture("w10-apps-back-return-${elapsed.toString().padStart(3, '0')}")
+                val frame = capture("w10-apps-back-return-${elapsed.toString().padStart(3, '0')}")
+                assertNoStartTilesInAppsGutter(frame, elapsed)
             }
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             assertTrue("W10M Back failed to restore the originating app list",
@@ -482,6 +484,26 @@ class PhoneMotionRenderTest {
             }
         }
         return sum.toDouble() / (count * 3.0 * 255.0)
+    }
+
+    private fun assertNoStartTilesInAppsGutter(bitmap: Bitmap, elapsed: Int) {
+        // This fixture's wallpaper and app icons are purple. Cyan, green,
+        // orange or pink in the empty left gutter can only come from Start.
+        // The central black-frame assertion missed these narrow tile strips.
+        var leaked = 0
+        var count = 0
+        for (y in bitmap.height / 10 until bitmap.height * 8 / 10 step 4) {
+            for (x in 0 until bitmap.width * 4 / 100 step 2) {
+                val pixel = bitmap.getPixel(x, y)
+                val red = (pixel shr 16) and 255
+                val green = (pixel shr 8) and 255
+                val blue = pixel and 255
+                if (green - red > 30 || red - blue > 30) leaked++
+                count++
+            }
+        }
+        assertTrue("Start tiles leaked into All Apps at ${elapsed}ms ($leaked/$count pixels)",
+            leaked.toDouble() / count < .001)
     }
 
     private fun brightPixelsInAppLabelRegion(

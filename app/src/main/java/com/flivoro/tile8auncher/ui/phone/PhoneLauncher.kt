@@ -646,6 +646,10 @@ fun PhoneLauncherSurface(
                 Box(
                     Modifier.fillMaxSize().zIndex(1f).graphicsLayer {
                         translationX = -paneBounds.width * panoramaProgress
+                        // Each W10M zoom belongs to its own panorama page. A
+                        // smaller returning Start tile must not extend past
+                        // that offscreen page into the visible All Apps pane.
+                        clip = isTen
                     },
                 ) {
                     Column(Modifier.fillMaxSize().elasticVerticalScroll()
@@ -745,6 +749,7 @@ fun PhoneLauncherSurface(
                 }
                 Box(
                     Modifier.fillMaxSize().zIndex(0f).graphicsLayer {
+                        clip = isTen
                         // During Disco's forward Home entry, render the All Apps
                         // turn directly into viewport/world coordinates, not inside
                         // an offscreen pane clipped at x=+one viewport. Outside that
