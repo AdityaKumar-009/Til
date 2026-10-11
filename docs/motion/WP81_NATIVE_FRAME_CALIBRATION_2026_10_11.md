@@ -44,3 +44,13 @@ Static All Apps was also visibly oversized in the emulator. In the 508px native 
 With the independently measured Apps left margin included, its leading-edge timing fit is 25ms delay, 500ms duration, exponent 2.36 (the earlier 2.84 used the wrong page-local measurement). The largest observed residual is about 25px on a 508px crop, corresponding to an uncertain source-frame interval; this is still a limitation, not zero error.
 
 Validation for the shared-axis Home commit 5982f71: Actions 38080050009 succeeded; 116 unit tests and all 3 Android instrumentation tests passed. Its emitted 16ms frames were downloaded and visually compared again. This follow-up must be validated by its own run before delivery.
+
+## Actual-render verification and Back reveal correction
+
+Run 38111154185 (bbf67ad) passed both jobs, including all 3 device tests. Compared its real 16ms PNGs with 26 native face observations, removing settled layout offsets and allowing ±16ms for the 30Hz source: Home corner RMS is 1.83px Phone, 3.60px People, 5.73px Office, and 5.71px Calendar at 508px width. Maximum sampled coordinate error remains 18px; these numbers are not a whole-experience percentage. In the earlier renderer the Office RMS was 51.75px and People 16.41px.
+
+Of 46 W10M captures, 45 are byte-identical to the pre-correction run. The remaining panorama-return image differs only in 429 pixels of the pressed Back glyph (maximum channel difference 11/255, full-image mean 0.001953/255); no tile, layout, or motion difference is present. Desktop source remains unchanged.
+
+That review caught one further native Back detail: faces move before their opacity reveals them. Calendar is still black near 141ms, half-visible near 158ms, then full by 191ms; People is black near 208ms and full by 241ms; Phone is black near 241ms and full by 275ms. Delay Back's 16ms reveal by 56ms after the geometry clock starts. The previous immediate reveal made early lower/right faces flash. Added independent opacity observations as regression tests.
+
+Timing note: use FFmpeg showinfo timestamps from the exact decoded frames. A prior ffprobe fallback assigned requested seek time to the first frame, creating a 15ms offset in the Back crop. Correct absolute registration is approximately 69.361s; relative corner/reveal observations above are unchanged. Repeated 30Hz frames still limit intermediate-time certainty.

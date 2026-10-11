@@ -48,6 +48,7 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_SELECTED_EXIT_MS = 300f
     private const val CLASSIC_ENTRY_MS = 225f
     private const val CLASSIC_BACK_ENTRY_MS = 350f
+    private const val CLASSIC_BACK_REVEAL_DELAY_MS = 56f
     private const val CLASSIC_STAGGER_MS = 200f
     // 1000197575 contains long repeated-frame holds: its 47s return must not
     // set real-time duration. Normal-speed 1000197576, 112.70–113.20s, supplies
@@ -307,7 +308,11 @@ internal object PhoneStartChoreography {
         val angle = direction * 80f * progress * DEG_TO_RAD
         return PhoneStartMotionFrame(
             alpha = if (resumeUsesBackMotion) {
-                ((elapsedMillis - delay) / 16f).coerceIn(0f, 1f)
+                // Native Back moves the plane while it is still invisible.
+                // The 69s reference reveals it only after this initial turn;
+                // revealing immediately makes lower/right tiles flash too soon.
+                ((elapsedMillis - delay - CLASSIC_BACK_REVEAL_DELAY_MS) / 16f)
+                    .coerceIn(0f, 1f)
             } else if (elapsedMillis < delay) 0f else 1f,
             rotationY = direction * 80f * progress,
             translationXPx = tileLeftCssPx * (cos(angle) - 1f) +

@@ -225,7 +225,7 @@ class PhoneStartChoreographyTest {
             height, width, 120f, resumeUsesBackMotion = true)
         assertEquals(0f, start.alpha, 0f)
         assertEquals(-80f, start.rotationY, .001f)
-        val revealed = PhoneStartChoreography.sample(eight, false, 116, 0f, .5f,
+        val revealed = PhoneStartChoreography.sample(eight, false, 180, 0f, .5f,
             height, width, 120f, resumeUsesBackMotion = true)
         assertEquals(1f, revealed.alpha, 0f)
         assertTrue(revealed.rotationY > -80f && revealed.rotationY < 0f)
@@ -261,6 +261,26 @@ class PhoneStartChoreographyTest {
                 assertEquals("Back y ${face.time}ms corner $i", face.points[i * 2 + 1], point.yCssPx, 12f)
             }
         }
+    }
+
+    @Test fun nativeBackTurnsBeforeItsFacesBecomeVisible() {
+        // 7576: independent black/full observations from the early Back frames.
+        // Indices refer to the measured Calendar/Office/People/Phone centres.
+        data class Reveal(val time: Int, val index: Float, val alpha: Float)
+        val observations = listOf(
+            Reveal(141, .485f, 0f), Reveal(191, .485f, 1f),
+            Reveal(158, .535f, 0f), Reveal(191, .535f, 1f),
+            Reveal(208, .815f, 0f), Reveal(241, .815f, 1f),
+            Reveal(241, 1f, 0f), Reveal(275, 1f, 1f),
+        )
+        for (observation in observations) {
+            val frame = PhoneStartChoreography.sample(eight, false, observation.time,
+                0f, observation.index, 838f, 508f, 28f, resumeUsesBackMotion = true)
+            assertEquals("Native Back reveal at ${observation.time}ms", observation.alpha, frame.alpha, .01f)
+        }
+        val halfVisibleCalendar = PhoneStartChoreography.sample(eight, false, 158,
+            0f, .485f, 838f, 508f, 28f, resumeUsesBackMotion = true)
+        assertEquals(.5f, halfVisibleCalendar.alpha, .25f)
     }
 
     @Test fun classicAppsListExitUsesItsSeparateSelectedDelayAndPerspectiveShift() {
