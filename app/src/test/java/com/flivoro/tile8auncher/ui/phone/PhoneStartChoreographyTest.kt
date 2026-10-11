@@ -15,7 +15,7 @@ class PhoneStartChoreographyTest {
         assertEquals(500, PhoneStartChoreography.totalMillis(eight, true, height))
         assertEquals(550, PhoneStartChoreography.totalMillis(eight, false, height))
         assertEquals(500, PhoneStartChoreography.totalMillis(eight, true, 637.5f))
-        assertEquals(527, PhoneStartChoreography.totalMillis(eight, false, 637.5f))
+        assertEquals(550, PhoneStartChoreography.totalMillis(eight, false, 637.5f))
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
@@ -29,8 +29,8 @@ class PhoneStartChoreographyTest {
     }
 
     @Test fun nativeForwardTimingIsIndependentOfDeviceHeightAndSlowedReference() {
-        assertEquals(527, PhoneStartChoreography.classicNativeForwardTotalMillis(850f))
-        assertEquals(527, PhoneStartChoreography.classicNativeForwardTotalMillis(648f))
+        assertEquals(525, PhoneStartChoreography.classicNativeForwardTotalMillis(850f))
+        assertEquals(525, PhoneStartChoreography.classicNativeForwardTotalMillis(648f))
         assertEquals(0f, classicFrame(false, 199, 1f).alpha, 0f)
         assertEquals(80f, classicFrame(false, 200, 1f).rotationY, .001f)
         assertEquals(0f, classicFrame(false, 450, 1f).rotationY, .001f)
@@ -177,7 +177,7 @@ class PhoneStartChoreographyTest {
     }
 
     @Test fun nativeHomeKeepsTheSecondPageVisibleThroughTheTileCascade() {
-        val hidden = PhoneStartChoreography.sampleAppsPageEntry(26, width)
+        val hidden = PhoneStartChoreography.sampleAppsPageEntry(24, width)
         assertEquals(0f, hidden.alpha, 0f)
         val moving = PhoneStartChoreography.sampleAppsPageEntry(112, width)
         assertEquals(1f, moving.alpha, 0f)
@@ -185,7 +185,7 @@ class PhoneStartChoreographyTest {
         val corner = PhoneStartChoreography.projectAppsPagePoint(0f, height/2f,
             width, height, moving.rotationY)
         assertTrue("All Apps must still occupy the right of Start", corner.xCssPx in 150f..230f)
-        val settled = PhoneStartChoreography.sampleAppsPageEntry(527, width)
+        val settled = PhoneStartChoreography.sampleAppsPageEntry(525, width)
         assertEquals(0f, settled.rotationY, 0f)
         assertEquals(1f, settled.alpha, 0f)
     }
@@ -220,80 +220,47 @@ class PhoneStartChoreographyTest {
         assertEquals(width, settledLeft.xCssPx, .001f)
     }
 
-    @Test fun classicBackReturnMatchesDiscoBackKeyframeMatrixAndReveal() {
-        val start = PhoneStartChoreography.sample(
-            mode = eight,
-            exiting = false,
-            elapsedMillis = 100,
-            mobileRowFraction = 0f,
-            animationIndex = .5f,
-            viewportHeightCssPx = height,
-            viewportWidthCssPx = width,
-            tileLeftCssPx = 120f,
-            tileWidthCssPx = 80f,
-            resumeUsesBackMotion = true,
-        )
+    @Test fun nativeBackReturnUsesTheOppositeTurnAndMeasuredDecay() {
+        val start = PhoneStartChoreography.sample(eight, false, 100, 0f, .5f,
+            height, width, 120f, resumeUsesBackMotion = true)
         assertEquals(0f, start.alpha, 0f)
         assertEquals(-80f, start.rotationY, .001f)
-        assertEquals(-124.74597f, start.translationXPx, .001f)
-        assertEquals(-52.23689f, start.translationZPx, .001f)
-        assertEquals(-1.5f, start.pivotX, .001f)
-        val pivotX = -120f
-        val pivotToTileX = -pivotX
-        val rotatedTileX = pivotX + pivotToTileX * kotlin.math.cos(Math.toRadians(-80.0)).toFloat()
-        val rotatedTileZ = -pivotToTileX * kotlin.math.sin(Math.toRadians(-80.0)).toFloat()
-        assertEquals("The resulting back pose must equal Disco's composed CSS transform X",
-            -223.90818f, rotatedTileX + start.translationXPx, .002f)
-        assertEquals("The resulting back pose must equal Disco's composed CSS transform Z",
-            65.94005f, rotatedTileZ + start.translationZPx, .002f)
-
-        val firstRevealSegment = PhoneStartChoreography.sample(
-            mode = eight,
-            exiting = false,
-            elapsedMillis = 101,
-            mobileRowFraction = 0f,
-            animationIndex = .5f,
-            viewportHeightCssPx = height,
-            viewportWidthCssPx = width,
-            tileLeftCssPx = 120f,
-            tileWidthCssPx = 80f,
-            resumeUsesBackMotion = true,
-        )
-        assertTrue("Back reveal must progress between its opacity keyframes",
-            firstRevealSegment.alpha > 0f && firstRevealSegment.alpha < 1f)
-
-        val revealed = PhoneStartChoreography.sample(
-            mode = eight,
-            exiting = false,
-            elapsedMillis = 110,
-            mobileRowFraction = 0f,
-            animationIndex = .5f,
-            viewportHeightCssPx = height,
-            viewportWidthCssPx = width,
-            tileLeftCssPx = 120f,
-            tileWidthCssPx = 80f,
-            resumeUsesBackMotion = true,
-        )
-        assertEquals(1f, revealed.alpha, .001f)
-        assertTrue("Back return must already be turning toward the front",
-            revealed.rotationY > start.rotationY && revealed.rotationY < 0f)
-
-        val settled = PhoneStartChoreography.sample(
-            mode = eight,
-            exiting = false,
-            elapsedMillis = 600,
-            mobileRowFraction = 0f,
-            animationIndex = .5f,
-            viewportHeightCssPx = height,
-            viewportWidthCssPx = width,
-            tileLeftCssPx = 120f,
-            tileWidthCssPx = 80f,
-            resumeUsesBackMotion = true,
-        )
-        assertEquals(1f, settled.alpha, 0f)
+        val revealed = PhoneStartChoreography.sample(eight, false, 116, 0f, .5f,
+            height, width, 120f, resumeUsesBackMotion = true)
+        assertEquals(1f, revealed.alpha, 0f)
+        assertTrue(revealed.rotationY > -80f && revealed.rotationY < 0f)
+        val settled = PhoneStartChoreography.sample(eight, false, 550, 0f, 1f,
+            height, width, 120f, resumeUsesBackMotion = true)
         assertEquals(0f, settled.rotationY, .001f)
         assertEquals(0f, settled.translationXPx, .001f)
         assertEquals(0f, settled.translationZPx, .001f)
+
+        // Native 7576, 69.537–69.737s, registered at 69.346s.
+        data class Face(val left: Float, val top: Float, val time: Int,
+            val index: Float, val points: FloatArray)
+        val samples = listOf(
+            Face(28f, 61f, 324, 1.0000f, floatArrayOf(6.0f, 62.5f, 217.0f, 51.9f, 217.0f, 275.4f, 6.0f, 279.6f)),
+            Face(28f, 61f, 357, 1.0000f, floatArrayOf(16.0f, 61.6f, 231.0f, 55.8f, 231.0f, 277.2f, 16.0f, 279.2f)),
+            Face(28f, 61f, 391, 1.0000f, floatArrayOf(21.0f, 61.2f, 239.0f, 58.1f, 239.0f, 277.5f, 21.0f, 279.4f)),
+            Face(28f, 293f, 291, 0.8128f, floatArrayOf(12.0f, 292.7f, 227.0f, 289.4f, 227.0f, 512.5f, 12.0f, 510.8f)),
+            Face(28f, 293f, 324, 0.8128f, floatArrayOf(19.0f, 292.9f, 237.0f, 290.2f, 237.0f, 512.3f, 19.0f, 510.5f)),
+            Face(28f, 293f, 357, 0.8128f, floatArrayOf(23.0f, 293.1f, 241.0f, 290.6f, 241.0f, 511.7f, 23.0f, 510.6f)),
+            Face(260f, 293f, 191, 0.5342f, floatArrayOf(206.0f, 287.8f, 427.0f, 280.7f, 427.0f, 519.3f, 206.0f, 514.4f)),
+            Face(260f, 293f, 224, 0.5342f, floatArrayOf(222.0f, 288.4f, 446.0f, 283.9f, 446.0f, 517.4f, 222.0f, 513.3f)),
+            Face(260f, 293f, 257, 0.5342f, floatArrayOf(246.0f, 291.4f, 470.0f, 288.0f, 470.0f, 513.1f, 246.0f, 511.5f)),
+        )
+        val corners = listOf(0f to 0f, 219f to 0f, 219f to 218f, 0f to 218f)
+        for (face in samples) {
+            val frame = PhoneStartChoreography.sample(eight, false, face.time, 0f, face.index,
+                838f, 508f, face.left, resumeUsesBackMotion = true)
+            corners.forEachIndexed { i, (x, y) ->
+                val point = PhoneStartChoreography.projectPlanePoint(x, y,
+                    face.left, face.top, 219f, 218f, 508f, 838f, frame,
+                    cameraDistanceCssPx = PhoneStartChoreography.nativeCameraDistance(508f))
+                assertEquals("Back x ${face.time}ms corner $i", face.points[i * 2], point.xCssPx, 12f)
+                assertEquals("Back y ${face.time}ms corner $i", face.points[i * 2 + 1], point.yCssPx, 12f)
+            }
+        }
     }
 
     @Test fun classicAppsListExitUsesItsSeparateSelectedDelayAndPerspectiveShift() {

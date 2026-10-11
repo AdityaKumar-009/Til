@@ -38,8 +38,8 @@ internal data class PhoneProjectedPoint(
 )
 
 /**
- * Windows Phone 8.1 motion: native-video forward entry with the established
- * DiscoLauncher-derived exit/Back tracks. CSS-pixel
+ * Windows Phone 8.1 motion: native-video Home/Back entry with the established
+ * DiscoLauncher-derived exit tracks. CSS-pixel
  * inputs are supplied in dp and converted to physical pixels at the Compose
  * graphics layer. W10M stays on MobileStartMotion.
  */
@@ -56,7 +56,7 @@ internal object PhoneStartChoreography {
     private const val CLASSIC_SELECTED_DELAY_MS = 200f
     private const val CLASSIC_APPS_SELECTED_DELAY_MS = 300f
     private const val CLASSIC_APPS_EXIT_MS = 200f
-    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 27f
+    private const val CLASSIC_APPS_PAGE_ENTRY_DELAY_MS = 25f
     private const val CLASSIC_APPS_PAGE_ENTRY_MS = 500f
     // DiscoLauncher src/script.js sets --app-transition-scale from
     // appTransitionScale(window.innerHeight) at startup. The root CSS default
@@ -98,7 +98,7 @@ internal object PhoneStartChoreography {
     ): PhoneAppsPageEntryFrame {
         val raw = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) /
             CLASSIC_APPS_PAGE_ENTRY_MS).coerceIn(0f, 1f)
-        val remaining = exponentialRemaining(raw, 2.84)
+        val remaining = exponentialRemaining(raw, 2.36)
         return PhoneAppsPageEntryFrame(
             alpha = ((elapsedMillis - CLASSIC_APPS_PAGE_ENTRY_DELAY_MS) / 16f).coerceIn(0f, 1f),
             rotationY = 90f * remaining,
@@ -203,7 +203,7 @@ internal object PhoneStartChoreography {
         LauncherUiMode.PHONE_8 -> if (exiting) launchHideMillis(viewportHeightCssPx) else {
             maxOf(
                 (CLASSIC_BACK_ENTRY_MS +
-                    CLASSIC_STAGGER_MS * appTransitionScale(viewportHeightCssPx)).roundToInt(),
+                    CLASSIC_STAGGER_MS).roundToInt(),
                 (CLASSIC_APPS_PAGE_ENTRY_DELAY_MS + CLASSIC_APPS_PAGE_ENTRY_MS).roundToInt(),
             )
         }
@@ -267,7 +267,7 @@ internal object PhoneStartChoreography {
             )
         }
         check(mode == LauncherUiMode.PHONE_8)
-        val baseDelay = if (!exiting && !resumeUsesBackMotion) {
+        val baseDelay = if (!exiting) {
             (animationIndex.coerceIn(0f, 1f) * CLASSIC_STAGGER_MS).roundToInt()
         } else delayMillis(mode, exiting, animationIndex, viewportHeightCssPx, selected)
         val delay = if (!exiting && !resumeUsesBackMotion) {
@@ -299,43 +299,17 @@ internal object PhoneStartChoreography {
             )
         }
 
-        if (resumeUsesBackMotion) {
-            // DiscoLauncher appTransition-back: interpolate its 0% matrix to the
-            // face-on matrix. The non-zero origin is -offsetLeft, so the pivot
-            // lands on the left edge of the page rather than the tile itself.
-            val progress = cubicBezier(raw, .05f, 1f, .1f, 1f)
-            val remaining = 1f - progress
-            val angle40 = 40f * DEG_TO_RAD
-            val cos30 = cos(30f * DEG_TO_RAD)
-            val cos40 = cos(angle40)
-            val sin40 = sin(angle40)
-            val startX = tileLeftCssPx * (1f + cos30 * (cos40 - 2f) - .5f * sin40) -
-                cos30 * viewportWidthCssPx * .25f
-            val startZ = tileLeftCssPx * (.5f * (cos40 - 2f) + cos30 * sin40) -
-                viewportWidthCssPx * .125f
-            return PhoneStartMotionFrame(
-                alpha = when {
-                    elapsedMillis < delay || raw <= 0f -> 0f
-                    raw < .01f -> cubicBezier(raw / .01f, .05f, 1f, .1f, 1f)
-                    else -> 1f
-                },
-                rotationY = -80f * remaining,
-                translationXPx = startX * remaining,
-                translationYPx = 0f,
-                translationZPx = startZ * remaining,
-                scale = 1f,
-                pivotX = if (tileWidthCssPx > 0f) -tileLeftCssPx / tileWidthCssPx else 0f,
-            )
-        }
-
         // All faces share the page axis behind the screen. A local hinge with
         // the same positive offset for every tile fits the left phone tile but
         // incorrectly sends the right-hand tiles outside the screen.
-        val progress = nativeEntryRemaining(raw)
-        val angle = 80f * progress * DEG_TO_RAD
+        val progress = if (resumeUsesBackMotion) exponentialRemaining(raw, 5.4) else nativeEntryRemaining(raw)
+        val direction = if (resumeUsesBackMotion) -1f else 1f
+        val angle = direction * 80f * progress * DEG_TO_RAD
         return PhoneStartMotionFrame(
-            alpha = if (elapsedMillis < delay) 0f else 1f,
-            rotationY = 80f * progress,
+            alpha = if (resumeUsesBackMotion) {
+                ((elapsedMillis - delay) / 16f).coerceIn(0f, 1f)
+            } else if (elapsedMillis < delay) 0f else 1f,
+            rotationY = direction * 80f * progress,
             translationXPx = tileLeftCssPx * (cos(angle) - 1f) +
                 viewportWidthCssPx * .203f * sin(angle),
             translationYPx = 0f,
