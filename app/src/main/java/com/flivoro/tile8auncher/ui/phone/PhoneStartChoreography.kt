@@ -359,16 +359,39 @@ internal object PhoneStartChoreography {
         )
     }
 
-    /**
-     * Reverse the shared exit clock; preserve each row's original stagger,
-     * easing, hinge and the selected app's longer delay.
-     * The pane stays at All Apps; only its elements turn back.
-     */
-    fun reverseAppListExitMillis(
-        returnElapsedMillis: Int,
-        viewportHeightCssPx: Float,
-    ): Int = (totalMillis(LauncherUiMode.PHONE_8, exiting = true,
-        viewportHeightCssPx = viewportHeightCssPx) - returnElapsedMillis).coerceAtLeast(0)
+    // Native All Apps Back: measured independently from Alarms and Calculator
+    // returns in 1000197576 (140.50s / 152.27s), not a reversed launch curve.
+    const val APPS_RETURN_ROW_MS = 270
+    const val APPS_RETURN_STAGGER_MS = 250
+    const val APPS_RETURN_TOTAL_MS = APPS_RETURN_ROW_MS + APPS_RETURN_STAGGER_MS
+
+    fun appListReturnCameraDistance(viewportWidthCssPx: Float): Float =
+        viewportWidthCssPx * 8f
+
+    fun sampleAppListReturn(
+        elapsedMillis: Int,
+        animationIndex: Float,
+        viewportWidthCssPx: Float,
+        tileLeftCssPx: Float,
+        letter: Boolean = false,
+    ): PhoneStartMotionFrame {
+        val local = elapsedMillis - animationIndex.coerceIn(0f, 1f) * APPS_RETURN_STAGGER_MS
+        val remaining = exponentialRemaining((local / APPS_RETURN_ROW_MS).coerceIn(0f, 1f), 3.53)
+        val angle = -80f * remaining * DEG_TO_RAD
+        return PhoneStartMotionFrame(
+            // Outline letter anchors are visible before the filled icons/text.
+            alpha = if (letter) (local / 16f).coerceIn(0f, 1f)
+                else ((local - 44f) / 120f).coerceIn(0f, 1f),
+            rotationY = -80f * remaining,
+            translationXPx = tileLeftCssPx * (cos(angle) - 1f) +
+                viewportWidthCssPx * .107f * sin(angle),
+            translationYPx = 0f,
+            translationZPx = -tileLeftCssPx * sin(angle) +
+                viewportWidthCssPx * .532f * (cos(angle) - 1f),
+            scale = 1f,
+            pivotX = 0f,
+        )
+    }
 
     /** App-list DOM order is reversed and reserves two trailing indices for its controls. */
     fun appListAnimationIndex(itemIndex: Int, firstVisible: Int, lastVisible: Int): Float {

@@ -19,28 +19,47 @@ class PhoneStartChoreographyTest {
         assertEquals(534, PhoneStartChoreography.totalMillis(ten, true))
     }
 
-    @Test fun classicAllAppsBackRewindsExitTracksWithSelectedDelay() {
-        val total = PhoneStartChoreography.totalMillis(eight, exiting = true, height)
-        assertEquals(500, total)
-        assertEquals(total, PhoneStartChoreography.reverseAppListExitMillis(0, height))
-        assertEquals(0, PhoneStartChoreography.reverseAppListExitMillis(total, height))
-        for (time in listOf(0, 16, 80, 160, 240, 320, 400, 480, 500)) {
-            val mirrored = PhoneStartChoreography.reverseAppListExitMillis(time, height)
-            for (selected in listOf(false, true)) for (letter in listOf(false, true)) {
-                val forward = PhoneStartChoreography.sampleAppListExit(
-                    total - time, .45f, height, width,
-                    selected = selected, letter = letter, tileLeftCssPx = 80f, tileWidthCssPx = 270f)
-                val backward = PhoneStartChoreography.sampleAppListExit(
-                    mirrored, .45f, height, width,
-                    selected = selected, letter = letter, tileLeftCssPx = 80f, tileWidthCssPx = 270f)
-                assertEquals(forward, backward)
+    @Test fun classicAllAppsBackMatchesIndependentIconCornerMeasurements() {
+        // 512px-wide native crop, t0=140.493s, decoded (not interpolated) frames.
+        data class Observation(val time: Int, val index: Float, val top: Float,
+            val expected: FloatArray)
+        val observations = listOf(
+            Observation(146, 1f / 11f, 684f,
+                floatArrayOf(72f, 685.4f, 137f, 687.4f, 137f, 755.8f, 72f, 752.7f)),
+            Observation(179, 3f / 11f, 528f,
+                floatArrayOf(75f, 528.7f, 143f, 530.1f, 143f, 597f, 75f, 597f)),
+            Observation(313, 8f / 11f, 138f,
+                floatArrayOf(75f, 138.7f, 143f, 136.5f, 143f, 205f, 75f, 205f)),
+        )
+        for (o in observations) {
+            val f = PhoneStartChoreography.sampleAppListReturn(o.time, o.index, 512f, 91f)
+            for ((i, xy) in listOf(0f to 0f, 69f to 0f, 69f to 69f, 0f to 69f).withIndex()) {
+                val p = PhoneStartChoreography.projectPlanePoint(xy.first, xy.second,
+                    91f, o.top, 69f, 69f, 512f, 846f, f,
+                    cameraDistanceCssPx = PhoneStartChoreography.appListReturnCameraDistance(512f))
+                assertEquals("All Apps Back x at ${o.time}ms", o.expected[i * 2], p.xCssPx, 12f)
+                assertEquals("All Apps Back y at ${o.time}ms", o.expected[i * 2 + 1], p.yCssPx, 12f)
             }
         }
-        assertEquals(0f, PhoneStartChoreography.sampleAppListExit(
-            total, .45f, height, width, selected = true).alpha, 0f)
-        assertEquals(1f, PhoneStartChoreography.sampleAppListExit(
-            PhoneStartChoreography.reverseAppListExitMillis(total, height),
-            .45f, height, width, selected = true).alpha, 0f)
+    }
+
+    @Test fun classicAllAppsBackRevealsBottomRowsBeforeTheSelectedTopRow() {
+        val lower = PhoneStartChoreography.sampleAppListReturn(146, 1f / 11f, 512f, 91f)
+        val upper = PhoneStartChoreography.sampleAppListReturn(146, 8f / 11f, 512f, 91f)
+        assertEquals(.57f, lower.alpha, .12f) // native Cortana at 140.639s
+        assertEquals(0f, upper.alpha, 0f)
+        assertTrue(lower.rotationY < 0f)
+        val letter = PhoneStartChoreography.sampleAppListReturn(32, 0f, 512f, 91f, true)
+        val icon = PhoneStartChoreography.sampleAppListReturn(32, 0f, 512f, 91f)
+        assertEquals(1f, letter.alpha, 0f)
+        assertEquals(0f, icon.alpha, 0f)
+        for (index in listOf(0f, .5f, 1f)) {
+            val settled = PhoneStartChoreography.sampleAppListReturn(
+                PhoneStartChoreography.APPS_RETURN_TOTAL_MS, index, 512f, 91f)
+            assertEquals(1f, settled.alpha, 0f)
+            assertEquals(0f, settled.rotationY, 0f)
+            assertEquals(0f, settled.translationXPx, 0f)
+        }
     }
 
     @Test fun classicCascadeReservesIndexZeroForTheIconBanner() {

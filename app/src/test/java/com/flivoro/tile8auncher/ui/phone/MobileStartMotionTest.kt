@@ -21,31 +21,21 @@ class MobileStartMotionTest {
         assertEquals(652.5f, 621f + mix.translationYPx, 8f)
     }
 
-    @Test fun appBackRetracesExitForEveryRowAndSelectedDelay() {
-        assertEquals(MobileStartMotion.EXIT_TOTAL_MS, MobileStartMotion.reverseExitMillis(0))
-        assertEquals(0, MobileStartMotion.reverseExitMillis(MobileStartMotion.EXIT_TOTAL_MS))
-        for (row in listOf(0f, .25f, .5f, .75f, 1f)) {
-            for (selected in listOf(false, true)) {
-                for (elapsed in 0..MobileStartMotion.EXIT_TOTAL_MS step 17) {
-                    val reverseFrame = MobileStartMotion.sample(
-                        true, MobileStartMotion.reverseExitMillis(elapsed),
-                        row, 419f, 621f, 254f, 456f, selected,
-                    )
-                    val exitingFrame = MobileStartMotion.sample(
-                        true, MobileStartMotion.EXIT_TOTAL_MS - elapsed,
-                        row, 419f, 621f, 254f, 456f, selected,
-                    )
-                    assertEquals(exitingFrame.scale, reverseFrame.scale, 0f)
-                    assertEquals(exitingFrame.alpha, reverseFrame.alpha, 0f)
-                    assertEquals(exitingFrame.translationXPx, reverseFrame.translationXPx, 0f)
-                    assertEquals(exitingFrame.translationYPx, reverseFrame.translationYPx, 0f)
-                }
-            }
+    @Test fun appBackRevealsSmallerRowsWithoutLaunchOnlySelectedDelay() {
+        // Real W10M returns in 1000197577: lower rows reveal from inside the
+        // resting grid. Rewinding exit would instead return at scale > 1.
+        val lower = frame(false, 105, .75f, 419f, 621f)
+        val upper = frame(false, 105, 0f, 84.5f, 119f)
+        assertTrue(lower.scale < 1f)
+        assertTrue(lower.alpha > 0f)
+        assertEquals(0f, upper.alpha, 0f)
+        for (selected in listOf(false, true)) {
+            val selectedReturn = MobileStartMotion.sample(false, 105, .75f,
+                419f, 621f, 254f, 456f, selected)
+            assertEquals(lower, selectedReturn)
         }
-        assertEquals(0f, MobileStartMotion.wallpaperAlpha(
-            true, MobileStartMotion.reverseExitMillis(0)), 0f)
-        assertEquals(1f, MobileStartMotion.wallpaperAlpha(
-            true, MobileStartMotion.reverseExitMillis(MobileStartMotion.EXIT_TOTAL_MS)), 0f)
+        assertEquals(0f, MobileStartMotion.wallpaperAlpha(false, 0), 0f)
+        assertEquals(1f, MobileStartMotion.wallpaperAlpha(false, 180), 0f)
     }
 
     @Test fun returnTracksMeasuredScaleAndLocationInsteadOfAnUpwardSlide() {

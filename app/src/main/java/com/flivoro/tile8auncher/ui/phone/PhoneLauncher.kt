@@ -164,6 +164,7 @@ private fun appListElementProjectionMatrix(
     bounds: Rect,
     viewportBounds: Rect,
     motion: PhoneStartMotionFrame,
+    cameraDistanceCssPx: Float = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
 ): PlatformMatrix {
     val leftCss = (bounds.left - viewportBounds.left) / density
     val topCss = (bounds.top - viewportBounds.top) / density
@@ -182,7 +183,7 @@ private fun appListElementProjectionMatrix(
             viewportWidthCssPx = viewportWidthCss,
             viewportHeightCssPx = viewportHeightCss,
             motion = motion,
-            cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+            cameraDistanceCssPx = cameraDistanceCssPx,
         )
     }
 }
@@ -324,7 +325,7 @@ fun PhoneLauncherSurface(
         .takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
     // W10M All Apps stays settled on an ordinary Start -> Apps swipe. Its rows move
-    // only for app launch and the corresponding inverse motion on Back.
+    // only for app launch and the independently measured return on Back.
     // Disco's #search-icon starts hidden and gets the .shown class only when
     // the user moves into All Apps. Its CSS enters after 200ms over 250ms,
     // then hides 500ms after returning to Start.
@@ -363,10 +364,9 @@ fun PhoneLauncherSurface(
         maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
     } else if (isTen && motionUsesBack && !isLaunching) {
-        MobileStartMotion.EXIT_TOTAL_MS
+        MobileStartMotion.ENTRY_TOTAL_MS
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
-        PhoneStartChoreography.totalMillis(mode, exiting = true,
-            viewportHeightCssPx = viewportHeightCssPx)
+        PhoneStartChoreography.APPS_RETURN_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
         PhoneStartChoreography.classicNativeForwardTotalMillis(viewportHeightCssPx)
     } else PhoneStartChoreography.totalMillis(
@@ -387,17 +387,28 @@ fun PhoneLauncherSurface(
     // Every layer shares one display-synchronized timeline. Relative tile
     // cascade delay is calibrated inside the classic choreography.
     fun sourceMotionMillis(): Int = motionClock.value.roundToInt()
-    fun mobileReturnMillis(): Int = MobileStartMotion.reverseExitMillis(sourceMotionMillis())
-    fun classicAppsMotionMillis(): Int =
-        if (isClassicPhone && showApps && motionUsesBack && !isLaunching) {
-            PhoneStartChoreography.reverseAppListExitMillis(
-                sourceMotionMillis(), viewportHeightCssPx)
-        } else sourceMotionMillis()
+    val classicAppsReturning = isClassicPhone && showApps && motionUsesBack && !isLaunching
     val classicAppsMotionActive = isClassicPhone && showApps && (isLaunching || motionUsesBack)
+    fun classicAppsCameraDistance(): Float = if (classicAppsReturning)
+        PhoneStartChoreography.appListReturnCameraDistance(surfaceBounds.width / densityScale)
+        else PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX
+    fun classicAppsMotion(
+        animationIndex: Float,
+        tileLeftCssPx: Float,
+        tileWidthCssPx: Float,
+        selected: Boolean = false,
+        letter: Boolean = false,
+    ): PhoneStartMotionFrame = if (classicAppsReturning) {
+        PhoneStartChoreography.sampleAppListReturn(
+            sourceMotionMillis(), animationIndex, surfaceBounds.width / densityScale,
+            tileLeftCssPx, letter,
+        )
+    } else PhoneStartChoreography.sampleAppListExit(
+        sourceMotionMillis(), animationIndex, viewportHeightCssPx,
+        surfaceBounds.width / densityScale, selected, letter, tileLeftCssPx, tileWidthCssPx,
+    )
     fun mobileWallpaperAlpha(): Float = MobileStartMotion.wallpaperAlpha(
-        exiting = isLaunching || motionUsesBack,
-        elapsedMillis = if (!isLaunching && motionUsesBack) mobileReturnMillis()
-            else sourceMotionMillis(),
+        exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
     )
     val exitTileId = remember(isLaunching) { launchingTileId }
     val returnTileId = returningTileId.takeIf { motionUsesBack && !isLaunching }
@@ -851,7 +862,32 @@ fun PhoneLauncherSurface(
                             ),
                         ) {
                         if (isTen || phone8SearchVisible) {
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        var toolbarBounds by remember { mutableStateOf(Rect.Zero) }
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp)
+                            .onGloballyPositioned {
+                                toolbarBounds = Rect(it.positionInWindow(),
+                                    Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                            }
+                            .graphicsLayer {
+                                if (isTen && showApps && toolbarBounds.width > 0f) {
+                                    val motion = MobileStartMotion.sample(
+                                        exiting = isLaunching,
+                                        elapsedMillis = if (isLaunching || motionUsesBack) sourceMotionMillis()
+                                            else MobileStartMotion.ENTRY_TOTAL_MS,
+                                        row = 0f,
+                                        centerX = toolbarBounds.center.x,
+                                        centerY = toolbarBounds.center.y,
+                                        viewportCenterX = surfaceBounds.center.x,
+                                        viewportCenterY = surfaceBounds.center.y,
+                                    )
+                                    alpha = motion.alpha
+                                    translationX = motion.translationXPx
+                                    translationY = motion.translationYPx
+                                    scaleX = motion.scale
+                                    scaleY = motion.scale
+                                    transformOrigin = TransformOrigin.Center
+                                }
+                            }, verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.foundation.text.BasicTextField(
                                 value = search, onValueChange = { search = it },
                                 textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 17.sp),
@@ -920,10 +956,10 @@ fun PhoneLauncherSurface(
                             )
                             val backReturn = !exiting && motionUsesBack
                             val motion = MobileStartMotion.sample(
-                                exiting = exiting || backReturn,
+                                exiting = exiting,
                                 elapsedMillis = when {
                                     exiting -> sourceMotionMillis()
-                                    backReturn -> mobileReturnMillis()
+                                    backReturn -> sourceMotionMillis()
                                     else -> MobileStartMotion.ENTRY_TOTAL_MS
                                 },
                                 row = rowFraction,
@@ -957,14 +993,11 @@ fun PhoneLauncherSurface(
                                 item(key = "letter_$letter") {
                                     var headerBounds by remember(letter) { mutableStateOf(Rect.Zero) }
                                     fun headerMotion(): PhoneStartMotionFrame =
-                                        PhoneStartChoreography.sampleAppListExit(
-                                            elapsedMillis = classicAppsMotionMillis(),
+                                        classicAppsMotion(
                                             animationIndex = PhoneStartChoreography.appListAnimationIndex(
                                                 positions[letter] ?: 0,
                                                 firstVisibleListIndex, lastVisibleListIndex,
                                             ),
-                                            viewportHeightCssPx = viewportHeightCssPx,
-                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
                                             letter = true,
                                             tileLeftCssPx = appListContentLeftCssPx,
                                             tileWidthCssPx = appListContentWidthCssPx,
@@ -983,7 +1016,7 @@ fun PhoneLauncherSurface(
                                                         val saveCount = canvas.save()
                                                         canvas.concat(appListElementProjectionMatrix(
                                                             size.width, size.height, densityScale,
-                                                            headerBounds, paneBounds, headerMotion(),
+                                                            headerBounds, paneBounds, headerMotion(), classicAppsCameraDistance(),
                                                         ))
                                                         drawContent()
                                                         canvas.restoreToCount(saveCount)
@@ -1038,18 +1071,15 @@ fun PhoneLauncherSurface(
                                     )
                                     val ordinal = (listIndex - appsState.firstVisibleItemIndex).coerceIn(0, 6)
                                     fun appRowMotion(): PhoneStartMotionFrame =
-                                        PhoneStartChoreography.sampleAppListExit(
-                                            elapsedMillis = classicAppsMotionMillis(),
+                                        classicAppsMotion(
                                             animationIndex = animationIndex,
-                                            viewportHeightCssPx = viewportHeightCssPx,
-                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
                                             selected = (if (isLaunching) exitTileId else returnTileId) ==
                                                             "phone_app_${app.packageName}",
                                             tileLeftCssPx = appListContentLeftCssPx,
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
-                                    // W10M rows share the Start center-zoom on pane entry and
-                                    // app launch. WP8.1 keeps its source-matched launch turn.
+                                    // W10M app launch/return uses the Start center zoom.
+                                    // An ordinary panorama swipe keeps rows settled.
                                     Row(
                                         Modifier.fillMaxWidth()
                                             .height(if (isClassicPhone) (73f * classicUnit).dp else 60.dp)
@@ -1072,7 +1102,7 @@ fun PhoneLauncherSurface(
                                                         val saveCount = canvas.save()
                                                         canvas.concat(appListElementProjectionMatrix(
                                                             size.width, size.height, densityScale,
-                                                            bounds, paneBounds, appRowMotion(),
+                                                            bounds, paneBounds, appRowMotion(), classicAppsCameraDistance(),
                                                         ))
                                                         drawContent()
                                                         canvas.restoreToCount(saveCount)
@@ -1160,11 +1190,8 @@ fun PhoneLauncherSurface(
                     if (isClassicPhone && !phone8SearchVisible) {
                         var searchIconBounds by remember { mutableStateOf(Rect.Zero) }
                         fun searchIconMotion(): PhoneStartMotionFrame =
-                            PhoneStartChoreography.sampleAppListExit(
-                                elapsedMillis = classicAppsMotionMillis(),
+                            classicAppsMotion(
                                 animationIndex = 1f,
-                                viewportHeightCssPx = viewportHeightCssPx,
-                                viewportWidthCssPx = surfaceBounds.width / densityScale,
                                 tileLeftCssPx = appListSearchLeftCssPx,
                                 tileWidthCssPx = appListSearchSizeCssPx,
                             )
@@ -1184,7 +1211,7 @@ fun PhoneLauncherSurface(
                                         val saveCount = canvas.save()
                                         canvas.concat(appListElementProjectionMatrix(
                                             size.width, size.height, densityScale,
-                                            searchIconBounds, paneBounds, searchIconMotion(),
+                                            searchIconBounds, paneBounds, searchIconMotion(), classicAppsCameraDistance(),
                                         ))
                                         drawContent()
                                         canvas.restoreToCount(saveCount)
@@ -1518,11 +1545,9 @@ private fun PhoneTile(
     val icon = rememberAppIcon(repository, tile.packageName)
 
     fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
-        val backReturn = resumeUsesBackMotion && !exiting
         val mobile = MobileStartMotion.sample(
-            exiting = exiting || backReturn,
-            elapsedMillis = if (backReturn) MobileStartMotion.reverseExitMillis(elapsedMillis())
-                else elapsedMillis(),
+            exiting = exiting,
+            elapsedMillis = elapsedMillis(),
             row = visibleRowFraction,
             centerX = bounds.center.x, centerY = bounds.center.y,
             viewportCenterX = surfaceBounds.center.x, viewportCenterY = surfaceBounds.center.y,

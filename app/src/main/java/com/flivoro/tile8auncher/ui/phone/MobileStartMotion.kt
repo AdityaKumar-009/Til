@@ -18,10 +18,6 @@ internal object MobileStartMotion {
     const val ENTRY_STAGGER_MS = 180
     const val ENTRY_TOTAL_MS = ENTRY_TILE_MS + ENTRY_STAGGER_MS
 
-    /** Return from an app retraces the exact launch exit, including its staggered rows. */
-    fun reverseExitMillis(returnElapsedMillis: Int): Int =
-        (EXIT_TOTAL_MS - returnElapsedMillis).coerceIn(0, EXIT_TOTAL_MS)
-
     /** Fractions use the top/bottom VISIBLE rows, independent of small-cell density. */
     fun rowFraction(top: Float, firstVisibleTop: Float, lastVisibleTop: Float): Float =
         if (lastVisibleTop <= firstVisibleTop) 0f

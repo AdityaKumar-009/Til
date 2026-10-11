@@ -45,7 +45,7 @@ class PhoneMotionRenderTest {
     private var capturePrefix = ""
 
     @Test fun mobileExitHoldsItsFinalFrameAndReturnRestoresTheSurface() {
-        captureMode(LauncherUiMode.MOBILE_10, "", 32, 608, 640, 384)
+        captureMode(LauncherUiMode.MOBILE_10, "", 16, 608, 640, 384)
     }
 
     @Test fun classicNativeExitAndReturnAreCapturedAtEveryFrame() {
@@ -253,6 +253,23 @@ class PhoneMotionRenderTest {
         assertTrue("Return failed to restore the original tile geometry",
             difference(resting, capture("02-return-settled")) < .01)
 
+        // Capture the actual Back lifecycle too. The earlier test exercised only
+        // explicit Home, so an incorrect reverse-exit implementation could pass.
+        compose.runOnIdle {
+            resumeUsesBackMotion.value = true
+            entrance.intValue++
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeByFrame()
+        val startBackFirst = capture("start-back-return-000")
+        assertTrue("Start Back must begin with hidden tiles", centralBrightness(startBackFirst) < .01)
+        for (elapsed in frameStep..entryEnd step frameStep) {
+            compose.mainClock.advanceTimeBy(frameStep.toLong())
+            capture("start-back-return-${elapsed.toString().padStart(3, '0')}")
+        }
+        assertTrue("Start Back did not restore its original geometry",
+            difference(resting, capture("start-back-return-settled")) < .01)
+
         if (mode == LauncherUiMode.PHONE_8) {
             // DiscoLauncher snaps the panorama to Start and runs the second
             // Apps page's own forward turn behind the entering Start tiles.
@@ -314,12 +331,10 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             capture("apps-exit-000")
-            var exitFrame240: Bitmap? = null
             repeat(exitEnd / frameStep) { frame ->
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
                 val elapsed = (frame + 1) * frameStep
-                val image = capture("apps-exit-${elapsed.toString().padStart(3, '0')}")
-                if (elapsed == 240) exitFrame240 = image
+                capture("apps-exit-${elapsed.toString().padStart(3, '0')}")
                 if (elapsed == beforeCompletion) compose.runOnIdle {
                     assertEquals("App-list launch completed before its exit envelope", 0, completions)
                 }
@@ -328,8 +343,8 @@ class PhoneMotionRenderTest {
             compose.runOnIdle { assertEquals("Expected app-list launch completion", 1, completions) }
             assertTrue("App-list content must be black at handoff", centralBrightness(appListExit) < .01)
 
-            // The original All Apps 3D exit is reversed on the same panorama.
-            // Back must start on the exit's black pose, NOT the Start page.
+            // Native All Apps Back has its own bottom-to-top reveal and turn.
+            // It must stay on the same panorama from the first returning frame.
             compose.runOnIdle {
                 selected.value = null
                 launching.value = false
@@ -339,21 +354,16 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val backReturnStart = capture("apps-back-return-000")
-            assertTrue("WP8.1 Back revealed the list before its reverse turn",
+            assertTrue("WP8.1 Back revealed the list before its return turn",
                 brightPixelsInAppLabelRegion(backReturnStart) < 5)
             assertTrue("WP8.1 Back showed Start tiles instead of the hidden Apps pose",
                 centralBrightness(backReturnStart) < .01)
-            var backFrame256: Bitmap? = null
             for (elapsed in frameStep..entryEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
-                val image = capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
-                if (elapsed == 256) backFrame256 = image
+                capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
             }
-            // Return t=256ms mirrors exit t=244ms, within 4ms of this exit capture.
-            assertTrue("WP8.1 Back did not mirror the All Apps exit transform",
-                difference(checkNotNull(exitFrame240), checkNotNull(backFrame256)) < .08)
             val appListBackSettled = capture("apps-back-return-settled")
-            assertTrue("WP8.1 reverse never revealed the All Apps rows",
+            assertTrue("WP8.1 Back never revealed the All Apps rows",
                 difference(backReturnStart, appListBackSettled) > .01)
             assertTrue("WP8.1 Back should finish on All Apps, without a panorama slide",
                 difference(appsBeforeHome, appListBackSettled) < .02)
@@ -370,14 +380,11 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val appsExitStart = capture("w10-apps-launch-000")
-            compose.mainClock.advanceTimeBy(192)
-            val appsExitMidpoint = capture("w10-apps-launch-192")
-            assertTrue("W10M All Apps rows did not animate out toward the launch",
-                difference(appsExitStart, appsExitMidpoint) > .001)
-            repeat((exitEnd - 224) / frameStep) { frame ->
+            for (elapsed in frameStep..exitEnd step frameStep) {
                 compose.mainClock.advanceTimeBy(frameStep.toLong())
-                val elapsed = 224 + (frame + 1) * frameStep
-                capture("w10-apps-launch-${elapsed.toString().padStart(3, '0')}")
+                val frame = capture("w10-apps-launch-${elapsed.toString().padStart(3, '0')}")
+                if (elapsed == 192) assertTrue("W10M All Apps rows did not animate out",
+                    difference(appsExitStart, frame) > .001)
                 if (elapsed == beforeCompletion) compose.runOnIdle {
                     assertEquals("W10M app-list launch completed before its exit envelope", 0, completions)
                 }
@@ -385,6 +392,24 @@ class PhoneMotionRenderTest {
             val appListExit = capture("w10-apps-launch-$exitEnd-handoff")
             compose.runOnIdle { assertEquals("Expected W10M app-list launch completion", 1, completions) }
             assertTrue("W10M All Apps page must be black at handoff", centralBrightness(appListExit) < .01)
+
+            compose.runOnIdle {
+                selected.value = null
+                launching.value = false
+                resumeUsesBackMotion.value = true
+                entrance.intValue++
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            val appsBackFirst = capture("w10-apps-back-return-000")
+            assertTrue("W10M All Apps Back must start hidden", centralBrightness(appsBackFirst) < .01)
+            for (elapsed in frameStep..entryEnd step frameStep) {
+                compose.mainClock.advanceTimeBy(frameStep.toLong())
+                capture("w10-apps-back-return-${elapsed.toString().padStart(3, '0')}")
+            }
+            compose.onNodeWithText("Alpha").assertIsDisplayed()
+            assertTrue("W10M Back failed to restore the originating app list",
+                difference(appsRest, capture("w10-apps-back-return-settled")) < .01)
         }
     }
 
