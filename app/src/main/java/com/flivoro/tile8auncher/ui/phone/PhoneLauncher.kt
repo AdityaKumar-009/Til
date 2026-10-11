@@ -96,6 +96,7 @@ import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
+import com.flivoro.tile8auncher.ui.components.elasticVerticalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -308,12 +309,27 @@ fun PhoneLauncherSurface(
     val startScroll = rememberScrollState()
     var surfaceBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
+    var appsListBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var homeBannerBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     // Disco reads window.innerHeight (the whole CSS viewport), not just
     // the Start/Apps content pane below status and navigation surfaces.
     val viewportHeightCssPx = (surfaceBounds.height / densityScale)
         .takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
+    val appsEntryClock = remember(mode) {
+        Animatable(MobileStartMotion.ENTRY_TOTAL_MS.toFloat())
+    }
+    LaunchedEffect(mode, showApps, isLaunching) {
+        if (mode != LauncherUiMode.MOBILE_10 || !showApps || isLaunching) {
+            appsEntryClock.snapTo(MobileStartMotion.ENTRY_TOTAL_MS.toFloat())
+        } else {
+            appsEntryClock.snapTo(0f)
+            appsEntryClock.animateTo(
+                MobileStartMotion.ENTRY_TOTAL_MS.toFloat(),
+                tween(MobileStartMotion.ENTRY_TOTAL_MS, easing = LinearEasing),
+            )
+        }
+    }
     // Disco's #search-icon starts hidden and gets the .shown class only when
     // the user moves into All Apps. Its CSS enters after 200ms over 250ms,
     // then hides 500ms after returning to Start.
@@ -601,7 +617,8 @@ fun PhoneLauncherSurface(
                         translationX = -paneBounds.width * panoramaProgress
                     },
                 ) {
-                    Column(Modifier.fillMaxSize().verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
+                    Column(Modifier.fillMaxSize().elasticVerticalScroll()
+                        .verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
                         PhoneStartGrid(
                             tiles = phoneTiles,
@@ -722,8 +739,11 @@ fun PhoneLauncherSurface(
                         suppressReturnPaneTransition && motionUsesBack
                     Box(Modifier.fillMaxSize()
                         .graphicsLayer {
-                            val listExitEnd = if (mode == LauncherUiMode.PHONE_8) duration
-                                else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
+                            val listExitEnd = when {
+                                isClassicPhone -> duration
+                                isTen -> MobileStartMotion.EXIT_TOTAL_MS
+                                else -> PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
+                            }
                             if (animateHomeAppsPage) {
                                 val page = PhoneStartChoreography.sampleAppsPageEntry(
                                     elapsedMillis = sourceMotionMillis(),
@@ -862,12 +882,53 @@ fun PhoneLauncherSurface(
                             }
                         }
                         val visibleListIndices = appsState.layoutInfo.visibleItemsInfo.map { it.index }
+                        val visibleListTops = appsState.layoutInfo.visibleItemsInfo.map { it.offset.toFloat() }
+                        val firstVisibleListTop = visibleListTops.minOrNull() ?: 0f
+                        val lastVisibleListTop = visibleListTops.maxOrNull() ?: firstVisibleListTop
                         val firstVisibleListIndex = visibleListIndices.minOrNull()
                             ?: appsState.firstVisibleItemIndex
                         val lastVisibleListIndex = visibleListIndices.maxOrNull()
                             ?: firstVisibleListIndex
+                        fun mobileAppsMotion(
+                            bounds: Rect,
+                            exiting: Boolean,
+                            selected: Boolean = false,
+                        ): PhoneStartMotionFrame {
+                            val rowFraction = MobileStartMotion.rowFraction(
+                                bounds.top - appsListBounds.top,
+                                firstVisibleListTop,
+                                lastVisibleListTop,
+                            )
+                            val motion = MobileStartMotion.sample(
+                                exiting = exiting,
+                                elapsedMillis = if (exiting) sourceMotionMillis()
+                                    else appsEntryClock.value.roundToInt(),
+                                row = rowFraction,
+                                centerX = bounds.center.x,
+                                centerY = bounds.center.y,
+                                viewportCenterX = surfaceBounds.center.x,
+                                viewportCenterY = surfaceBounds.center.y,
+                                selected = selected,
+                            )
+                            return PhoneStartMotionFrame(
+                                alpha = motion.alpha,
+                                rotationY = 0f,
+                                translationXPx = motion.translationXPx,
+                                translationYPx = motion.translationYPx,
+                                translationZPx = 0f,
+                                scale = motion.scale,
+                                pivotX = motion.pivotX,
+                            )
+                        }
                         val scope = androidx.compose.runtime.rememberCoroutineScope()
-                        LazyColumn(state = appsState, modifier = Modifier.fillMaxSize(),
+                        LazyColumn(state = appsState, modifier = Modifier.fillMaxSize()
+                            .onGloballyPositioned {
+                                appsListBounds = Rect(
+                                    it.positionInWindow(),
+                                    Size(it.size.width.toFloat(), it.size.height.toFloat()),
+                                )
+                            }
+                            .elasticVerticalScroll(),
                             userScrollEnabled = interactionEnabled && !isLaunching) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
@@ -905,6 +966,19 @@ fun PhoneLauncherSurface(
                                                         canvas.restoreToCount(saveCount)
                                                     }
                                                 }
+                                        } else if (isTen) {
+                                            Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
+                                                .graphicsLayer {
+                                                    if (showApps && headerBounds.width > 0f) {
+                                                        val motion = mobileAppsMotion(headerBounds, isLaunching)
+                                                        alpha = motion.alpha
+                                                        translationX = motion.translationXPx
+                                                        translationY = motion.translationYPx
+                                                        scaleX = motion.scale
+                                                        scaleY = motion.scale
+                                                        transformOrigin = TransformOrigin(motion.pivotX, .5f)
+                                                    }
+                                                }
                                         } else Modifier).clickable(
                                             enabled = letter == "#" ||
                                                 (letter.length == 1 && letter[0].isLetter()),
@@ -934,6 +1008,7 @@ fun PhoneLauncherSurface(
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
+                                    var mobileBounds by remember { mutableStateOf(Rect.Zero) }
                                     val listIndex = (positions[letter] ?: 0) + appIndex + 1
                                     val animationIndex = PhoneStartChoreography.appListAnimationIndex(
                                         listIndex, firstVisibleListIndex, lastVisibleListIndex,
@@ -949,13 +1024,19 @@ fun PhoneLauncherSurface(
                                             tileLeftCssPx = appListContentLeftCssPx,
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
-                                    // The app list is stationary within its horizontally
-                                    // moving pane; only actual app launch feathers the rows.
+                                    // W10M rows share the Start center-zoom on pane entry and
+                                    // app launch. WP8.1 keeps its source-matched launch turn.
                                     Row(
                                         Modifier.fillMaxWidth()
                                             .height(if (isClassicPhone) (73f * classicUnit).dp else 60.dp)
                                             .padding(bottom = if (isClassicPhone) (11f * classicUnit).dp else 0.dp)
-                                            .onGloballyPositioned { bounds = it.boundsInWindow() }
+                                            .onGloballyPositioned {
+                                                bounds = it.boundsInWindow()
+                                                mobileBounds = Rect(
+                                                    it.positionInWindow(),
+                                                    Size(it.size.width.toFloat(), it.size.height.toFloat()),
+                                                )
+                                            }
                                             .then(if (mode == LauncherUiMode.PHONE_8) {
                                                 Modifier.graphicsLayer {
                                                     alpha = if (isLaunching) appRowMotion().alpha else 1f
@@ -974,18 +1055,31 @@ fun PhoneLauncherSurface(
                                                     }
                                                 }
                                             } else Modifier.graphicsLayer {
-                                                val rowMotion = if (isLaunching) PhoneMotionTimeline.sample(
-                                                    mode, listPhase, sourceMotionMillis(),
-                                                    ordinal,
-                                                    selectedTile = exitTileId == "phone_app_${app.packageName}",
-                                                ) else PhoneMotionFrame(1f, 0f, 0f, 1f, .5f)
-                                                alpha = rowMotion.alpha
-                                                rotationY = rowMotion.rotationY
-                                                translationY = rowMotion.offsetYPx * densityScale
-                                                scaleX = rowMotion.scale
-                                                scaleY = rowMotion.scale
-                                                transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
-                                                cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+                                                if (isTen && showApps && mobileBounds.width > 0f) {
+                                                    val motion = mobileAppsMotion(
+                                                        mobileBounds,
+                                                        exiting = isLaunching,
+                                                        selected = exitTileId == "phone_app_${app.packageName}",
+                                                    )
+                                                    alpha = motion.alpha
+                                                    translationX = motion.translationXPx
+                                                    translationY = motion.translationYPx
+                                                    scaleX = motion.scale
+                                                    scaleY = motion.scale
+                                                    transformOrigin = TransformOrigin(motion.pivotX, .5f)
+                                                } else if (isLaunching) {
+                                                    val rowMotion = PhoneMotionTimeline.sample(
+                                                        mode, listPhase, sourceMotionMillis(), ordinal,
+                                                        selectedTile = exitTileId == "phone_app_${app.packageName}",
+                                                    )
+                                                    alpha = rowMotion.alpha
+                                                    rotationY = rowMotion.rotationY
+                                                    translationY = rowMotion.offsetYPx * densityScale
+                                                    scaleX = rowMotion.scale
+                                                    scaleY = rowMotion.scale
+                                                    transformOrigin = TransformOrigin(rowMotion.pivotX, .5f)
+                                                    cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
+                                                }
                                             })
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
@@ -1284,7 +1378,7 @@ private fun PhoneStartGrid(
         // Native 480-unit viewport: 12-unit gutters; 24-unit four-column
         // margins, 12-unit six-column margins. Scale with viewport width,
         // not Android density. Keep W10M's established 4dp/10dp geometry.
-        val gap = if (mode == LauncherUiMode.PHONE_8) maxWidth * .025f else 4.dp
+        val gap = if (mode == LauncherUiMode.PHONE_8) maxWidth * .01875f else 4.dp
         val side = if (mode == LauncherUiMode.PHONE_8) {
             maxWidth * if (columns == 6) .025f else .05f
         } else 10.dp

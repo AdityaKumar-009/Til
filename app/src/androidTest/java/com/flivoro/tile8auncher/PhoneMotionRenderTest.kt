@@ -168,7 +168,20 @@ class PhoneMotionRenderTest {
         // A panorama round trip must reveal real All Apps pixels, not merely
         // keep offscreen/semantics nodes alive (the previous regression).
         compose.onNodeWithTag("phone-bottom-search").performClick()
-        compose.mainClock.advanceTimeBy(400)
+        if (mode == LauncherUiMode.MOBILE_10) {
+            // The pane has finished its horizontal move while W10M's app rows
+            // are still completing the same bottom-up zoom used on Start.
+            compose.mainClock.advanceTimeBy(280)
+            val appsEntering = capture("w10-all-apps-entering")
+            compose.mainClock.advanceTimeBy(400)
+            val appsEntered = capture("w10-all-apps-entered")
+            assertTrue("W10M All Apps rows did not animate into place",
+                difference(appsEntering, appsEntered) > .001)
+            assertTrue("W10M All Apps row labels did not finish entering",
+                brightPixelsInAppLabelRegion(appsEntered) > 25)
+        } else {
+            compose.mainClock.advanceTimeBy(400)
+        }
         if (mode == LauncherUiMode.PHONE_8) {
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             val appsAfterSwipe = capture("apps-after-manual-swipe")
@@ -177,6 +190,19 @@ class PhoneMotionRenderTest {
             assertTrue("All Apps must differ from the Start page",
                 difference(resting, appsAfterSwipe) > .01)
         }
+        val appsAtTop = capture("apps-at-top")
+        compose.onRoot().performTouchInput {
+            down(Offset(width * .75f, height * .62f))
+            moveBy(Offset(0f, height * .20f), 100)
+        }
+        compose.mainClock.advanceTimeByFrame()
+        val appsPulledPastTop = capture("apps-elastic-pull")
+        assertTrue("${mode.name} All Apps did not stretch at its top edge",
+            difference(appsAtTop, appsPulledPastTop) > .001)
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(500)
+        assertTrue("${mode.name} All Apps did not spring back from its top edge",
+            difference(appsAtTop, capture("apps-elastic-return")) < .01)
         compose.onNodeWithText("‹").performClick()
         compose.mainClock.advanceTimeBy(320)
         assertTrue("Start flickered or replayed entry after Apps", difference(resting,
@@ -317,6 +343,34 @@ class PhoneMotionRenderTest {
             val appListBackSettled = capture("apps-back-return-settled")
             assertTrue("Back return from All Apps must settle on Start",
                 difference(resting, appListBackSettled) < .01)
+        } else if (mode == LauncherUiMode.MOBILE_10) {
+            // W10M All Apps uses the same centered row zoom/fade as Start when
+            // an app opens, with the page held until its wallpaper fade ends.
+            compose.onNodeWithTag("phone-bottom-search").performClick()
+            compose.mainClock.advanceTimeBy(700)
+            val appsRest = capture("w10-apps-launch-rest")
+            assertTrue("W10M All Apps app row fixture is not visible",
+                brightPixelsInAppLabelRegion(appsRest) > 25)
+            compose.runOnIdle { completions = 0 }
+            compose.onNodeWithText("Alpha").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            val appsExitStart = capture("w10-apps-launch-000")
+            compose.mainClock.advanceTimeBy(192)
+            val appsExitMidpoint = capture("w10-apps-launch-192")
+            assertTrue("W10M All Apps rows did not animate out toward the launch",
+                difference(appsExitStart, appsExitMidpoint) > .001)
+            repeat((exitEnd - 224) / frameStep) { frame ->
+                compose.mainClock.advanceTimeBy(frameStep.toLong())
+                val elapsed = 224 + (frame + 1) * frameStep
+                capture("w10-apps-launch-${elapsed.toString().padStart(3, '0')}")
+                if (elapsed == beforeCompletion) compose.runOnIdle {
+                    assertEquals("W10M app-list launch completed before its exit envelope", 0, completions)
+                }
+            }
+            val appListExit = capture("w10-apps-launch-$exitEnd-handoff")
+            compose.runOnIdle { assertEquals("Expected W10M app-list launch completion", 1, completions) }
+            assertTrue("W10M All Apps page must be black at handoff", centralBrightness(appListExit) < .01)
         }
     }
 
