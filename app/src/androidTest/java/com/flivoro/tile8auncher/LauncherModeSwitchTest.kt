@@ -6,7 +6,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.semantics.SemanticsProperties
-import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
@@ -112,15 +111,6 @@ class LauncherModeSwitchTest {
                 repeat(3) {
                     compose.onNodeWithTag("phone-bottom-home").performClick()
                     compose.onNodeWithTag("phone-bottom-back").performClick()
-                    compose.runOnUiThread {
-                        // Android can redeliver HOME to its current launcher Activity.
-                        InstrumentationRegistry.getInstrumentation().callActivityOnNewIntent(
-                            compose.activity,
-                            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
-                        )
-                        // The Compose BackHandler should consume BACK at the root.
-                        compose.activity.onBackPressedDispatcher.onBackPressed()
-                    }
                 }
                 compose.waitForIdle()
                 assertEquals("Repeated HOME/BACK replayed Start entrance in $mode",

@@ -158,22 +158,20 @@ class PhoneMotionRenderTest {
             compose.onNodeWithText("‹").performClick()
             compose.mainClock.advanceTimeBy(400)
 
-            // Regression: returning Home when the previous launcher page was already
-            // Start must STILL compose and animate the second All Apps slide page.
-            // AnimatedContent previously omitted it altogether in this path.
+            // Home on an already-settled Start page must NOT replay the entry.
+            // The previous test expected exactly the unwanted regression reported
+            // on device. Keep the return-from-All-Apps animation checked below.
+            val rootBeforeRepeatHome = capture("start-before-repeated-home")
             compose.onNodeWithTag("phone-bottom-home").performClick()
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
-            compose.onNodeWithTag("wp81-home-return-app-page").assertExists()
-            compose.onNodeWithText("Alpha").assertExists()
-            compose.mainClock.advanceTimeBy(160)
-            val forwardFrame = capture("start-home-return-160")
-            assertTrue("Start Home entrance did not animate",
-                difference(resting, forwardFrame) > .001)
-            compose.mainClock.advanceTimeBy(1664)
             compose.onNodeWithTag("wp81-home-return-app-page").assertDoesNotExist()
-            assertTrue("Start Home return did not settle",
-                difference(resting, capture("start-home-return-settled")) < .01)
+            val rootAfterRepeatHome = capture("start-after-repeated-home")
+            assertTrue("Repeated Home unexpectedly restarted the Start animation",
+                difference(rootBeforeRepeatHome, rootAfterRepeatHome) < .01)
+            compose.mainClock.advanceTimeBy(1664)
+            assertTrue("Repeated Home changed the settled Start screen",
+                difference(rootBeforeRepeatHome, capture("start-home-idle")) < .01)
         }
 
         // A panorama round trip must reveal real All Apps pixels, not merely
