@@ -94,6 +94,7 @@ class LauncherModeSwitchTest {
     fun interruptedPhoneRenderFallsBackWithoutLosingSavedModeSettings() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val previousMode = LauncherFeatureStore.launcherUiMode(context)
+        val previousColumns = LauncherFeatureStore.phoneSmallColumns(context, LauncherUiMode.PHONE_8)
         try {
             compose.runOnUiThread {
                 LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.PHONE_8, 6)
@@ -104,6 +105,7 @@ class LauncherModeSwitchTest {
             assertEquals(6, LauncherFeatureStore.phoneSmallColumns(context, LauncherUiMode.PHONE_8))
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.PHONE_8, previousColumns)
                 LauncherFeatureStore.setLauncherUiMode(context, previousMode)
                 LauncherFeatureStore.confirmPhoneRender(context)
                 LauncherFeatureStore.confirmPhoneSettings(context)
