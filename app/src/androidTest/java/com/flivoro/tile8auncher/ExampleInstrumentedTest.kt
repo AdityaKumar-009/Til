@@ -8,6 +8,7 @@ import com.flivoro.tile8auncher.features.LauncherUiMode
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -30,13 +31,16 @@ class ExampleInstrumentedTest {
                 Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK,
             )
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
-            instrumentation.waitForIdleSync()
-            assertEquals(LauncherUiMode.PHONE_8, LauncherFeatureStore.launcherUiMode(activity))
-            assertFalse("Launcher closed during WP8.1 startup", activity.isFinishing)
+            instrumentation.runOnMainSync {
+                val launched = checkNotNull(activity)
+                assertEquals(LauncherUiMode.PHONE_8, LauncherFeatureStore.launcherUiMode(launched))
+                assertFalse("Launcher closed during WP8.1 startup", launched.isFinishing)
+                assertTrue("WP8.1 launcher view did not attach",
+                    launched.window.decorView.isAttachedToWindow)
+            }
         } finally {
-            activity?.finish()
+            instrumentation.runOnMainSync { activity?.finish() }
             LauncherFeatureStore.setLauncherUiMode(context, previousMode)
-            instrumentation.waitForIdleSync()
         }
     }
 
