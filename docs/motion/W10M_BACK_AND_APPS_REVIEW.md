@@ -16,20 +16,26 @@ Every decoded source frame was inspected in the following intervals; no interpol
 | Continuum Back | 1072.24–1072.44 | Outgoing app/window handoff; do not include it as a launcher delay. |
 | All apps Back | 1072.48–1072.80 | Lower rows reveal first; upper rows follow. Rows approach their resting positions from outside the layout. No selected-row hold on return. |
 | Camera Back to Start | 1441.16–1441.60 | Visible Back press, outgoing camera, then window handoff. |
-| Start reveal | 1441.64–1441.92 | Lower tiles are visible first, then upper tiles; layout settles as the camera itself moves. |
+| Start reveal | 1441.64–1441.92 | Lower tiles are visible first. Stabilized glyphs start smaller than rest and expand into place; this is opposite to All apps Back. |
 
 The older `1000197577.mp4` reference remains the source for Start launch and explicit Home entry. Its yellow marker presses Home; it is not evidence for Back.
 
 ## Changes
 
 - All apps has its own shorter launch envelope: 160 ms row motion, 100 ms visible-row stagger, an additive 80 ms selected-row hold, and stationary search/wallpaper fade at 320–400 ms.
-- Back uses an independent bottom-to-top entry (200 ms per row plus 120 ms stagger). It does not reverse the entire outgoing timeline: the old reversal imposed 151 ms with all tiles hidden and reused the selected launch delay.
-- Home still enters from below unit scale; Back enters from above unit scale. The exit and Home fits already checked against the older Start footage are retained.
+- Back has separate entries for each pane. All apps uses 200 ms per row plus 120 ms stagger, approaching from above unit scale. Start uses a 450 ms below-unit scale track and a tighter 60 ms stagger, with row opacity at local 80–160 ms. Neither reverses the entire outgoing timeline: the old reversal imposed 151 ms with all tiles hidden and reused the selected launch delay.
+- Start Home and Back both expand smaller tiles, but have different stagger and opacity tracks. All apps Back shrinks its rows into place. The exit and Home fits already checked against the older Start footage are retained.
 - Press feedback is a rectangular gray row highlight with no Material ripple. It remains latched through the selected launch hold and disappears on return.
 - Header geometry uses untransformed bounds, including when the list is scrolled. App-list clipping continues to prevent offscreen Start tiles leaking into the left gutter.
 - One display clock still controls the visual layers and final app handoff. Existing lifecycle/crash guards remain in place.
 
-These durations and curves are fits, not extracted Microsoft shell constants. At 25 fps, source timing is resolved in 40 ms intervals, and camera movement, exposure and display refresh prevent a claim of pixel-exact or 100% identity across builds/devices. Start Back shares the observed return family; its precise curve is less constrained than the All apps sequence.
+These durations and curves are fits, not extracted Microsoft shell constants. At 25 fps, source timing is resolved in 40 ms intervals, and camera movement, exposure and display refresh prevent a claim of pixel-exact or 100% identity across builds/devices. The two return directions are checked independently; fine timing and opacity remain constrained by source frame rate and exposure.
+
+## Camera registration and direction check
+
+Start frames were registered to 1441.92s using status/navigation marks that do not participate in tile animation. Pyramidal Lucas–Kanade tracking and a RANSAC similarity transform remove most hand/camera translation, rotation and scale. The Microsoft Mail, Edge and Shazam glyphs were then template-matched across scales; low-confidence or missing glyphs were excluded. This showed Mail at approximately 0.90 scale at 1441.68s and 0.96 at 1441.76s, and Shazam at approximately 0.92 at 1441.64s. Their positions move away from the screen center toward rest, establishing below-unit Start entry. A reversal of the outgoing zoom would produce the opposite direction.
+
+See `w10m-start-back-observed.csv` for the retained measurements. Coordinate tolerances include camera-registration error and one 40 ms source interval; the motion origin (~1441.52s) is a fit, not the physical button timestamp. All apps retains an independent above-unit return based on its stabilized icon positions.
 
 ## Verification
 

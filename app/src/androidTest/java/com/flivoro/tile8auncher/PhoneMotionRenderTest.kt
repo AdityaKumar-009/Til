@@ -271,7 +271,7 @@ class PhoneMotionRenderTest {
             compose.runOnIdle { sampledMotionMillis.value = elapsed }
             compose.mainClock.advanceTimeByFrame()
             val frame = capture("start-back-return-${elapsed.toString().padStart(3, '0')}")
-            if (mode == LauncherUiMode.MOBILE_10 && elapsed == 80) {
+            if (mode == LauncherUiMode.MOBILE_10 && elapsed == 120) {
                 assertTrue("W10M Back retained the reversed launch's blank pause",
                     difference(startBackFirst, frame) > .01)
             }

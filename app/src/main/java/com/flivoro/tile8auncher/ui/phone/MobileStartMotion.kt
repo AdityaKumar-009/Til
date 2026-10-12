@@ -6,7 +6,7 @@ import kotlin.math.roundToInt
 /**
  * A fit to the RIGHT phone in 1000197577.mp4, not Microsoft's private shell code.
  * Rows zoom about one point in window coordinates. Upper rows leave first; lower
- * rows return first on Home. Back has a separate above-unit entry, without the
+ * rows return first on Home. Back has a separate below-unit entry, without the
  * outgoing wallpaper tail or launch-only selection delay. See the frame evidence in docs.
  */
 internal object MobileStartMotion {
@@ -19,27 +19,25 @@ internal object MobileStartMotion {
     const val ENTRY_STAGGER_MS = 180
     const val ENTRY_TOTAL_MS = ENTRY_TILE_MS + ENTRY_STAGGER_MS
 
-    const val BACK_TILE_MS = 200
-    const val BACK_STAGGER_MS = 120
+    const val BACK_TILE_MS = 450
+    const val BACK_STAGGER_MS = 60
     const val BACK_TOTAL_MS = BACK_TILE_MS + BACK_STAGGER_MS
 
     // Home and Back are different shell navigation phases. The yellow touch
     // marker at 12.880s in 1000197577 is on HOME, not Back. Do not reuse that
-    // below-unit Home entry scale when returning through the navigation stack.
-    // WinFuture's Lumia 950/950 XL sequence at 1072.44-1072.80s shows
-    // bottom-to-top Back entry. Reversing EXIT_TOTAL_MS held all rows invisible
-    // for 151ms and incorrectly carried the tapped row's launch delay into Back.
-    internal fun backFrame(
+    // Home timing for Back. Stabilized WinFuture Camera -> Start frames at
+    // 1441.64-1441.92s independently show smaller tiles expanding into place.
+    // All apps has the opposite scale direction and its own return sampler.
+    private fun backFrame(
         elapsedMillis: Int, row: Float, centerX: Float, centerY: Float,
         viewportCenterX: Float, viewportCenterY: Float,
     ): PhoneStartMotionFrame {
         val delay = ((1f - row.coerceIn(0f, 1f)) * BACK_STAGGER_MS).roundToInt()
         val local = elapsedMillis - delay
         val p = (local.toFloat() / BACK_TILE_MS).coerceIn(0f, 1f)
-        val scale = 1f + .65f *
-            ((exp(6.0 * (1f - p)) - 1.0) / (exp(6.0) - 1.0)).toFloat()
+        val scale = 1f - .3f * exponential(1f - p)
         return PhoneStartMotionFrame(
-            alpha = (local / 80f).coerceIn(0f, 1f), rotationY = 0f,
+            alpha = ((local - 80f) / 80f).coerceIn(0f, 1f), rotationY = 0f,
             translationXPx = (centerX - viewportCenterX) * (scale - 1f),
             translationYPx = (centerY - viewportCenterY) * (scale - 1f),
             translationZPx = 0f, scale = scale, pivotX = .5f,

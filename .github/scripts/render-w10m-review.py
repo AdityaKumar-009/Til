@@ -9,7 +9,7 @@ import tempfile
 ROOT = Path('app/build/motion-frames')
 OUT = Path('app/build/w10m-review')
 PHASES = [
-    ('start-back-return', 10, 360),
+    ('start-back-return', 10, 520),
     ('w10-apps-back-return', 10, 360),
     ('w10-apps-launch', 16, 400),
 ]

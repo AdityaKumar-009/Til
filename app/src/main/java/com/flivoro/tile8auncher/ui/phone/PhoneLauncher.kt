@@ -376,7 +376,7 @@ fun PhoneLauncherSurface(
         if (isTen) MobileAppsMotion.EXIT_TOTAL_MS
         else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
     } else if (isTen && motionUsesBack && !isLaunching) {
-        MobileStartMotion.BACK_TOTAL_MS
+        if (showApps) MobileAppsMotion.BACK_TOTAL_MS else MobileStartMotion.BACK_TOTAL_MS
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
         PhoneStartChoreography.APPS_RETURN_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {

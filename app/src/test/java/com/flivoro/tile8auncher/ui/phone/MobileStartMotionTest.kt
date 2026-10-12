@@ -50,28 +50,47 @@ class MobileStartMotionTest {
         assertEquals(.84f, store.scale, .04f)
     }
 
-    @Test fun backReturnsFromOutsideTheRestingGridAndStaysDistinctFromHome() {
-        val back = MobileStartMotion.sample(false, 80, .75f,
+    @Test fun startBackExpandsSmallerTilesWithItsOwnStaggerAndNoSelectedDelay() {
+        val back = MobileStartMotion.sample(false, 120, .75f,
             419f, 621f, 254f, 456f, returningFromApp = true)
-        assertTrue(back.scale > 1f)
-        assertTrue(back.translationXPx > 0f && back.translationYPx > 0f)
+        assertTrue(back.scale < 1f)
+        assertTrue(back.translationXPx < 0f && back.translationYPx < 0f)
         assertTrue("Back must reveal rows before the old 151ms blank tail ends", back.alpha > 0f)
-        assertTrue(frame(false, 80, .75f, 419f, 621f).scale < 1f)
+        assertTrue(back != frame(false, 120, .75f, 419f, 621f))
         assertTrue(MobileStartMotion.wallpaperAlpha(false, 100, returningFromApp = true) > .5f)
-        val selectedBack = MobileStartMotion.sample(false, 80, .75f,
+        val selectedBack = MobileStartMotion.sample(false, 120, .75f,
             419f, 621f, 254f, 456f, selected = true, returningFromApp = true)
         assertEquals("Back must not inherit the launch-only selected delay", back, selectedBack)
+    }
+
+    @Test fun startBackMatchesIndependentlyStabilizedNativeGlyphs() {
+        // WinFuture source, fitted origin 1441.52s; camera registration uses
+        // fixed status/navigation marks, not animated tiles. At 1441.68s the
+        // top Mail glyph is ~0.90 scale; at 1441.76s it is ~0.96 scale.
+        val earlyMail = MobileStartMotion.sample(false, 160, 0f,
+            552f, 115f, 475f, 252f, returningFromApp = true)
+        val lateMail = MobileStartMotion.sample(false, 240, 0f,
+            552f, 115f, 475f, 252f, returningFromApp = true)
+        assertEquals(.90f, earlyMail.scale, .04f)
+        assertEquals(540f, 552f + earlyMail.translationXPx, 8f)
+        assertEquals(126f, 115f + earlyMail.translationYPx, 8f)
+        assertEquals(.96f, lateMail.scale, .04f)
+        val shazam = MobileStartMotion.sample(false, 120, .75f,
+            389f, 373f, 475f, 252f, returningFromApp = true)
+        assertEquals(.92f, shazam.scale, .04f)
+        assertEquals(394.5f, 389f + shazam.translationXPx, 8f)
+        assertEquals(365.5f, 373f + shazam.translationYPx, 8f)
     }
 
     @Test fun backHasContinuousTenMillisecondStepsAndExactSettledEndpoints() {
         for (row in listOf(0f, .25f, .5f, .75f, 1f)) {
             for (selected in listOf(false, true)) {
-                var previousScale = 2f
+                var previousScale = .7f
                 var previousAlpha = 0f
                 for (ms in 0..540 step 10) {
                     val f = MobileStartMotion.sample(false, ms, row, 419f, 621f,
                         254f, 456f, selected, returningFromApp = true)
-                    assertTrue(f.scale in 1f..previousScale)
+                    assertTrue(f.scale in previousScale..1f)
                     assertTrue(f.alpha in previousAlpha..1f)
                     assertTrue(f.translationXPx.isFinite() && f.translationYPx.isFinite())
                     previousScale = f.scale
