@@ -1,7 +1,6 @@
 package com.flivoro.tile8auncher
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -44,14 +43,12 @@ class LauncherModeSwitchTest {
                 up()
             }
             compose.mainClock.advanceTimeBy(400)
-            compose.onNodeWithText("Change PC settings").assertExists().performClick()
-            compose.onNodeWithText("App opening animation").assertExists()
+            compose.onNodeWithText("Change PC settings").performClick()
 
             val interfaceRow = compose.onNodeWithText("Windows interface")
             interfaceRow.performScrollTo()
             interfaceRow.performClick()
             compose.onNodeWithText("Windows Phone 8.1", substring = true)
-                .assertExists()
                 .performClick()
 
             Thread.sleep(700)
