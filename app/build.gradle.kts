@@ -8,6 +8,8 @@ android {
     namespace = "com.flivoro.tile8auncher"
     compileSdk = 35
 
+    testBuildType = "performance"
+
     defaultConfig {
         applicationId = "com.flivoro.tile8auncher"
         minSdk = 26

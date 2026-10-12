@@ -13,4 +13,4 @@ trap collect_frames EXIT
 chmod +x gradlew
 adb shell wm size 1080x2160
 adb shell wm density 480
-./gradlew connectedDebugAndroidTest --stacktrace
+./gradlew connectedAndroidTest --stacktrace
