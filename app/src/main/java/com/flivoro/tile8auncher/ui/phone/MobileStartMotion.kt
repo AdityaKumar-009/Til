@@ -6,8 +6,8 @@ import kotlin.math.roundToInt
 /**
  * A fit to the RIGHT phone in 1000197577.mp4, not Microsoft's private shell code.
  * Rows zoom about one point in window coordinates. Upper rows leave first; lower
- * rows return first on Home. Back retraces the outgoing shell. The wallpaper
- * has its own track. See the frame evidence in docs.
+ * rows return first on Home. Back has a separate above-unit entry, without the
+ * outgoing wallpaper tail or launch-only selection delay. See the frame evidence in docs.
  */
 internal object MobileStartMotion {
     const val EXIT_TILE_MS = 250
@@ -19,13 +19,32 @@ internal object MobileStartMotion {
     const val ENTRY_STAGGER_MS = 180
     const val ENTRY_TOTAL_MS = ENTRY_TILE_MS + ENTRY_STAGGER_MS
 
-    const val BACK_TOTAL_MS = EXIT_TOTAL_MS
+    const val BACK_TILE_MS = 200
+    const val BACK_STAGGER_MS = 120
+    const val BACK_TOTAL_MS = BACK_TILE_MS + BACK_STAGGER_MS
 
     // Home and Back are different shell navigation phases. The yellow touch
     // marker at 12.880s in 1000197577 is on HOME, not Back. Do not reuse that
     // below-unit Home entry scale when returning through the navigation stack.
-    private fun backSourceMillis(elapsedMillis: Int): Int =
-        (BACK_TOTAL_MS - elapsedMillis).coerceIn(0, EXIT_TOTAL_MS)
+    // WinFuture's Lumia 950/950 XL sequence at 1072.44-1072.80s shows
+    // bottom-to-top Back entry. Reversing EXIT_TOTAL_MS held all rows invisible
+    // for 151ms and incorrectly carried the tapped row's launch delay into Back.
+    internal fun backFrame(
+        elapsedMillis: Int, row: Float, centerX: Float, centerY: Float,
+        viewportCenterX: Float, viewportCenterY: Float,
+    ): PhoneStartMotionFrame {
+        val delay = ((1f - row.coerceIn(0f, 1f)) * BACK_STAGGER_MS).roundToInt()
+        val local = elapsedMillis - delay
+        val p = (local.toFloat() / BACK_TILE_MS).coerceIn(0f, 1f)
+        val scale = 1f + .65f *
+            ((exp(6.0 * (1f - p)) - 1.0) / (exp(6.0) - 1.0)).toFloat()
+        return PhoneStartMotionFrame(
+            alpha = (local / 80f).coerceIn(0f, 1f), rotationY = 0f,
+            translationXPx = (centerX - viewportCenterX) * (scale - 1f),
+            translationYPx = (centerY - viewportCenterY) * (scale - 1f),
+            translationZPx = 0f, scale = scale, pivotX = .5f,
+        )
+    }
 
     /** Fractions use the top/bottom VISIBLE rows, independent of small-cell density. */
     fun rowFraction(top: Float, firstVisibleTop: Float, lastVisibleTop: Float): Float =
@@ -49,11 +68,10 @@ internal object MobileStartMotion {
         selected: Boolean = false,
         returningFromApp: Boolean = false,
     ): PhoneStartMotionFrame {
-        if (returningFromApp && !exiting) return sample(
-            exiting = true, elapsedMillis = backSourceMillis(elapsedMillis), row = row,
+        if (returningFromApp && !exiting) return backFrame(
+            elapsedMillis = elapsedMillis, row = row,
             centerX = centerX, centerY = centerY,
             viewportCenterX = viewportCenterX, viewportCenterY = viewportCenterY,
-            selected = selected,
         )
         val local = elapsedMillis - delayMillis(exiting, row, selected)
         val duration = if (exiting) EXIT_TILE_MS else ENTRY_TILE_MS
@@ -77,7 +95,7 @@ internal object MobileStartMotion {
         elapsedMillis: Int,
         returningFromApp: Boolean = false,
     ): Float = if (returningFromApp && !exiting) {
-        wallpaperAlpha(exiting = true, elapsedMillis = backSourceMillis(elapsedMillis))
+        (elapsedMillis / 180f).coerceIn(0f, 1f)
     } else if (exiting) {
         1f - ((elapsedMillis - WALLPAPER_FADE_START_MS).toFloat() /
             (EXIT_TOTAL_MS - WALLPAPER_FADE_START_MS)).coerceIn(0f, 1f)

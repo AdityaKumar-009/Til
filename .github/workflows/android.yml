@@ -100,6 +100,17 @@ jobs:
           path: app/build/motion-preview/Til-WP81-Home-Return-Preview.mp4
           if-no-files-found: warn
           retention-days: 1
+      - name: Render compact W10M frame review
+        if: ${{ always() && matrix.api-level == 34 }}
+        run: python3 .github/scripts/render-w10m-review.py
+      - name: Upload compact W10M frame review
+        if: ${{ always() && matrix.api-level == 34 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: w10m-compact-motion-review
+          path: app/build/w10m-review
+          if-no-files-found: warn
+          retention-days: 1
       - name: Upload full frame captures and device test results (manual opt-in)
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload_full_motion_evidence }}
         uses: actions/upload-artifact@v4

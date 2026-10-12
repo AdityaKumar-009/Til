@@ -51,13 +51,16 @@ class MobileStartMotionTest {
     }
 
     @Test fun backReturnsFromOutsideTheRestingGridAndStaysDistinctFromHome() {
-        val back = MobileStartMotion.sample(false, 258, .75f,
+        val back = MobileStartMotion.sample(false, 80, .75f,
             419f, 621f, 254f, 456f, returningFromApp = true)
         assertTrue(back.scale > 1f)
-        assertEquals(450.5f, 419f + back.translationXPx, 8f)
-        assertEquals(652.5f, 621f + back.translationYPx, 8f)
-        assertTrue(frame(false, 258, .75f, 419f, 621f).scale < 1f)
-        assertTrue(MobileStartMotion.wallpaperAlpha(false, 100, returningFromApp = true) > .7f)
+        assertTrue(back.translationXPx > 0f && back.translationYPx > 0f)
+        assertTrue("Back must reveal rows before the old 151ms blank tail ends", back.alpha > 0f)
+        assertTrue(frame(false, 80, .75f, 419f, 621f).scale < 1f)
+        assertTrue(MobileStartMotion.wallpaperAlpha(false, 100, returningFromApp = true) > .5f)
+        val selectedBack = MobileStartMotion.sample(false, 80, .75f,
+            419f, 621f, 254f, 456f, selected = true, returningFromApp = true)
+        assertEquals("Back must not inherit the launch-only selected delay", back, selectedBack)
     }
 
     @Test fun backHasContinuousTenMillisecondStepsAndExactSettledEndpoints() {
