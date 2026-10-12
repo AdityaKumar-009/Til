@@ -337,6 +337,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                     ChoiceRow(
                         label = "${mode.title}\n${mode.detail}",
                         selected = launcherMode == mode,
+                        lightSurface = true,
                         onClick = {
                             LauncherFeatureStore.setLauncherUiMode(context, mode)
                             showLauncherModePicker = false
@@ -354,6 +355,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                     ChoiceRow(
                         label = if (n == 4) "Classic: 2 medium tiles across" else "Dense: 3 medium tiles across",
                         selected = LauncherFeatureStore.phoneSmallColumns(context, launcherMode) == n,
+                        lightSurface = true,
                         onClick = {
                             LauncherFeatureStore.setPhoneSmallColumns(context, launcherMode, n)
                             showPhoneColumnsPicker = false
@@ -372,6 +374,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                     ChoiceRow(
                         label = "$value%",
                         selected = (LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt() == value,
+                        lightSurface = true,
                         onClick = {
                             LauncherFeatureStore.setPhoneTileOpacity(context, value)
                             showPhoneTransparencyPicker = false
@@ -578,19 +581,29 @@ private fun DoubleTapActionDialog(
 }
 
 @Composable
-private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ChoiceRow(
+    label: String,
+    selected: Boolean,
+    lightSurface: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val foreground = if (lightSurface) Color(0xFF242424) else Color.White
+    val accent = if (lightSurface) settingsPurple else Color.White
+    val outline = if (lightSurface) Color(0xFF777777) else Color(0x99FFFFFF)
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .background(if (lightSurface && selected) Color(0xFFF1EBFA) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier
-                .size(17.dp)
-                .border(2.dp, if (selected) Color.White else Color(0x99FFFFFF))
-                .background(if (selected) Color.White else Color.Transparent),
+            Modifier.size(18.dp)
+                .border(2.dp, if (selected) accent else outline)
+                .background(if (selected) accent else Color.Transparent),
         )
-        Spacer(Modifier.width(10.dp))
-        Text(label, color = Color.White, style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = foreground, style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp))
     }
 }
 

@@ -286,7 +286,10 @@ fun PhoneLauncherSurface(
 ) {
     var classicHomeTap by remember(mode) { mutableStateOf(0) }
     var classicHomeEntrance by remember(mode) { mutableStateOf(-1) }
-    val motionHomeRequest = homeRequest + classicHomeTap
+    // Home requests are navigation instructions, not animation instructions.
+    // Only a transition FROM All Apps needs a phone Start entrance clock reset.
+    var pageReturnRequest by remember(mode) { mutableIntStateOf(0) }
+    val motionHomeRequest = pageReturnRequest + classicHomeTap
     val motionUsesBack = resumeUsesBackMotion && classicHomeEntrance != entranceRequest
     val sampledMotionMillis = LocalPhoneMotionSampleMillis.current
     val context = LocalContext.current
@@ -314,6 +317,19 @@ fun PhoneLauncherSurface(
     var search by remember(mode) { mutableStateOf("") }
     var phone8SearchVisible by remember(mode) { mutableStateOf(false) }
     var phoneRevision by remember(mode) { mutableStateOf(0) }
+    var lastObservedActivityHomeRequest by remember(mode) { mutableIntStateOf(homeRequest) }
+    LaunchedEffect(homeRequest) {
+        if (lastObservedActivityHomeRequest != homeRequest) {
+            lastObservedActivityHomeRequest = homeRequest
+            if (showApps) pageReturnRequest++
+            else {
+                // Dismissing these overlays is not a Start-screen re-entry.
+                alphabetOpen = false
+                actionCenterOpen = false
+                editing = null
+            }
+        }
+    }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
     val tileOpacity = remember(mode, densityRevision) {
@@ -521,13 +537,19 @@ fun PhoneLauncherSurface(
         }
     }
 
-    BackHandler(interactionEnabled && (showApps || alphabetOpen || actionCenterOpen || editing != null)) {
+    // Consume Android system Back even on the root Start screen. Otherwise Android
+    // can finish/recreate the HOME Activity, playing the startup animation again.
+    // At root this intentionally performs no state mutation.
+    fun navigateBackInsidePhone() {
         when {
             editing != null -> editing = null
             alphabetOpen -> alphabetOpen = false
             actionCenterOpen -> actionCenterOpen = false
-            else -> showApps = false
+            showApps -> showApps = false
         }
+    }
+    BackHandler(enabled = interactionEnabled) {
+        navigateBackInsidePhone()
     }
 
     // On Android app Back the launcher may be composed again from saved UI state.
@@ -1261,22 +1283,23 @@ fun PhoneLauncherSurface(
             Row(Modifier.fillMaxWidth().height(48.dp).background(Color.Black),
                 horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Text("‹", fontSize = 36.sp, color = Color.White,
-                    modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) {
-                        when {
-                            alphabetOpen -> alphabetOpen = false
-                            showApps -> showApps = false
-                            editing != null -> editing = null
-                        }
-                    }.padding(horizontal = 25.dp))
+                    modifier = Modifier.testTag("phone-bottom-back")
+                        .clickable(enabled = interactionEnabled && !isLaunching) {
+                            navigateBackInsidePhone()
+                        }.padding(horizontal = 25.dp))
                 Text("⊞", fontSize = 29.sp, color = Color.White,
                     modifier = Modifier.testTag("phone-bottom-home")
                         .clickable(enabled = interactionEnabled && !isLaunching) {
-                            if (isClassicPhone) {
+                            // A repeated Home tap on the already settled Start page
+                            // is a no-op, not another turnstile/cascade animation.
+                            if (showApps && isClassicPhone) {
                                 classicHomeEntrance = entranceRequest
                                 classicHomeTap++
                             }
                             showApps = false
+                            alphabetOpen = false
                             actionCenterOpen = false
+                            editing = null
                         }.padding(horizontal = 25.dp))
                 Text("⌕", fontSize = 28.sp, color = Color.White,
                     modifier = Modifier.testTag("phone-bottom-search")

@@ -356,20 +356,28 @@ class MainActivity : ComponentActivity() {
             finishStartupEntranceGate()
         } else {
             if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
-                // Defer one event until the launcher can present it. Preserve
-                // the distinction between explicit Home and an app Back return.
-                if (homeWasPending) pendingClassicHomeReturn = true
-                scheduleClassicPhoneResume()
+                // Android can invoke onResume when Home/Back is pressed on an already
+                // visible launcher, or after a transient system overlay. Neither is a
+                // new navigation event, so the native entrance must NOT replay.
+                if (classicExternalAppLaunched || homeWasPending || pendingClassicHomeReturn) {
+                    if (homeWasPending) pendingClassicHomeReturn = true
+                    scheduleClassicPhoneResume()
+                } else {
+                    entranceReady = true
+                    phoneResumeUsesBackMotion = false
+                }
             } else {
                 entranceReady = true
                 val mobileBackReturn = LauncherFeatureStore.launcherUiMode(this) ==
                     LauncherUiMode.MOBILE_10 && mobileExternalAppLaunched && !homeWasPending
                 mobileExternalAppLaunched = false
                 phoneResumeUsesBackMotion = mobileBackReturn
-                if (!homeWasPending) {
+                // Only a genuine app Back return starts another entrance. Previously
+                // every onResume incremented entranceRequest, even on idle Start.
+                if (mobileBackReturn || LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.DESKTOP && !homeWasPending) {
                     entranceKind = StartEntranceKind.RETURN
                     entranceRequest++
-                } else {
+                } else if (homeWasPending) {
                     phoneReturnSourceTileId = null
                 }
             }
@@ -386,6 +394,9 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            val uiMode = LauncherFeatureStore.launcherUiMode(this)
+            val externalPhoneAppWasLaunched =
+                classicExternalAppLaunched || mobileExternalAppLaunched
             phoneResumeUsesBackMotion = false
             mobileExternalAppLaunched = false
             phoneReturnSourceTileId = null
@@ -396,9 +407,11 @@ class MainActivity : ComponentActivity() {
 
             pendingLaunchIntent = null
             val returningFromOutside = !launcherResumed
-            homeIntentPending = returningFromOutside
-            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8 &&
-                (returningFromOutside || !entranceReady)
+            // A fresh Android HOME intent is not evidence that Start was left.
+            // Defer the classic entrance only for a real external-app handoff.
+            homeIntentPending = returningFromOutside && externalPhoneAppWasLaunched
+            if (uiMode == LauncherUiMode.PHONE_8 &&
+                returningFromOutside && classicExternalAppLaunched
             ) {
                 // Defer the HOME request alongside the 200ms activity-resume
                 // event. Otherwise homeRequest itself restarts motionClock
@@ -408,10 +421,13 @@ class MainActivity : ComponentActivity() {
                     scheduleClassicPhoneResume()
                 }
             } else {
-                if (returningFromOutside && entranceReady) {
+                if (returningFromOutside && entranceReady &&
+                    (uiMode == LauncherUiMode.DESKTOP || externalPhoneAppWasLaunched)
+                ) {
                     entranceKind = StartEntranceKind.RETURN
                     entranceRequest++
                 }
+                // Child phone surfaces ignore this request when already on Start.
                 homeRequest++
             }
         }
