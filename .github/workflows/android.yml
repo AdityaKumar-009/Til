@@ -55,6 +55,9 @@ jobs:
     if: github.ref == 'refs/heads/feature/windows-phone-launcher-modes'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      matrix:
+        api-level: [29, 34]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -70,7 +73,7 @@ jobs:
       - name: Capture and verify rendered phone motion
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_2
           disable-animations: false
@@ -87,7 +90,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wp81-home-return-preview
+          name: wp81-home-return-preview-api${{ matrix.api-level }}
           path: app/build/motion-preview/Til-WP81-Home-Return-Preview.mp4
           if-no-files-found: warn
           retention-days: 14
@@ -95,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phone-motion-render-evidence
+          name: phone-motion-render-evidence-api${{ matrix.api-level }}
           path: |
             app/build/motion-frames
             app/build/outputs/androidTest-results
