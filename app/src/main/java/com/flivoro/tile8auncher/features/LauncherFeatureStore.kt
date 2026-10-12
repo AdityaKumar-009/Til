@@ -82,6 +82,7 @@ object LauncherFeatureStore {
 
     private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
     private const val PHONE_RENDER_PENDING = "phone_render_pending"
+    private const val PHONE_RENDER_ATTEMPTED = "phone_render_attempted"
     private const val PHONE_RENDER_MODE = "mode"
     private const val PHONE_RENDER_SETTINGS = "settings"
     private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
@@ -116,8 +117,15 @@ object LauncherFeatureStore {
         // surface crashes before it displays, recover on the next cold launch.
         prefs(context).edit(commit = true) {
             putString(LAUNCHER_UI_MODE, mode.name)
-            if (mode == LauncherUiMode.DESKTOP) remove(PHONE_RENDER_PENDING)
-            else putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+            if (mode == LauncherUiMode.DESKTOP) {
+                remove(PHONE_RENDER_PENDING)
+                remove(PHONE_RENDER_ATTEMPTED)
+            } else {
+                putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+                // Selection and rendering are different. A persisted selection made by
+                // an instrumentation test (or just before a cold launch) is not a crash.
+                putBoolean(PHONE_RENDER_ATTEMPTED, false)
+            }
         }
         LauncherFeatureRuntime.notifyLauncherModeChanged()
     }
@@ -125,10 +133,13 @@ object LauncherFeatureStore {
     /** Restore a usable home without deleting the user's tiles, colors or layouts. */
     fun recoverInterruptedPhoneRender(context: Context): Boolean {
         val preferences = prefs(context)
-        if (preferences.getString(PHONE_RENDER_PENDING, null) == null) return false
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == null ||
+            !preferences.getBoolean(PHONE_RENDER_ATTEMPTED, false)
+        ) return false
         val needsRecovery = launcherUiMode(context) != LauncherUiMode.DESKTOP
         preferences.edit(commit = true) {
             remove(PHONE_RENDER_PENDING)
+            remove(PHONE_RENDER_ATTEMPTED)
             if (needsRecovery) putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
         }
         if (needsRecovery) LauncherFeatureRuntime.notifyLauncherModeChanged()
@@ -139,6 +150,7 @@ object LauncherFeatureStore {
         if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
             prefs(context).edit(commit = true) {
                 putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+                putBoolean(PHONE_RENDER_ATTEMPTED, true)
             }
         }
     }
@@ -147,6 +159,7 @@ object LauncherFeatureStore {
         if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
             prefs(context).edit(commit = true) {
                 putString(PHONE_RENDER_PENDING, PHONE_RENDER_SETTINGS)
+                putBoolean(PHONE_RENDER_ATTEMPTED, true)
             }
         }
     }
@@ -162,7 +175,10 @@ object LauncherFeatureStore {
     private fun clearPendingRender(context: Context, expected: String) {
         val preferences = prefs(context)
         if (preferences.getString(PHONE_RENDER_PENDING, null) == expected) {
-            preferences.edit { remove(PHONE_RENDER_PENDING) }
+            preferences.edit {
+                remove(PHONE_RENDER_PENDING)
+                remove(PHONE_RENDER_ATTEMPTED)
+            }
         }
     }
 

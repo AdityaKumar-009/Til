@@ -98,6 +98,8 @@ class LauncherModeSwitchTest {
             compose.runOnUiThread {
                 LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.PHONE_8, 6)
                 LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.PHONE_8)
+                // Model the crash after an actual cold-render attempt, not mere selection.
+                LauncherFeatureStore.beginPhoneRender(context)
             }
             assertTrue(LauncherFeatureStore.recoverInterruptedPhoneRender(context))
             assertEquals(LauncherUiMode.DESKTOP, LauncherFeatureStore.launcherUiMode(context))
