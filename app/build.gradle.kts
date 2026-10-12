@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation("androidx.tracing:tracing:1.0.0")
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)

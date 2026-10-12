@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# AndroidJUnitRunner runs in the target process and uses this tracing API at startup.
+-keep class androidx.tracing.Trace { *; }
