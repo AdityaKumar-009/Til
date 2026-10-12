@@ -21,9 +21,9 @@ class MobileStartMotionTest {
         assertEquals(652.5f, 621f + mix.translationYPx, 8f)
     }
 
-    @Test fun appBackRevealsSmallerRowsWithoutLaunchOnlySelectedDelay() {
-        // Real W10M returns in 1000197577: lower rows reveal from inside the
-        // resting grid. Rewinding exit would instead return at scale > 1.
+    @Test fun homeRevealsSmallerRowsWithoutLaunchOnlySelectedDelay() {
+        // The visible touch at 12.880s in 1000197577 presses Home. This
+        // below-unit entry must not be mistaken for the Back transition.
         val lower = frame(false, 105, .75f, 419f, 621f)
         val upper = frame(false, 105, 0f, 84.5f, 119f)
         assertTrue(lower.scale < 1f)
@@ -38,7 +38,7 @@ class MobileStartMotionTest {
         assertEquals(1f, MobileStartMotion.wallpaperAlpha(false, 180), 0f)
     }
 
-    @Test fun returnTracksMeasuredScaleAndLocationInsteadOfAnUpwardSlide() {
+    @Test fun homeTracksMeasuredScaleAndLocationInsteadOfAnUpwardSlide() {
         // Fitted return origin 18.780s. f566 and f570 are independently tracked glyphs.
         val mix = frame(false, 105, .75f, 419f, 621f)
         assertEquals(394.5f, 419f + mix.translationXPx, 6f)
@@ -48,6 +48,40 @@ class MobileStartMotionTest {
         assertEquals(111.5f, 84.5f + store.translationXPx, 6f)
         assertEquals(173f, 119f + store.translationYPx, 6f)
         assertEquals(.84f, store.scale, .04f)
+    }
+
+    @Test fun backReturnsFromOutsideTheRestingGridAndStaysDistinctFromHome() {
+        val back = MobileStartMotion.sample(false, 258, .75f,
+            419f, 621f, 254f, 456f, returningFromApp = true)
+        assertTrue(back.scale > 1f)
+        assertEquals(450.5f, 419f + back.translationXPx, 8f)
+        assertEquals(652.5f, 621f + back.translationYPx, 8f)
+        assertTrue(frame(false, 258, .75f, 419f, 621f).scale < 1f)
+        assertTrue(MobileStartMotion.wallpaperAlpha(false, 100, returningFromApp = true) > .7f)
+    }
+
+    @Test fun backHasContinuousTenMillisecondStepsAndExactSettledEndpoints() {
+        for (row in listOf(0f, .25f, .5f, .75f, 1f)) {
+            for (selected in listOf(false, true)) {
+                var previousScale = 2f
+                var previousAlpha = 0f
+                for (ms in 0..540 step 10) {
+                    val f = MobileStartMotion.sample(false, ms, row, 419f, 621f,
+                        254f, 456f, selected, returningFromApp = true)
+                    assertTrue(f.scale in 1f..previousScale)
+                    assertTrue(f.alpha in previousAlpha..1f)
+                    assertTrue(f.translationXPx.isFinite() && f.translationYPx.isFinite())
+                    previousScale = f.scale
+                    previousAlpha = f.alpha
+                }
+                val settled = MobileStartMotion.sample(false, MobileStartMotion.BACK_TOTAL_MS,
+                    row, 419f, 621f, 254f, 456f, selected, returningFromApp = true)
+                assertEquals(1f, settled.scale, 0f)
+                assertEquals(1f, settled.alpha, 0f)
+                assertEquals(0f, settled.translationXPx, 0f)
+                assertEquals(0f, settled.translationYPx, 0f)
+            }
+        }
     }
 
     @Test fun lowerRowsLeaveDownwardAndUpperRowsLeaveUpward() {

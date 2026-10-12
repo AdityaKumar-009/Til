@@ -256,6 +256,7 @@ internal object PhoneStartChoreography {
             val mobile = MobileStartMotion.sample(
                 exiting, elapsedMillis, mobileRowFraction,
                 0f, 0f, 0f, 0f, selected,
+                returningFromApp = resumeUsesBackMotion && !exiting,
             )
             return PhoneStartMotionFrame(
                 alpha = mobile.alpha,

@@ -1,5 +1,11 @@
 # Phone Back-return correction — 11 October 2026
 
+> Correction, 12 October: the W10M interpretation below confused Home with Back.
+> The yellow touch marker at 12.880 s is on the Windows/Home key. See
+> [BACK_RETURN_CORRECTION.md](BACK_RETURN_CORRECTION.md) for the correction.
+> The WP8.1 coordinate measurements remain valid; their Android rendering needed
+> an additional fix to avoid clipping while opacity was below one.
+
 Applies to `feature/windows-phone-launcher-modes`, after `b104698`.
 
 The preceding change made Back an exact time reversal of the launch. That was

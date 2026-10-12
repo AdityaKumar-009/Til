@@ -8,6 +8,7 @@ import android.provider.MediaStore
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -30,6 +31,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
+import com.flivoro.tile8auncher.ui.phone.LocalPhoneMotionSampleMillis
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -111,25 +113,28 @@ class PhoneMotionRenderTest {
         val home = mutableIntStateOf(0)
         val entrance = mutableIntStateOf(0)
         val resumeUsesBackMotion = mutableStateOf(false)
+        val sampledMotionMillis = mutableStateOf<Int?>(null)
         var completions = 0
         val repository = AppsRepository(context)
         compose.mainClock.autoAdvance = false
         compose.setContent {
-            MaterialTheme {
-                PhoneLauncherSurface(
-                    mode = mode, tiles = tiles, sections = sections,
-                    appsRepository = repository, homeRequest = home.intValue,
-                    entranceRequest = entrance.intValue, launchingTileId = selected.value,
-                    isLaunching = launching.value, interactionEnabled = !launching.value,
-                    wallpaperStyle = 0, resumeUsesBackMotion = resumeUsesBackMotion.value,
-                    returningTileId = lastLaunchedTileId.value,
-                    onLaunch = { tile, _, _ ->
-                        selected.value = tile.id
-                        lastLaunchedTileId.value = tile.id
-                        launching.value = true
-                    },
-                    onExitFinished = { completions++ }, onOpenSettings = {}, onOpenAppInfo = {},
-                )
+            CompositionLocalProvider(LocalPhoneMotionSampleMillis provides { sampledMotionMillis.value }) {
+                MaterialTheme {
+                    PhoneLauncherSurface(
+                        mode = mode, tiles = tiles, sections = sections,
+                        appsRepository = repository, homeRequest = home.intValue,
+                        entranceRequest = entrance.intValue, launchingTileId = selected.value,
+                        isLaunching = launching.value, interactionEnabled = !launching.value,
+                        wallpaperStyle = 0, resumeUsesBackMotion = resumeUsesBackMotion.value,
+                        returningTileId = lastLaunchedTileId.value,
+                        onLaunch = { tile, _, _ ->
+                            selected.value = tile.id
+                            lastLaunchedTileId.value = tile.id
+                            launching.value = true
+                        },
+                        onExitFinished = { completions++ }, onOpenSettings = {}, onOpenAppInfo = {},
+                    )
+                }
             }
         }
         compose.mainClock.advanceTimeBy(if (mode == LauncherUiMode.PHONE_8) 2000 else 1000)
@@ -254,21 +259,24 @@ class PhoneMotionRenderTest {
             difference(resting, capture("02-return-settled")) < .01)
 
         // Capture the actual Back lifecycle too. The earlier test exercised only
-        // explicit Home, so an incorrect reverse-exit implementation could pass.
+        // explicit Home; the two navigation phases must remain distinct.
         compose.runOnIdle {
             resumeUsesBackMotion.value = true
             entrance.intValue++
+            sampledMotionMillis.value = 0
         }
         compose.mainClock.advanceTimeByFrame()
         compose.mainClock.advanceTimeByFrame()
         val startBackFirst = capture("start-back-return-000")
         assertTrue("Start Back must begin with hidden tiles", centralBrightness(startBackFirst) < .01)
-        for (elapsed in frameStep..entryEnd step frameStep) {
-            compose.mainClock.advanceTimeBy(frameStep.toLong())
+        for (elapsed in 10..entryEnd step 10) {
+            compose.runOnIdle { sampledMotionMillis.value = elapsed }
+            compose.mainClock.advanceTimeByFrame()
             capture("start-back-return-${elapsed.toString().padStart(3, '0')}")
         }
         assertTrue("Start Back did not restore its original geometry",
             difference(resting, capture("start-back-return-settled")) < .01)
+        compose.runOnIdle { sampledMotionMillis.value = null }
 
         if (mode == LauncherUiMode.PHONE_8) {
             // DiscoLauncher snaps the panorama to Start and runs the second
@@ -326,6 +334,9 @@ class PhoneMotionRenderTest {
             compose.onNodeWithTag("phone-bottom-search").performClick()
             compose.mainClock.advanceTimeBy(400)
             capture("apps-rest")
+            val firstIconY = compose.onNodeWithText("Alpha").fetchSemanticsNode().boundsInRoot.center.y.toInt()
+            val restingIconWidth = purpleIconWidthAt(appsBeforeHome, firstIconY)
+            assertTrue("Expected a visible reference app icon", restingIconWidth > 30)
             compose.runOnIdle { completions = 0 }
             compose.onNodeWithText("Alpha").performClick()
             compose.mainClock.advanceTimeByFrame()
@@ -350,6 +361,7 @@ class PhoneMotionRenderTest {
                 launching.value = false
                 resumeUsesBackMotion.value = true
                 entrance.intValue++
+                sampledMotionMillis.value = 0
             }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
@@ -358,9 +370,19 @@ class PhoneMotionRenderTest {
                 brightPixelsInAppLabelRegion(backReturnStart) < 5)
             assertTrue("WP8.1 Back showed Start tiles instead of the hidden Apps pose",
                 centralBrightness(backReturnStart) < .01)
-            for (elapsed in frameStep..entryEnd step frameStep) {
-                compose.mainClock.advanceTimeBy(frameStep.toLong())
-                capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
+            var previousIconWidth = 0
+            for (elapsed in 10..entryEnd step 10) {
+                compose.runOnIdle { sampledMotionMillis.value = elapsed }
+                compose.mainClock.advanceTimeByFrame()
+                val frame = capture("apps-back-return-${elapsed.toString().padStart(3, '0')}")
+                if (elapsed in 300..390) {
+                    val width = purpleIconWidthAt(frame, firstIconY)
+                    assertTrue("Fading WP8.1 icon was cropped at ${elapsed}ms: $width/$restingIconWidth",
+                        width >= restingIconWidth * .88f)
+                    if (previousIconWidth > 0) assertTrue("WP8.1 icon edge popped at ${elapsed}ms",
+                        abs(width - previousIconWidth) <= restingIconWidth * .04f)
+                    previousIconWidth = width
+                }
             }
             val appListBackSettled = capture("apps-back-return-settled")
             assertTrue("WP8.1 Back never revealed the All Apps rows",
@@ -398,14 +420,16 @@ class PhoneMotionRenderTest {
                 launching.value = false
                 resumeUsesBackMotion.value = true
                 entrance.intValue++
+                sampledMotionMillis.value = 0
             }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val appsBackFirst = capture("w10-apps-back-return-000")
             assertTrue("W10M All Apps Back must start hidden", centralBrightness(appsBackFirst) < .01)
             assertNoStartTilesInAppsGutter(appsBackFirst, 0)
-            for (elapsed in frameStep..entryEnd step frameStep) {
-                compose.mainClock.advanceTimeBy(frameStep.toLong())
+            for (elapsed in 10..entryEnd step 10) {
+                compose.runOnIdle { sampledMotionMillis.value = elapsed }
+                compose.mainClock.advanceTimeByFrame()
                 val frame = capture("w10-apps-back-return-${elapsed.toString().padStart(3, '0')}")
                 assertNoStartTilesInAppsGutter(frame, elapsed)
             }
@@ -504,6 +528,22 @@ class PhoneMotionRenderTest {
         }
         assertTrue("Start tiles leaked into All Apps at ${elapsed}ms ($leaked/$count pixels)",
             leaked.toDouble() / count < .001)
+    }
+
+    private fun purpleIconWidthAt(bitmap: Bitmap, y: Int): Int {
+        var left = bitmap.width
+        var right = -1
+        for (x in 0 until bitmap.width / 2) {
+            val pixel = bitmap.getPixel(x, y.coerceIn(0, bitmap.height - 1))
+            val red = (pixel shr 16) and 255
+            val green = (pixel shr 8) and 255
+            val blue = pixel and 255
+            if (blue - red > 20 && red - green > 10) {
+                left = minOf(left, x)
+                right = maxOf(right, x)
+            }
+        }
+        return (right - left + 1).coerceAtLeast(0)
     }
 
     private fun brightPixelsInAppLabelRegion(

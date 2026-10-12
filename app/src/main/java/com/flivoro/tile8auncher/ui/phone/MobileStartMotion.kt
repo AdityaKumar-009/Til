@@ -6,7 +6,8 @@ import kotlin.math.roundToInt
 /**
  * A fit to the RIGHT phone in 1000197577.mp4, not Microsoft's private shell code.
  * Rows zoom about one point in window coordinates. Upper rows leave first; lower
- * rows return first. The wallpaper has its own track. See the frame evidence in docs.
+ * rows return first on Home. Back retraces the outgoing shell. The wallpaper
+ * has its own track. See the frame evidence in docs.
  */
 internal object MobileStartMotion {
     const val EXIT_TILE_MS = 250
@@ -17,6 +18,14 @@ internal object MobileStartMotion {
     const val ENTRY_TILE_MS = 450
     const val ENTRY_STAGGER_MS = 180
     const val ENTRY_TOTAL_MS = ENTRY_TILE_MS + ENTRY_STAGGER_MS
+
+    const val BACK_TOTAL_MS = EXIT_TOTAL_MS
+
+    // Home and Back are different shell navigation phases. The yellow touch
+    // marker at 12.880s in 1000197577 is on HOME, not Back. Do not reuse that
+    // below-unit Home entry scale when returning through the navigation stack.
+    private fun backSourceMillis(elapsedMillis: Int): Int =
+        (BACK_TOTAL_MS - elapsedMillis).coerceIn(0, EXIT_TOTAL_MS)
 
     /** Fractions use the top/bottom VISIBLE rows, independent of small-cell density. */
     fun rowFraction(top: Float, firstVisibleTop: Float, lastVisibleTop: Float): Float =
@@ -38,7 +47,14 @@ internal object MobileStartMotion {
         viewportCenterX: Float,
         viewportCenterY: Float,
         selected: Boolean = false,
+        returningFromApp: Boolean = false,
     ): PhoneStartMotionFrame {
+        if (returningFromApp && !exiting) return sample(
+            exiting = true, elapsedMillis = backSourceMillis(elapsedMillis), row = row,
+            centerX = centerX, centerY = centerY,
+            viewportCenterX = viewportCenterX, viewportCenterY = viewportCenterY,
+            selected = selected,
+        )
         val local = elapsedMillis - delayMillis(exiting, row, selected)
         val duration = if (exiting) EXIT_TILE_MS else ENTRY_TILE_MS
         val p = (local.toFloat() / duration).coerceIn(0f, 1f)
@@ -56,7 +72,13 @@ internal object MobileStartMotion {
         )
     }
 
-    fun wallpaperAlpha(exiting: Boolean, elapsedMillis: Int): Float = if (exiting) {
+    fun wallpaperAlpha(
+        exiting: Boolean,
+        elapsedMillis: Int,
+        returningFromApp: Boolean = false,
+    ): Float = if (returningFromApp && !exiting) {
+        wallpaperAlpha(exiting = true, elapsedMillis = backSourceMillis(elapsedMillis))
+    } else if (exiting) {
         1f - ((elapsedMillis - WALLPAPER_FADE_START_MS).toFloat() /
             (EXIT_TOTAL_MS - WALLPAPER_FADE_START_MS)).coerceIn(0f, 1f)
     } else (elapsedMillis / 180f).coerceIn(0f, 1f)

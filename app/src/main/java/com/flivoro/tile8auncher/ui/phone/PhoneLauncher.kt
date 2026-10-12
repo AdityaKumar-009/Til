@@ -44,6 +44,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -111,6 +112,10 @@ import kotlin.math.roundToInt
 
 /** Phone Start coordinates are independent from Desktop's horizontal tile-group coordinates. */
 internal data class PhoneTileSlot(val column: Int, val row: Int, val columns: Int, val rows: Int)
+
+// Preview/instrumentation can inspect an exact motion timestamp independently
+// of a device's vsync interval. Production always uses the display clock.
+internal val LocalPhoneMotionSampleMillis = staticCompositionLocalOf<(() -> Int?)?> { null }
 
 private fun projectPlaneMatrix(
     widthPx: Float,
@@ -283,6 +288,7 @@ fun PhoneLauncherSurface(
     var classicHomeEntrance by remember(mode) { mutableStateOf(-1) }
     val motionHomeRequest = homeRequest + classicHomeTap
     val motionUsesBack = resumeUsesBackMotion && classicHomeEntrance != entranceRequest
+    val sampledMotionMillis = LocalPhoneMotionSampleMillis.current
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
     val densityScale = LocalDensity.current.density
@@ -364,7 +370,7 @@ fun PhoneLauncherSurface(
         maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
             if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
     } else if (isTen && motionUsesBack && !isLaunching) {
-        MobileStartMotion.ENTRY_TOTAL_MS
+        MobileStartMotion.BACK_TOTAL_MS
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
         PhoneStartChoreography.APPS_RETURN_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
@@ -386,7 +392,7 @@ fun PhoneLauncherSurface(
     }
     // Every layer shares one display-synchronized timeline. Relative tile
     // cascade delay is calibrated inside the classic choreography.
-    fun sourceMotionMillis(): Int = motionClock.value.roundToInt()
+    fun sourceMotionMillis(): Int = sampledMotionMillis?.invoke() ?: motionClock.value.roundToInt()
     val classicAppsReturning = isClassicPhone && showApps && motionUsesBack && !isLaunching
     val classicAppsMotionActive = isClassicPhone && showApps && (isLaunching || motionUsesBack)
     fun classicAppsCameraDistance(): Float = if (classicAppsReturning)
@@ -409,6 +415,7 @@ fun PhoneLauncherSurface(
     )
     fun mobileWallpaperAlpha(): Float = MobileStartMotion.wallpaperAlpha(
         exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
+        returningFromApp = motionUsesBack && !isLaunching,
     )
     val exitTileId = remember(isLaunching) { launchingTileId }
     val returnTileId = returningTileId.takeIf { motionUsesBack && !isLaunching }
@@ -877,6 +884,7 @@ fun PhoneLauncherSurface(
                                 if (isTen && showApps && toolbarBounds.width > 0f) {
                                     val motion = MobileStartMotion.sample(
                                         exiting = isLaunching,
+                                        returningFromApp = motionUsesBack && !isLaunching,
                                         elapsedMillis = if (isLaunching || motionUsesBack) sourceMotionMillis()
                                             else MobileStartMotion.ENTRY_TOTAL_MS,
                                         row = 0f,
@@ -973,6 +981,7 @@ fun PhoneLauncherSurface(
                                 viewportCenterX = surfaceBounds.center.x,
                                 viewportCenterY = surfaceBounds.center.y,
                                 selected = selected,
+                                returningFromApp = backReturn,
                             )
                             return PhoneStartMotionFrame(
                                 alpha = motion.alpha,
@@ -1012,7 +1021,6 @@ fun PhoneLauncherSurface(
                                             .padding(bottom = (11f * classicUnit).dp) else Modifier)
                                         .then(if (mode == LauncherUiMode.PHONE_8) {
                                             Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
-                                                .graphicsLayer { alpha = if (classicAppsMotionActive) headerMotion().alpha else 1f }
                                                 .drawWithContent {
                                                     if (!classicAppsMotionActive || headerBounds.width <= 0f) {
                                                         drawContent()
@@ -1027,6 +1035,7 @@ fun PhoneLauncherSurface(
                                                         canvas.restoreToCount(saveCount)
                                                     }
                                                 }
+                                                .graphicsLayer { alpha = if (classicAppsMotionActive) headerMotion().alpha else 1f }
                                         } else if (isTen) {
                                             Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
                                                 .graphicsLayer {
@@ -1097,9 +1106,11 @@ fun PhoneLauncherSurface(
                                                 )
                                             }
                                             .then(if (mode == LauncherUiMode.PHONE_8) {
-                                                Modifier.graphicsLayer {
-                                                    alpha = if (classicAppsMotionActive) appRowMotion().alpha else 1f
-                                                }.drawWithContent {
+                                                // Project the faded layer, not the drawing inside
+                                                // its untransformed offscreen bounds. Otherwise
+                                                // alpha < 1 clips the turning icon, then its edge
+                                                // jumps out when the fade reaches full opacity.
+                                                Modifier.drawWithContent {
                                                     if (!classicAppsMotionActive || bounds.width <= 0f) {
                                                         drawContent()
                                                     } else {
@@ -1112,6 +1123,8 @@ fun PhoneLauncherSurface(
                                                         drawContent()
                                                         canvas.restoreToCount(saveCount)
                                                     }
+                                                }.graphicsLayer {
+                                                    alpha = if (classicAppsMotionActive) appRowMotion().alpha else 1f
                                                 }
                                             } else Modifier.graphicsLayer {
                                                 if (isTen && showApps && mobileBounds.width > 0f) {
@@ -1204,10 +1217,6 @@ fun PhoneLauncherSurface(
                             Modifier.offset(x = appListSearchLeftCssPx.dp, y = (24f * classicUnit).dp)
                                 .size(appListSearchSizeCssPx.dp)
                                 .onGloballyPositioned { searchIconBounds = it.boundsInWindow() }
-                                .graphicsLayer {
-                                    alpha = appSearchIconAlpha.value *
-                                        (if (classicAppsMotionActive) searchIconMotion().alpha else 1f)
-                                }
                                 .drawWithContent {
                                     if (!classicAppsMotionActive || searchIconBounds.width <= 0f) {
                                         drawContent()
@@ -1221,6 +1230,10 @@ fun PhoneLauncherSurface(
                                         drawContent()
                                         canvas.restoreToCount(saveCount)
                                     }
+                                }
+                                .graphicsLayer {
+                                    alpha = appSearchIconAlpha.value *
+                                        (if (classicAppsMotionActive) searchIconMotion().alpha else 1f)
                                 }
                                 .border((2.5f * classicUnit).dp, Color.White, CircleShape)
                                 .clickable(enabled = interactionEnabled && !isLaunching) {
@@ -1557,6 +1570,7 @@ private fun PhoneTile(
             centerX = bounds.center.x, centerY = bounds.center.y,
             viewportCenterX = surfaceBounds.center.x, viewportCenterY = surfaceBounds.center.y,
             selected = selectedTile,
+            returningFromApp = resumeUsesBackMotion && !exiting,
         )
         PhoneStartMotionFrame(
             alpha = mobile.alpha,
