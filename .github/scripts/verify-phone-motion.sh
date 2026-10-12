@@ -14,13 +14,9 @@ chmod +x gradlew
 adb shell wm size 1080x2160
 adb shell wm density 480
 ./gradlew connectedDebugAndroidTest --stacktrace
-persist_output="$(adb shell am instrument -w -r \
-    -e class com.flivoro.tile8auncher.ExampleInstrumentedTest#persistWp81ModeForOptimizedStartupSmoke \
-    com.flivoro.tile8auncher.test/androidx.test.runner.AndroidJUnitRunner 2>&1)"
-printf '%s\n' "$persist_output"
-if ! grep -q 'OK (1 test)' <<<"$persist_output"; then
-    exit 1
-fi
+./gradlew connectedDebugAndroidTest \
+    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.ExampleInstrumentedTest#persistWp81ModeForOptimizedStartupSmoke \
+    --stacktrace
 saved_preferences="$(adb shell run-as com.flivoro.tile8auncher cat \
     shared_prefs/tile8_launcher_prefs_v2.xml 2>&1)"
 if ! grep -q 'launcher_ui_mode.*PHONE_8' <<<"$saved_preferences"; then
