@@ -5,6 +5,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsProperties
+import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
@@ -79,6 +81,50 @@ class LauncherModeSwitchTest {
                 compose.waitForIdle()
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse(compose.activity.isFinishing)
+            }
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                LauncherFeatureStore.setLauncherUiMode(context, previousMode)
+                LauncherFeatureStore.confirmPhoneRender(context)
+                LauncherFeatureStore.confirmPhoneSettings(context)
+            }
+        }
+    }
+
+    @Test
+    fun homeAndBackOnSettledPhoneStartAreIdempotent() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val previousMode = LauncherFeatureStore.launcherUiMode(context)
+        try {
+            for (mode in listOf(LauncherUiMode.PHONE_8, LauncherUiMode.MOBILE_10)) {
+                compose.runOnUiThread {
+                    LauncherFeatureStore.setLauncherUiMode(context, mode)
+                }
+                compose.waitUntil(timeoutMillis = 20_000) {
+                    compose.onAllNodesWithTag("phone-bottom-home")
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.waitForIdle()
+                fun transitionCount(): String = compose.onNodeWithTag("phone-navigation-state")
+                    .fetchSemanticsNode().config[SemanticsProperties.StateDescription]
+                val before = transitionCount()
+
+                repeat(3) {
+                    compose.onNodeWithTag("phone-bottom-home").performClick()
+                    compose.onNodeWithTag("phone-bottom-back").performClick()
+                    compose.runOnUiThread {
+                        // Android can redeliver HOME to its current launcher Activity.
+                        compose.activity.onNewIntent(
+                            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
+                        )
+                        // The Compose BackHandler should consume BACK at the root.
+                        compose.activity.onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+                compose.waitForIdle()
+                assertEquals("Repeated HOME/BACK replayed Start entrance in $mode",
+                    before, transitionCount())
+                assertFalse("Root BACK finished the Activity in $mode", compose.activity.isFinishing)
             }
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
