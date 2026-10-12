@@ -8,8 +8,6 @@ android {
     namespace = "com.flivoro.tile8auncher"
     compileSdk = 35
 
-    testBuildType = "performance"
-
     defaultConfig {
         applicationId = "com.flivoro.tile8auncher"
         minSdk = 26
@@ -33,7 +31,6 @@ android {
             initWith(getByName("release"))
             // Installable on development devices without enabling debug runtime checks.
             signingConfig = signingConfigs.getByName("debug")
-            testProguardFiles("test-proguard-rules.pro")
             matchingFallbacks += listOf("release")
         }
     }
@@ -53,7 +50,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
-    implementation("androidx.tracing:tracing:1.0.0")
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
@@ -73,10 +69,6 @@ dependencies {
     androidTestImplementation(composeBom)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    // AndroidJUnitRunner references androidx.tracing.Trace directly. The test
-    // runner's monitor dependency does not make tracing available at runtime
-    // for the minified performance test APK unless it is declared explicitly.
-    androidTestImplementation("androidx.tracing:tracing:1.0.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -20,6 +20,16 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ExampleInstrumentedTest {
     @Test
+    fun persistWp81ModeForOptimizedStartupSmoke() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val saved = context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, 0)
+            .edit()
+            .putString("launcher_ui_mode", LauncherUiMode.PHONE_8.name)
+            .commit()
+        assertTrue("Could not persist WP8.1 mode for optimized startup", saved)
+    }
+
+    @Test
     fun launcherStartsWithPersistedWp81Mode() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
