@@ -127,6 +127,34 @@ class LauncherModeSwitchTest {
     }
 
     @Test
+    fun fatalCrashAfterHealthyPhoneStartupRecoversDesktopAndStoresReport() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val previousMode = LauncherFeatureStore.launcherUiMode(context)
+        val previousColumns = LauncherFeatureStore.phoneSmallColumns(context, LauncherUiMode.PHONE_8)
+        try {
+            compose.runOnUiThread {
+                LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.PHONE_8, 6)
+                LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.PHONE_8)
+                LauncherFeatureStore.confirmPhoneRender(context)
+            }
+            assertTrue(LauncherFeatureStore.recoverFatalPhoneCrash(
+                context, IllegalStateException("simulated late phone crash"),
+            ))
+            assertEquals(LauncherUiMode.DESKTOP, LauncherFeatureStore.launcherUiMode(context))
+            assertEquals(6, LauncherFeatureStore.phoneSmallColumns(context, LauncherUiMode.PHONE_8))
+            assertTrue(LauncherFeatureStore.lastPhoneCrash(context)
+                ?.contains("simulated late phone crash") == true)
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.PHONE_8, previousColumns)
+                LauncherFeatureStore.setLauncherUiMode(context, previousMode)
+                LauncherFeatureStore.confirmPhoneRender(context)
+                LauncherFeatureStore.confirmPhoneSettings(context)
+            }
+        }
+    }
+
+    @Test
     fun interruptedPhoneRenderFallsBackWithoutLosingSavedModeSettings() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val previousMode = LauncherFeatureStore.launcherUiMode(context)

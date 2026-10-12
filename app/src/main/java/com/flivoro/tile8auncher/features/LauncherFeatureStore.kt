@@ -85,6 +85,7 @@ object LauncherFeatureStore {
     private const val PHONE_RENDER_ATTEMPTED = "phone_render_attempted"
     private const val PHONE_RENDER_MODE = "mode"
     private const val PHONE_RENDER_SETTINGS = "settings"
+    private const val PHONE_LAST_CRASH = "phone_last_crash"
     private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
     private const val PHONE_TILE_OPACITY = "phone_tile_opacity"
     private const val PHONE_RECENTLY_INSTALLED_APPS = "phone_recently_installed_apps"
@@ -181,6 +182,34 @@ object LauncherFeatureStore {
             }
         }
     }
+
+    /**
+     * Called from the process exception handler, including failures after the initial
+     * successful frame. Restore Desktop before Android restarts the HOME Activity.
+     * Do not clear pinned tiles, mode layouts, icon caches, or user personalization.
+     */
+    fun recoverFatalPhoneCrash(context: Context, cause: Throwable): Boolean {
+        val mode = launcherUiMode(context)
+        if (mode == LauncherUiMode.DESKTOP) return false
+        val summary = buildString {
+            append(mode.name).append(": ").append(cause.javaClass.name)
+            append(": ").append(cause.message?.take(400).orEmpty())
+            cause.stackTrace.take(35).forEach { append("\n at ").append(it.toString()) }
+            cause.cause?.let { nested ->
+                append("\nCaused by: ").append(nested.javaClass.name)
+                append(": ").append(nested.message?.take(250).orEmpty())
+            }
+        }.take(6000)
+        return prefs(context).edit(commit = true) {
+            putString(PHONE_LAST_CRASH, summary)
+            putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+            remove(PHONE_RENDER_PENDING)
+            remove(PHONE_RENDER_ATTEMPTED)
+        }
+    }
+
+    fun lastPhoneCrash(context: Context): String? =
+        prefs(context).getString(PHONE_LAST_CRASH, null)?.takeIf(String::isNotBlank)
 
     fun phoneSmallColumns(context: Context, mode: LauncherUiMode): Int =
         prefs(context).getInt(PHONE_SMALL_COLUMNS + mode.name, if (mode == LauncherUiMode.PHONE_8) 4 else 6)

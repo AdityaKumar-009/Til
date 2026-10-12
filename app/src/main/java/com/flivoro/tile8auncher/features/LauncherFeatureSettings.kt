@@ -158,6 +158,21 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     Spacer(Modifier.height(28.dp))
     Text("Launcher appearance", color = settingsPurple, fontSize = 20.sp)
     Spacer(Modifier.height(10.dp))
+    LauncherFeatureStore.lastPhoneCrash(context)?.let { crash ->
+        SettingsActionRow(
+            title = "Last phone-mode crash — copy report",
+            description = "A phone crash was recovered to Desktop. Tap to copy the error details for diagnosis.",
+            glyph = "settings",
+        ) {
+            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+            clipboard.setPrimaryClip(
+                android.content.ClipData.newPlainText("Til phone crash", crash),
+            )
+            Toast.makeText(context, "Crash details copied", Toast.LENGTH_SHORT).show()
+        }
+        Spacer(Modifier.height(10.dp))
+    }
     SettingsActionRow(
         title = "Windows interface",
         description = "${launcherMode.title} — ${launcherMode.detail}",

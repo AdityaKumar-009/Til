@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
     private var classicExternalAppLaunched = false
     private var mobileExternalAppLaunched = false
     private var phoneReturnSourceTileId by mutableStateOf<String?>(null)
+    private var phoneAllAppsVisible = false
     private var screenOffRequest by mutableIntStateOf(0)
 
     private val userPresentReceiver = object : BroadcastReceiver() {
@@ -266,7 +267,8 @@ class MainActivity : ComponentActivity() {
                         pendingLaunchIntent = null
                     },
                     onOpenAppInfo = { packageName -> openAppInfo(packageName) },
-                    onUninstallApp = { packageName -> uninstallApp(packageName) }
+                    onUninstallApp = { packageName -> uninstallApp(packageName) },
+                    onPhonePageChanged = { phoneAllAppsVisible = it },
                 )
             }
         }
@@ -355,10 +357,10 @@ class MainActivity : ComponentActivity() {
             phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
         } else {
-            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8) {
-                // Android can invoke onResume when Home/Back is pressed on an already
-                // visible launcher, or after a transient system overlay. Neither is a
-                // new navigation event, so the native entrance must NOT replay.
+            val mode = LauncherFeatureStore.launcherUiMode(this)
+            if (mode == LauncherUiMode.PHONE_8) {
+                // Only an external app handoff or true Home return can replay
+                // the classic animation. An incidental onResume is not navigation.
                 if (classicExternalAppLaunched || homeWasPending || pendingClassicHomeReturn) {
                     if (homeWasPending) pendingClassicHomeReturn = true
                     scheduleClassicPhoneResume()
@@ -368,13 +370,11 @@ class MainActivity : ComponentActivity() {
                 }
             } else {
                 entranceReady = true
-                val mobileBackReturn = LauncherFeatureStore.launcherUiMode(this) ==
-                    LauncherUiMode.MOBILE_10 && mobileExternalAppLaunched && !homeWasPending
+                val mobileBackReturn = mode == LauncherUiMode.MOBILE_10 &&
+                    mobileExternalAppLaunched && !homeWasPending
                 mobileExternalAppLaunched = false
                 phoneResumeUsesBackMotion = mobileBackReturn
-                // Only a genuine app Back return starts another entrance. Previously
-                // every onResume incremented entranceRequest, even on idle Start.
-                if (mobileBackReturn || LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.DESKTOP && !homeWasPending) {
+                if (mobileBackReturn || (mode == LauncherUiMode.DESKTOP && !homeWasPending)) {
                     entranceKind = StartEntranceKind.RETURN
                     entranceRequest++
                 } else if (homeWasPending) {
@@ -394,9 +394,12 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
-            val uiMode = LauncherFeatureStore.launcherUiMode(this)
-            val externalPhoneAppWasLaunched =
-                classicExternalAppLaunched || mobileExternalAppLaunched
+            // Android routinely redelivers HOME to the already-visible launcher.
+            // A settled phone Start must not reset the animation clock at all.
+            if (LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP &&
+                launcherResumed && !phoneAllAppsVisible && activeInAppTile == null &&
+                !flipState.isRunning
+            ) return
             phoneResumeUsesBackMotion = false
             mobileExternalAppLaunched = false
             phoneReturnSourceTileId = null
@@ -407,11 +410,9 @@ class MainActivity : ComponentActivity() {
 
             pendingLaunchIntent = null
             val returningFromOutside = !launcherResumed
-            // A fresh Android HOME intent is not evidence that Start was left.
-            // Defer the classic entrance only for a real external-app handoff.
-            homeIntentPending = returningFromOutside && externalPhoneAppWasLaunched
-            if (uiMode == LauncherUiMode.PHONE_8 &&
-                returningFromOutside && classicExternalAppLaunched
+            homeIntentPending = returningFromOutside
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8 &&
+                (returningFromOutside || !entranceReady)
             ) {
                 // Defer the HOME request alongside the 200ms activity-resume
                 // event. Otherwise homeRequest itself restarts motionClock
@@ -421,13 +422,10 @@ class MainActivity : ComponentActivity() {
                     scheduleClassicPhoneResume()
                 }
             } else {
-                if (returningFromOutside && entranceReady &&
-                    (uiMode == LauncherUiMode.DESKTOP || externalPhoneAppWasLaunched)
-                ) {
+                if (returningFromOutside && entranceReady) {
                     entranceKind = StartEntranceKind.RETURN
                     entranceRequest++
                 }
-                // Child phone surfaces ignore this request when already on Start.
                 homeRequest++
             }
         }
@@ -617,6 +615,7 @@ fun Tile8LauncherApp(
     onDismissFlip: () -> Unit,
     onOpenAppInfo: (packageName: String) -> Unit,
     onUninstallApp: (packageName: String) -> Unit,
+    onPhonePageChanged: (Boolean) -> Unit = {},
     homeRequest: Int = 0,
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
@@ -955,6 +954,14 @@ fun Tile8LauncherApp(
             }
         }
     }
+    // Consume system Back on phone Start without destroying/recreating the HOME
+    // Activity; the more specific phone-page BackHandler takes priority on All Apps.
+    BackHandler(
+        enabled = launcherMode != LauncherUiMode.DESKTOP &&
+            entranceReady && activeInAppTile == null && !flipState.isRunning,
+    ) {
+        // Already at the root phone Start: intentionally no navigation.
+    }
     if (launcherMode != LauncherUiMode.DESKTOP) {
         // Keep the completed exit drawn while Android asynchronously starts the target app.
         // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
@@ -1015,6 +1022,7 @@ fun Tile8LauncherApp(
                         },
                         onOpenSettings = { openLauncherSettings() },
                         onOpenAppInfo = { onOpenAppInfo(it) },
+                        onVisiblePageChanged = onPhonePageChanged,
                         )
                     }
                 }

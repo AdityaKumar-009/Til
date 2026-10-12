@@ -100,6 +100,22 @@ class Tile8Application : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The original short render watchdog can clear its flag before a later
+        // device-only crash. Keep a process-wide fallback that saves the failure
+        // reason and rolls only the active phone-mode preference back to Desktop.
+        val systemCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                LauncherFeatureStore.recoverFatalPhoneCrash(this, error)
+            } catch (_: Throwable) {
+                // Never mask the original crash or enter a recursive crash handler.
+            }
+            if (systemCrashHandler != null) {
+                systemCrashHandler.uncaughtException(thread, error)
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        }
 
         // Load the tiny saved Accent preference once for the process. This only updates the
         // All Apps icon-container purple; wallpapers remain the original stock artwork.
