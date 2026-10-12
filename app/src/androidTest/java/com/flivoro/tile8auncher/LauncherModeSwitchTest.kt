@@ -114,7 +114,8 @@ class LauncherModeSwitchTest {
                     compose.onNodeWithTag("phone-bottom-back").performClick()
                     compose.runOnUiThread {
                         // Android can redeliver HOME to its current launcher Activity.
-                        compose.activity.onNewIntent(
+                        InstrumentationRegistry.getInstrumentation().callActivityOnNewIntent(
+                            compose.activity,
                             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
                         )
                         // The Compose BackHandler should consume BACK at the root.
