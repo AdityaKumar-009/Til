@@ -200,12 +200,13 @@ object LauncherFeatureStore {
                 append(": ").append(nested.message?.take(250).orEmpty())
             }
         }.take(6000)
-        return prefs(context).edit(commit = true) {
+        prefs(context).edit(commit = true) {
             putString(PHONE_LAST_CRASH, summary)
             putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
             remove(PHONE_RENDER_PENDING)
             remove(PHONE_RENDER_ATTEMPTED)
         }
+        return true
     }
 
     fun lastPhoneCrash(context: Context): String? =
