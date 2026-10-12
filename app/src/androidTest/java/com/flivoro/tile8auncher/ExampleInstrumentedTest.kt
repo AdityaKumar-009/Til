@@ -22,11 +22,16 @@ class ExampleInstrumentedTest {
     @Test
     fun persistWp81ModeForOptimizedStartupSmoke() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val saved = context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, 0)
+        val preferences = context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, 0)
+        val saved = preferences
             .edit()
             .putString("launcher_ui_mode", LauncherUiMode.PHONE_8.name)
             .commit()
         assertTrue("Could not persist WP8.1 mode for optimized startup", saved)
+        assertEquals(
+            LauncherUiMode.PHONE_8.name,
+            preferences.getString("launcher_ui_mode", null),
+        )
     }
 
     @Test

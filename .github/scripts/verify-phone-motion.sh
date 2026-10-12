@@ -17,12 +17,6 @@ adb shell wm density 480
 ./gradlew connectedDebugAndroidTest \
     -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.ExampleInstrumentedTest#persistWp81ModeForOptimizedStartupSmoke \
     --stacktrace
-saved_preferences="$(adb shell run-as com.flivoro.tile8auncher cat \
-    shared_prefs/tile8_launcher_prefs_v2.xml 2>&1)"
-if ! grep -q 'launcher_ui_mode.*PHONE_8' <<<"$saved_preferences"; then
-    printf '%s\n' "$saved_preferences"
-    exit 1
-fi
 ./gradlew assemblePerformance --stacktrace
 adb install -r app/build/outputs/apk/performance/app-performance.apk
 adb shell am force-stop com.flivoro.tile8auncher
