@@ -81,6 +81,9 @@ object LauncherFeatureStore {
     const val PREFS_NAME = "tile8_launcher_prefs_v2"
 
     private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
+    private const val PHONE_RENDER_PENDING = "phone_render_pending"
+    private const val PHONE_RENDER_MODE = "mode"
+    private const val PHONE_RENDER_SETTINGS = "settings"
     private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
     private const val PHONE_TILE_OPACITY = "phone_tile_opacity"
     private const val PHONE_RECENTLY_INSTALLED_APPS = "phone_recently_installed_apps"
@@ -109,8 +112,58 @@ object LauncherFeatureStore {
 
     fun setLauncherUiMode(context: Context, mode: LauncherUiMode) {
         if (launcherUiMode(context) == mode) return
-        prefs(context).edit { putString(LAUNCHER_UI_MODE, mode.name) }
+        // Persist the pending render with the mode itself. If switching to a phone
+        // surface crashes before it displays, recover on the next cold launch.
+        prefs(context).edit(commit = true) {
+            putString(LAUNCHER_UI_MODE, mode.name)
+            if (mode == LauncherUiMode.DESKTOP) remove(PHONE_RENDER_PENDING)
+            else putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+        }
         LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    /** Restore a usable home without deleting the user's tiles, colors or layouts. */
+    fun recoverInterruptedPhoneRender(context: Context): Boolean {
+        val preferences = prefs(context)
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == null) return false
+        val needsRecovery = launcherUiMode(context) != LauncherUiMode.DESKTOP
+        preferences.edit(commit = true) {
+            remove(PHONE_RENDER_PENDING)
+            if (needsRecovery) putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+        }
+        if (needsRecovery) LauncherFeatureRuntime.notifyLauncherModeChanged()
+        return needsRecovery
+    }
+
+    fun beginPhoneRender(context: Context) {
+        if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
+            prefs(context).edit(commit = true) {
+                putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+            }
+        }
+    }
+
+    fun beginPhoneSettings(context: Context) {
+        if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
+            prefs(context).edit(commit = true) {
+                putString(PHONE_RENDER_PENDING, PHONE_RENDER_SETTINGS)
+            }
+        }
+    }
+
+    fun confirmPhoneRender(context: Context) {
+        clearPendingRender(context, PHONE_RENDER_MODE)
+    }
+
+    fun confirmPhoneSettings(context: Context) {
+        clearPendingRender(context, PHONE_RENDER_SETTINGS)
+    }
+
+    private fun clearPendingRender(context: Context, expected: String) {
+        val preferences = prefs(context)
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == expected) {
+            preferences.edit { remove(PHONE_RENDER_PENDING) }
+        }
     }
 
     fun phoneSmallColumns(context: Context, mode: LauncherUiMode): Int =

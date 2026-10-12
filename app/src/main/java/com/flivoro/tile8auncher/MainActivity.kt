@@ -42,6 +42,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -191,6 +193,12 @@ class MainActivity : ComponentActivity() {
         insetsController.isAppearanceLightStatusBars = false
         insetsController.isAppearanceLightNavigationBars = false
 
+        // A phone-mode crash during its first render or while opening Settings must not
+        // strand the device in an unopenable home launcher. Restore Desktop on next cold start.
+        if (savedInstanceState == null) {
+            LauncherFeatureStore.recoverInterruptedPhoneRender(this)
+        }
+        LauncherFeatureStore.beginPhoneRender(this)
         appsRepository = AppsRepository(this)
         ContextCompat.registerReceiver(
             this,
@@ -797,6 +805,9 @@ fun Tile8LauncherApp(
     fun openLauncherSettings() {
         if (!entranceReady) return
         showCharms = false
+        // Arm recovery before adding the Settings composable. If the rendering process
+        // dies before Settings becomes stable, the next cold launch opens Desktop.
+        LauncherFeatureStore.beginPhoneSettings(context)
         val settingsTile = tiles.firstOrNull { it.tileType == TileType.SETTINGS }
             ?: TileModel(id = "tile_settings", title = "PC settings",
                 colorValue = WindowsColors.SettingsPurple, tileType = TileType.SETTINGS,
@@ -914,6 +925,20 @@ fun Tile8LauncherApp(
     val launcherMode = remember(launcherModeRevision) {
         LauncherFeatureStore.launcherUiMode(context)
     }
+    val phoneSurfaceStates = rememberSaveableStateHolder()
+    // Do not consider a phone mode healthy merely because its preference was written.
+    // Confirm it after an actual visible, composed phone Start/All Apps frame.
+    LaunchedEffect(launcherMode, tilesLoaded, entranceReady, activeInAppTile) {
+        if (launcherMode != LauncherUiMode.DESKTOP && tilesLoaded && entranceReady) {
+            withFrameNanos { }
+            delay(600)
+            if (activeInAppTile == null) {
+                LauncherFeatureStore.confirmPhoneRender(context)
+            } else if (activeInAppTile.tileType == TileType.SETTINGS) {
+                LauncherFeatureStore.confirmPhoneSettings(context)
+            }
+        }
+    }
     if (launcherMode != LauncherUiMode.DESKTOP) {
         // Keep the completed exit drawn while Android asynchronously starts the target app.
         // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
@@ -934,8 +959,12 @@ fun Tile8LauncherApp(
             Box(Modifier.fillMaxSize().graphicsLayer {
                 alpha = if (entranceReady) 1f else 0f
             }) {
-                if (tilesLoaded) {
-                    PhoneLauncherSurface(
+                // PC Settings loads wallpaper previews and animation tooling. Keeping the
+                // entire phone panorama + lazy app grid alive beneath it can exhaust graphics
+                // memory on physical devices. Save navigation state and unmount it while open.
+                if (tilesLoaded && activeInAppTile == null) {
+                    phoneSurfaceStates.SaveableStateProvider(launcherMode.name) {
+                        PhoneLauncherSurface(
                         mode = launcherMode,
                         tiles = tiles,
                         sections = categorizedApps,
@@ -970,7 +999,8 @@ fun Tile8LauncherApp(
                         },
                         onOpenSettings = { openLauncherSettings() },
                         onOpenAppInfo = { onOpenAppInfo(it) },
-                    )
+                        )
+                    }
                 }
             }
             if (entranceReady && activeInAppTile != null) {

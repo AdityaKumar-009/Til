@@ -915,7 +915,8 @@ fun PhoneLauncherSurface(
                                 },
                             )
                             Text("⚙", color = Color.White, fontSize = 26.sp,
-                                modifier = Modifier.clickable(onClick = onOpenSettings).padding(9.dp))
+                                modifier = Modifier.testTag("phone-launcher-settings")
+                                    .clickable(onClick = onOpenSettings).padding(9.dp))
                         }
                         }
                         Spacer(Modifier.height(if (isClassicPhone) 0.dp else 12.dp))
@@ -1236,6 +1237,7 @@ fun PhoneLauncherSurface(
                                         (if (classicAppsMotionActive) searchIconMotion().alpha else 1f)
                                 }
                                 .border((2.5f * classicUnit).dp, Color.White, CircleShape)
+                                .testTag("phone-app-search-toggle")
                                 .clickable(enabled = interactionEnabled && !isLaunching) {
                                     phone8SearchVisible = true
                                 },
