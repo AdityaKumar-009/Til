@@ -33,6 +33,7 @@ android {
             initWith(getByName("release"))
             // Installable on development devices without enabling debug runtime checks.
             signingConfig = signingConfigs.getByName("debug")
+            testProguardFiles("test-proguard-rules.pro")
             matchingFallbacks += listOf("release")
         }
     }
