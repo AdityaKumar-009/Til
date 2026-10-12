@@ -71,6 +71,10 @@ dependencies {
     androidTestImplementation(composeBom)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    // AndroidJUnitRunner references androidx.tracing.Trace directly. The test
+    // runner's monitor dependency does not make tracing available at runtime
+    // for the minified performance test APK unless it is declared explicitly.
+    androidTestImplementation("androidx.tracing:tracing:1.2.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
