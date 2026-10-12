@@ -2,6 +2,12 @@ name: Android build
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_full_motion_evidence:
+        description: 'Upload large frame captures for manual animation analysis (1-day retention)'
+        required: false
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -44,7 +50,7 @@ jobs:
           name: til-three-windows-modes-apk
           path: app/build/outputs/apk/performance/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2
       - name: Fail if unit tests failed
         if: steps.unit_tests.outcome == 'failure'
         run: |
@@ -93,9 +99,9 @@ jobs:
           name: wp81-home-return-preview-api${{ matrix.api-level }}
           path: app/build/motion-preview/Til-WP81-Home-Return-Preview.mp4
           if-no-files-found: warn
-          retention-days: 14
-      - name: Upload frame captures and device test results
-        if: always()
+          retention-days: 1
+      - name: Upload full frame captures and device test results (manual opt-in)
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload_full_motion_evidence }}
         uses: actions/upload-artifact@v4
         with:
           name: phone-motion-render-evidence-api${{ matrix.api-level }}
@@ -103,4 +109,5 @@ jobs:
             app/build/motion-frames
             app/build/outputs/androidTest-results
             app/build/reports/androidTests
-          retention-days: 14
+          if-no-files-found: warn
+          retention-days: 1
