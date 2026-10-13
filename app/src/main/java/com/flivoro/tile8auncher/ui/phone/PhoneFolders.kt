@@ -232,7 +232,7 @@ internal fun PhoneFolderPreview(
                             .background(Color(tile.colorValue)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        MetroIcon(tile.iconGlyph.ifEmpty { "app" }, Color.White, 17.dp)
+                        MetroIcon(glyph = tile.iconGlyph.ifEmpty { "app" }, color = Color.White, size = 17.dp)
                     }
                 }
             }
