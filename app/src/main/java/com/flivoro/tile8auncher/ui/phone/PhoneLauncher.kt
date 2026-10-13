@@ -901,8 +901,15 @@ fun PhoneLauncherSurface(
                                 }
                             },
                             onClick = { tile, bounds ->
-                                if (editing != null) editing = null
-                                else if (tile.id == "phone_app_$MOSAIC_SETTINGS_ID" ||
+                                if (editing != null) {
+                                    if (isClassicPhone) {
+                                        // Disco selects the newly tapped tile while staying
+                                        // in home edit mode, instead of closing the editor.
+                                        editing = if (tile.id.startsWith("phone_app_"))
+                                            "app:" + tile.id.removePrefix("phone_app_")
+                                        else tile.id
+                                    } else editing = null
+                                } else if (tile.id == "phone_app_$MOSAIC_SETTINGS_ID" ||
                                     tile.id == "tile_settings") onOpenSettings()
                                 else if (tile.id.startsWith("phone_folder_")) {
                                     openFolderId = tile.id
@@ -910,6 +917,7 @@ fun PhoneLauncherSurface(
                                 } else onLaunch(tile, bounds, LaunchOrigin.START)
                             },
                             onLongClick = { editing = it },
+                            onExitEdit = { editing = null },
                         )
                         fun bannerMotion(): PhoneStartMotionFrame {
                             val widthCss = (paneBounds.width / densityScale)
@@ -1858,6 +1866,7 @@ private fun PhoneStartGrid(
     folderPreviews: Map<String, List<TileModel>>,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
+    onExitEdit: () -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     val classicEditing = mode == LauncherUiMode.PHONE_8 && editingTileId != null
@@ -1947,7 +1956,9 @@ private fun PhoneStartGrid(
         val gridWidthForPhoto = maxWidth
         val tilePicture = (mode == LauncherUiMode.PHONE_8 || mobileTilePictureMode) &&
             (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
-        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
+        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
+            .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
+                onClick = onExitEdit)) {
             // Picture pixels are part of each tile's transformed face below.
             // The empty grid and gutters remain black without a detached mask.
             tiles.forEachIndexed { index, tile ->
@@ -2100,6 +2111,13 @@ private fun PhoneStartGrid(
                             .graphicsLayer {
                                 translationX = tileDragOffset.x
                                 translationY = tileDragOffset.y
+                                if (mode == LauncherUiMode.PHONE_8) {
+                                    // Buttons and their input surface must follow
+                                    // the exact selected-tile scale, not float at
+                                    // the original unscaled grid-slot coordinates.
+                                    scaleX = editScale
+                                    scaleY = editScale
+                                }
                             }
                             .then(if (mode == LauncherUiMode.PHONE_8) Modifier
                                 else Modifier.border(2.dp, Color.White))
