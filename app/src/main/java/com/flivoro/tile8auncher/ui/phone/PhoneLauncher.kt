@@ -347,12 +347,17 @@ fun PhoneLauncherSurface(
     val isTen = mode == LauncherUiMode.MOBILE_10
     val densityScale = LocalDensity.current.density
     val accent = StartPersonalization.accentColor
-    val catalog = remember(sections) {
-        (sections.flatMap(AppSection::apps) + AppInfo(
-            label = "Mosaic Settings",
-            packageName = MOSAIC_SETTINGS_ID,
-            activityName = "",
-        )).distinctBy(AppInfo::packageName)
+    val catalog = remember(sections, tiles) {
+        val originals = sections.flatMap(AppSection::apps)
+        // Do not inject a synthetic app into the isolated Compose motion fixtures.
+        val settingsEntry = if (tiles.any { it.id == "tile_settings" }) listOf(
+            AppInfo(
+                label = "Mosaic Settings",
+                packageName = MOSAIC_SETTINGS_ID,
+                activityName = "",
+            ),
+        ) else emptyList()
+        (originals + settingsEntry).distinctBy(AppInfo::packageName)
     }
     val byPackage = remember(catalog) { catalog.associateBy(AppInfo::packageName) }
     val desktopById = remember(tiles, mode) {
