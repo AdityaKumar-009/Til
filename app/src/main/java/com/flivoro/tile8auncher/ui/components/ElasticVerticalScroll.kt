@@ -1,6 +1,8 @@
 package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
@@ -12,6 +14,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -25,12 +28,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.sign
 
 /** Adds a resisted, spring-returning rubber band at either vertical scroll edge. */
 @Composable
 fun Modifier.elasticVerticalScroll(
     resistance: Float = 0.52f,
     maxOverscroll: Dp = 96.dp,
+    classicPhonePhysics: Boolean = false,
 ): Modifier {
     val density = LocalDensity.current
     val resistanceFactor = resistance.coerceIn(0.05f, 1f)
@@ -55,19 +60,27 @@ fun Modifier.elasticVerticalScroll(
         val start = overscrollPx
         returnJob.value = scope.launch {
             returnAnimation.snapTo(start)
-            returnAnimation.animateTo(
-                targetValue = 0f,
-                initialVelocity = velocity.coerceIn(-maxOverscrollPx * 8f, maxOverscrollPx * 8f),
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
-            ) { overscrollPx = value }
+            if (classicPhonePhysics) {
+                // Disco's BetterScroll uses a 300 ms bounce rather than an Android spring.
+                returnAnimation.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(300, easing = CubicBezierEasing(.165f, .84f, .44f, 1f)),
+                ) { overscrollPx = value }
+            } else {
+                returnAnimation.animateTo(
+                    targetValue = 0f,
+                    initialVelocity = velocity.coerceIn(-maxOverscrollPx * 8f, maxOverscrollPx * 8f),
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) { overscrollPx = value }
+            }
             overscrollPx = 0f
         }
     }
 
-    val connection = remember(resistanceFactor, maxOverscrollPx) {
+    val connection = remember(resistanceFactor, maxOverscrollPx, classicPhonePhysics) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source != NestedScrollSource.UserInput || available.y == 0f || overscrollPx == 0f) {
@@ -113,5 +126,15 @@ fun Modifier.elasticVerticalScroll(
     return this
         .onSizeChanged { viewportHeightPx = it.height.toFloat() }
         .nestedScroll(connection)
-        .graphicsLayer { translationY = overscrollPx }
+        .graphicsLayer {
+            translationY = overscrollPx
+            if (classicPhonePhysics) {
+                // Disco overscrollFramework: a maximum 125 CSS-pixel pull
+                // compresses the content axis from 62 to 58 (roughly 6.45%).
+                val cap = min(maxOverscrollPx, if (viewportHeightPx > 0f)
+                    viewportHeightPx * .24f else maxOverscrollPx).coerceAtLeast(1f)
+                scaleY = 1f - (abs(overscrollPx) / cap).coerceIn(0f, 1f) * (1f - 58f / 62f)
+                transformOrigin = TransformOrigin(.5f, if (overscrollPx >= 0f) 0f else 1f)
+            }
+        }
 }
