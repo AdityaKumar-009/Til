@@ -268,7 +268,18 @@ internal object PhoneLayoutStore {
     fun order(context: Context, mode: LauncherUiMode, defaults: List<TileModel>): List<String> {
         migrateIfNeeded(context, mode, "order")
         val raw = prefs(context).getString(key(mode, "order"), null)
-            ?: return defaults.map(TileModel::id)
+        if (raw == null) {
+            val startingIds = defaults.map(TileModel::id)
+            // Store the real first-time phone layout once. Switching between
+            // WP8.1 and W10M should not replace it with a different seed.
+            // Motion-test fixtures (which lack the standard Settings tile)
+            // intentionally remain ephemeral.
+            if (mode != LauncherUiMode.DESKTOP &&
+                startingIds.contains("tile_settings")) {
+                saveOrder(context, mode, startingIds)
+            }
+            return startingIds
+        }
         return runCatching {
             val json = JSONArray(raw)
             (0 until json.length()).mapNotNull { json.optString(it).takeIf(String::isNotBlank) }.distinct()
