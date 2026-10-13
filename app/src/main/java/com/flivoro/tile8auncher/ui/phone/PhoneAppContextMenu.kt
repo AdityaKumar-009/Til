@@ -49,6 +49,7 @@ internal fun PhoneAppContextMenu(
     mode: LauncherUiMode,
     packageName: String,
     alreadyPinned: Boolean,
+    isUninstallable: Boolean = true,
     xPx: Int,
     yPx: Int,
     onPinChanged: () -> Unit,
@@ -62,6 +63,9 @@ internal fun PhoneAppContextMenu(
     val pointerFraction = (xPx / screenWidthPx).coerceIn(0f, 1f)
     // Disco uses fixed CSS pixels for commands rather than scaling them with tile size.
     val scale = 1f
+    val commandCount = if (packageName == "mosaic.launcher.settings") 2
+        else if (isUninstallable) 3 else 2
+    val classicMenuHeight = 24f + 65f * commandCount
     val introduction = remember(packageName, mode) { Animatable(if (classic) 0f else 1f) }
     LaunchedEffect(packageName, mode) {
         if (classic) introduction.animateTo(1f, tween(750, easing = LinearEasing))
@@ -105,12 +109,12 @@ internal fun PhoneAppContextMenu(
                     .transform(((phase - .51f) / .49f).coerceIn(0f, 1f))
             Box(
                 Modifier.width(screenWidth.dp)
-                    .height((219f * scale).dp)
+                    .height((classicMenuHeight * scale).dp)
                     .testTag("phone-lumia-app-context-menu"),
             ) {
                 Column(
                     Modifier.fillMaxWidth()
-                        .height((219f * scale).dp)
+                        .height((classicMenuHeight * scale).dp)
                         .graphicsLayer {
                             scaleY = fold.coerceAtLeast(.001f)
                             alpha = if (phase >= .51f) 1f else 0f
@@ -125,7 +129,7 @@ internal fun PhoneAppContextMenu(
                     item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
                     if (packageName != "mosaic.launcher.settings") {
                         item("app info", action = onAppInfo)
-                        item("uninstall") {
+                        if (isUninstallable) item("uninstall") {
                             launchIntent(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
                         }
                     } else item("Mosaic Settings", action = onAppInfo)
