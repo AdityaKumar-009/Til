@@ -882,21 +882,29 @@ fun PhoneLauncherSurface(
                             androidx.compose.foundation.text.BasicTextField(
                                 value = search, onValueChange = { search = it },
                                 enabled = interactionEnabled && !isLaunching,
-                                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 17.sp),
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    color = Color.White, fontSize = 16.sp,
+                                    fontWeight = FontWeight.Light,
+                                ),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f).background(Color(0xFF333333)).padding(10.dp),
+                                modifier = Modifier.fillMaxWidth().height(38.dp)
+                                    .border(1.dp, Color(0xFF787878))
+                                    .background(Color.Black.copy(alpha = 0.18f))
+                                    .padding(horizontal = 9.dp, vertical = 6.dp),
                                 decorationBox = { inner ->
-                                    Box {
-                                        if (search.isBlank()) Text("⌕  Search apps",
-                                            color = Color.LightGray, fontSize = 17.sp)
-                                        inner()
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.weight(1f)) {
+                                            if (search.isBlank()) Text(
+                                                if (isTen) "Search" else "Search apps",
+                                                color = Color(0xFFADADAD), fontSize = 16.sp,
+                                                fontWeight = FontWeight.Light,
+                                            )
+                                            inner()
+                                        }
+                                        PhoneNavGlyph(PhoneNavKey.SEARCH, Modifier.size(19.dp))
                                     }
                                 },
                             )
-                            Text("⚙", color = Color.White, fontSize = 26.sp,
-                                modifier = Modifier.testTag("phone-launcher-settings")
-                                    .clickable(enabled = interactionEnabled && !isLaunching,
-                                        onClick = onOpenSettings).padding(9.dp))
                         }
                         }
                         Spacer(Modifier.height(if (isClassicPhone) 0.dp else 12.dp))
@@ -1148,7 +1156,10 @@ fun PhoneLauncherSurface(
                                     ) {
                                         Box(Modifier
                                             .size(if (isClassicPhone) (62f * classicUnit).dp else 45.dp)
-                                            .background(accent), contentAlignment = Alignment.Center) {
+                                            .background(
+                                                if (isTen) appsRepository.getCachedAppAccentColor(app.packageName)
+                                                    ?.let { Color(it) } ?: accent else accent
+                                            ), contentAlignment = Alignment.Center) {
                                             if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
                                                 modifier = Modifier.size(if (isClassicPhone) (42f * classicUnit).dp else 28.dp))
@@ -1170,21 +1181,51 @@ fun PhoneLauncherSurface(
                             }
                         }
                         if (alphabetOpen) {
-                            Dialog(onDismissRequest = { alphabetOpen = false }) {
-                                Column(Modifier.fillMaxWidth().background(Color.Black).padding(14.dp)) {
-                                    listOf("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","#")
-                                        .chunked(6).forEach { letters ->
-                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                letters.forEach { l ->
-                                                    Text(l, color = if (l in positions) accent else Color.DarkGray,
-                                                        fontSize = 25.sp,
-                                                        modifier = Modifier.clickable(enabled = l in positions) {
-                                                            alphabetOpen = false
-                                                            scope.launch { appsState.animateScrollToItem(positions.getValue(l)) }
-                                                        }.padding(8.dp))
+                            Dialog(
+                                onDismissRequest = { alphabetOpen = false },
+                                properties = androidx.compose.ui.window.DialogProperties(
+                                    usePlatformDefaultWidth = false,
+                                ),
+                            ) {
+                                Box(
+                                    Modifier.fillMaxSize().background(Color.Black)
+                                        .clickable { alphabetOpen = false },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    val letters = listOf(
+                                        "#", "A", "B", "C", "D", "E", "F", "G",
+                                        "H", "I", "J", "K", "L", "M", "N",
+                                        "O", "P", "Q", "R", "S", "T", "U",
+                                        "V", "W", "X", "Y", "Z",
+                                    )
+                                    val count = if (isTen) 5 else 6
+                                    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        letters.chunked(count).forEach { chunk ->
+                                            Row(Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                chunk.forEach { letter ->
+                                                    val available = letter in positions
+                                                    Box(
+                                                        Modifier.weight(1f).height(48.dp)
+                                                            .background(if (available) accent else Color(0xFF292929))
+                                                            .clickable(enabled = available) {
+                                                                alphabetOpen = false
+                                                                scope.launch {
+                                                                    appsState.scrollToItem(positions.getValue(letter))
+                                                                }
+                                                            },
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Text(if (isTen) letter else letter.lowercase(),
+                                                            color = if (available) Color.White else Color.Gray,
+                                                            fontSize = 24.sp, fontWeight = FontWeight.Light)
+                                                    }
                                                 }
+                                                repeat(count - chunk.size) { Spacer(Modifier.weight(1f)) }
                                             }
                                         }
+                                    }
                                 }
                             }
                         }
@@ -1243,29 +1284,36 @@ fun PhoneLauncherSurface(
             }
             Row(Modifier.fillMaxWidth().height(48.dp).background(Color.Black),
                 horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                Text("‹", fontSize = 36.sp, color = Color.White,
-                    modifier = Modifier.testTag("phone-bottom-back")
-                        .clickable(enabled = interactionEnabled && !isLaunching) {
+                Box(Modifier.testTag("phone-bottom-back")
+                    .clickable(enabled = interactionEnabled && !isLaunching) {
                         when {
                             alphabetOpen -> alphabetOpen = false
-                            showApps -> showApps = false
                             editing != null -> editing = null
+                            showApps -> showApps = false
                         }
-                    }.padding(horizontal = 25.dp))
-                Text("⊞", fontSize = 29.sp, color = Color.White,
-                    modifier = Modifier.testTag("phone-bottom-home")
-                        .clickable(enabled = interactionEnabled && !isLaunching) {
-                            if (isClassicPhone && showApps) {
-                                classicHomeEntrance = entranceRequest
-                                classicHomeTap++
-                            }
-                            showApps = false
-                            actionCenterOpen = false
-                        }.padding(horizontal = 25.dp))
-                Text("⌕", fontSize = 28.sp, color = Color.White,
-                    modifier = Modifier.testTag("phone-bottom-search")
-                        .clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }
-                        .padding(horizontal = 25.dp))
+                    }.padding(horizontal = 26.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center) {
+                    PhoneNavGlyph(PhoneNavKey.BACK, Modifier.size(27.dp))
+                }
+                Box(Modifier.testTag("phone-bottom-home")
+                    .clickable(enabled = interactionEnabled && !isLaunching) {
+                        if (isClassicPhone && showApps) {
+                            classicHomeEntrance = entranceRequest
+                            classicHomeTap++
+                        }
+                        editing = null
+                        showApps = false
+                        actionCenterOpen = false
+                    }.padding(horizontal = 26.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center) {
+                    PhoneNavGlyph(PhoneNavKey.START, Modifier.size(24.dp))
+                }
+                Box(Modifier.testTag("phone-bottom-search")
+                    .clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }
+                    .padding(horizontal = 26.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center) {
+                    PhoneNavGlyph(PhoneNavKey.SEARCH, Modifier.size(25.dp))
+                }
             }
         }
 
@@ -1669,4 +1717,47 @@ private fun PhoneTile(
                 onLongClick = onLongClick,
             ),
     )
+}
+
+
+/** Windows Phone navigation glyphs drawn independently of Android's installed fonts. */
+private enum class PhoneNavKey { BACK, START, SEARCH }
+
+@Composable
+private fun PhoneNavGlyph(key: PhoneNavKey, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val lineWidth = size.minDimension * .075f
+        val white = Color.White
+        when (key) {
+            PhoneNavKey.BACK -> {
+                drawLine(white, androidx.compose.ui.geometry.Offset(w * .17f, h * .51f),
+                    androidx.compose.ui.geometry.Offset(w * .82f, h * .51f),
+                    lineWidth, cap = androidx.compose.ui.graphics.StrokeCap.Square)
+                drawLine(white, androidx.compose.ui.geometry.Offset(w * .17f, h * .51f),
+                    androidx.compose.ui.geometry.Offset(w * .48f, h * .20f),
+                    lineWidth, cap = androidx.compose.ui.graphics.StrokeCap.Square)
+                drawLine(white, androidx.compose.ui.geometry.Offset(w * .17f, h * .51f),
+                    androidx.compose.ui.geometry.Offset(w * .48f, h * .82f),
+                    lineWidth, cap = androidx.compose.ui.graphics.StrokeCap.Square)
+            }
+            PhoneNavKey.START -> {
+                val square = androidx.compose.ui.geometry.Size(w * .30f, h * .30f)
+                for (x in listOf(.16f, .54f)) for (y in listOf(.16f, .54f)) {
+                    drawRect(white,
+                        topLeft = androidx.compose.ui.geometry.Offset(w * x, h * y),
+                        size = square)
+                }
+            }
+            PhoneNavKey.SEARCH -> {
+                drawCircle(white, radius = size.minDimension * .265f,
+                    center = androidx.compose.ui.geometry.Offset(w * .39f, h * .39f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = lineWidth))
+                drawLine(white, androidx.compose.ui.geometry.Offset(w * .59f, h * .59f),
+                    androidx.compose.ui.geometry.Offset(w * .85f, h * .85f),
+                    lineWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+        }
+    }
 }
