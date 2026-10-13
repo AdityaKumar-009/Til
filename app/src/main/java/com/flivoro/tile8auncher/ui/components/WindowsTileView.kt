@@ -117,7 +117,8 @@ internal fun WindowsTileFace(
         iconRevisionForBackground, iconStyleForBackground) {
         if (iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
             !tile.packageName.isNullOrBlank()) {
-            com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+            com.flivoro.tile8auncher.data.discoLayeredAccentOrNull(
+                context, tile.packageName,
                 context.getSharedPreferences("tile8_app_visual_cache_v1",
                     android.content.Context.MODE_PRIVATE).getLong(
                     "app_visual_accent_color:${tile.packageName}", tile.colorValue),
@@ -125,6 +126,10 @@ internal fun WindowsTileFace(
         } else tile.colorValue
     }
     val tileColor = tileBackgroundArgb.toTileColor()
+    // The glyph/title template must use the same color contrast as the
+    // actual layered tile background (black text on intentional white).
+    val effectiveTile = if (tileBackgroundArgb != tile.colorValue)
+        tile.copy(colorValue = tileBackgroundArgb) else tile
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val liveTileEnabled = remember(tile.packageName, liveTilesRevision) {
         LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName)
@@ -142,11 +147,11 @@ internal fun WindowsTileFace(
         // Keep the tile's colored face on its outer layer. Windows Phone 8.1's
         // home-return transition turns the inner icon/text layer independently.
         Box(Modifier.fillMaxSize().then(innerModifier)) {
-        if (tile.size == TileSize.SMALL) {
+        if (effectiveTile.size == TileSize.SMALL) {
             // Compact Windows-style templates keep glanceable built-in information usable even
             // at 1x1. App notification tiles still stay logo-first and use a corner count.
             SmallTileContent(
-                tile = tile,
+                tile = effectiveTile,
                 appIcon = appIcon,
                 logoModifier = logoModifier,
             )
@@ -159,11 +164,11 @@ internal fun WindowsTileFace(
             }
         } else {
             when {
-            liveQueue.isNotEmpty() && tile.size == TileSize.LARGE -> {
+            liveQueue.isNotEmpty() && effectiveTile.size == TileSize.LARGE -> {
                 // Windows 8.1 had large list templates that showed several updates at once. This
                 // is intentionally stable instead of constantly rotating an already-dense tile.
                 LargeLiveNotificationTileContent(
-                    tile = tile,
+                    tile = effectiveTile,
                     live = liveQueue.take(3),
                     appIcon = appIcon,
                 )
@@ -171,7 +176,7 @@ internal fun WindowsTileFace(
 
             liveQueue.isNotEmpty() -> {
                 LiveNotificationCarousel(
-                    tile = tile,
+                    tile = effectiveTile,
                     live = liveQueue,
                     appIcon = appIcon,
                 )
@@ -179,7 +184,7 @@ internal fun WindowsTileFace(
 
             else -> {
                 DefaultTileContent(
-                    tile = tile,
+                    tile = effectiveTile,
                     appIcon = appIcon,
                     logoModifier = logoModifier,
                 )
