@@ -60,7 +60,8 @@ internal fun PhoneAppContextMenu(
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val screenWidthPx = with(LocalDensity.current) { screenWidth.dp.toPx() }.coerceAtLeast(1f)
     val pointerFraction = (xPx / screenWidthPx).coerceIn(0f, 1f)
-    val scale = screenWidth / 480f
+    // Disco uses fixed CSS pixels for commands rather than scaling them with tile size.
+    val scale = 1f
     val introduction = remember(packageName, mode) { Animatable(if (classic) 0f else 1f) }
     LaunchedEffect(packageName, mode) {
         if (classic) introduction.animateTo(1f, tween(750, easing = LinearEasing))
