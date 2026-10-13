@@ -476,11 +476,11 @@ fun PhoneLauncherSurface(
     // here too: otherwise the app list grows relative to the native tile grid.
     val classicUnit = ((surfaceBounds.width / densityScale).takeIf { it > 0f }
         ?: LocalConfiguration.current.screenWidthDp.toFloat()) / 480f
-    val appListContentLeftCssPx = if (isClassicPhone) 86f * classicUnit else 18f
-    val appListSearchLeftCssPx = 26f * classicUnit
+    val appListContentLeftCssPx = if (isClassicPhone) 81f * classicUnit else 18f
+    val appListSearchLeftCssPx = 25f * classicUnit
     val appListSearchSizeCssPx = 42f * classicUnit
     val appListContentWidthCssPx =
-        (surfaceBounds.width / densityScale - if (isClassicPhone) 104f * classicUnit else 32f)
+        (surfaceBounds.width / densityScale - if (isClassicPhone) 100f * classicUnit else 32f)
             .coerceAtLeast(1f)
     val listPhase = PhoneMotionPhase.FORWARD_OUT
     // Native forward entry is measured from the normal-speed reference.
@@ -797,7 +797,7 @@ fun PhoneLauncherSurface(
                 ) {
                     Column(Modifier.fillMaxSize().elasticVerticalScroll()
                         .verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
-                        Spacer(Modifier.height(if (isTen) 8.dp else 18.dp))
+                        Spacer(Modifier.height(if (isTen) 8.dp else 25.dp))
                         PhoneStartGrid(
                             tiles = phoneTiles,
                             columns = columns,
@@ -1223,8 +1223,8 @@ fun PhoneLauncherSurface(
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
                                     val letterModifier = Modifier.fillMaxWidth()
-                                        .then(if (isClassicPhone) Modifier.height((73f * classicUnit).dp)
-                                            .padding(bottom = (11f * classicUnit).dp) else Modifier)
+                                        .then(if (isClassicPhone) Modifier.height((64f * classicUnit).dp)
+                                            .padding(bottom = 0.dp) else Modifier)
                                         .then(if (mode == LauncherUiMode.PHONE_8) {
                                             Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
                                                 .drawWithContent {
@@ -1265,13 +1265,14 @@ fun PhoneLauncherSurface(
                                     if (isClassicPhone && letter.length == 1) {
                                         Row(letterModifier, verticalAlignment = Alignment.CenterVertically) {
                                             Box(
-                                                Modifier.size((62f * classicUnit).dp)
-                                                    .border((2f * classicUnit).dp, accent),
+                                                Modifier.padding((5f * classicUnit).dp)
+                                                    .size((52f * classicUnit).dp)
+                                                    .border((3f * classicUnit).dp, accent),
                                                 contentAlignment = Alignment.TopStart,
                                             ) {
-                                                Text(letter.lowercase(), color = accent, fontSize = (40f * classicUnit).sp,
+                                                Text(letter.lowercase(), color = accent, fontSize = (30f * classicUnit).sp,
                                                     fontWeight = FontWeight.Light,
-                                                    modifier = Modifier.padding(start = (7f * classicUnit).dp))
+                                                    modifier = Modifier.padding(start = (8f * classicUnit).dp))
                                             }
                                         }
                                     } else {
@@ -1305,8 +1306,8 @@ fun PhoneLauncherSurface(
                                     // Ordinary panorama swipes keep rows settled.
                                     Row(
                                         Modifier.fillMaxWidth()
-                                            .height(if (isClassicPhone) (73f * classicUnit).dp else 60.dp)
-                                            .padding(bottom = if (isClassicPhone) (11f * classicUnit).dp else 0.dp)
+                                            .height(if (isClassicPhone) (64f * classicUnit).dp else 60.dp)
+                                            .padding(bottom = 0.dp)
                                             .onGloballyPositioned {
                                                 bounds = it.boundsInWindow()
                                                 mobileBounds = Rect(
@@ -1378,7 +1379,8 @@ fun PhoneLauncherSurface(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Box(Modifier
-                                            .size(if (isClassicPhone) (62f * classicUnit).dp else 45.dp)
+                                            .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
+                                            .size(if (isClassicPhone) (52f * classicUnit).dp else 45.dp)
                                             .background(
                                                 if (isTen) appsRepository.getCachedAppAccentColor(app.packageName)
                                                     ?.let { Color(it) } ?: accent else accent
@@ -1388,7 +1390,7 @@ fun PhoneLauncherSurface(
                                                     glyph = "settings", size = 27.dp)
                                             } else if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
-                                                modifier = Modifier.size(if (isClassicPhone) (42f * classicUnit).dp else 28.dp))
+                                                modifier = Modifier.size(if (isClassicPhone) (52f * classicUnit).dp else 28.dp))
                                             else Text(app.label.take(1), color = Color.White,
                                                 fontSize = if (isClassicPhone) (34f * classicUnit).sp else 22.sp)
                                         }
@@ -1398,7 +1400,7 @@ fun PhoneLauncherSurface(
                                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f)
                                                 .padding(
-                                                    start = if (isClassicPhone) (18f * classicUnit).dp else 14.dp,
+                                                    start = if (isClassicPhone) (12f * classicUnit).dp else 14.dp,
                                                     top = 0.dp,
                                                     bottom = 0.dp,
                                                 ))
@@ -1465,7 +1467,7 @@ fun PhoneLauncherSurface(
                                 tileWidthCssPx = appListSearchSizeCssPx,
                             )
                         Box(
-                            Modifier.offset(x = appListSearchLeftCssPx.dp, y = (24f * classicUnit).dp)
+                            Modifier.offset(x = appListSearchLeftCssPx.dp, y = (26f * classicUnit).dp)
                                 .size(appListSearchSizeCssPx.dp)
                                 .onGloballyPositioned { searchIconBounds = it.boundsInWindow() }
                                 .drawWithContent {
@@ -1772,16 +1774,17 @@ private fun PhoneStartGrid(
         .takeIf { it > 0f } ?: viewportHeightPx / density
     val viewportWidthCssPx = surfaceBounds.width / density
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // Native 480-unit viewport: 12-unit gutters; 24-unit four-column
-        // margins, 12-unit six-column margins. Scale with viewport width,
-        // not Android density. Keep W10M's established 4dp/10dp geometry.
-        val gap = if (mode == LauncherUiMode.PHONE_8) maxWidth * .01875f else 4.dp
+        // Disco paints 6 CSS-pixel insets on both sides of each GridStack cell:
+        // the visible gap is 12/480 of the viewport. Painted gutters are
+        // 19+6 = 25 units (four columns) or 6+6 = 12 (six columns).
+        // Scale with width; keep W10M's independent 4dp/10dp geometry.
+        val gap = if (mode == LauncherUiMode.PHONE_8) maxWidth * .025f else 4.dp
         val side = if (mode == LauncherUiMode.PHONE_8) {
-            maxWidth * if (columns == 6) .025f else .05f
+            maxWidth * if (columns == 6) .025f else (25f / 480f)
         } else 10.dp
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
         val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
-        val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 18.dp).toPx() }
+        val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 25.dp).toPx() }
         val visibleSlotIndices = slots.indices.filter { index ->
             val slot = slots[index]
             val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
