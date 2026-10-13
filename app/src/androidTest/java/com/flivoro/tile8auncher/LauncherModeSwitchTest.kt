@@ -78,18 +78,31 @@ class LauncherModeSwitchTest {
                 LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.DESKTOP)
                 LauncherFeatureStore.confirmPhoneRender(context)
                 LauncherFeatureStore.confirmPhoneSettings(context)
+                LauncherFeatureStore.setLauncherUiMode(
+                    context,
+                    LauncherUiMode.PHONE_8,
+                    phoneRenderAttempted = true,
+                )
             }
-            compose.waitForIdle()
-
-            // Follow the visible PC Settings path used by the mode picker, rather than
-            // changing SharedPreferences behind the UI as the lower-level tests do.
-            awaitUi("desktop PC settings tile") {
-                compose.onAllNodesWithText("PC settings").fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithText("PC settings").performClick()
-            awaitUi("PC settings content") {
-                compose.onAllNodesWithText("Open Android System Settings")
+            awaitUi("WP8.1 Start screen") {
+                compose.onAllNodesWithTag("phone-bottom-home")
                     .fetchSemanticsNodes().isNotEmpty()
+            }
+
+            fun openPhoneSettings(mode: LauncherUiMode) {
+                compose.onNodeWithTag("phone-bottom-search").performClick()
+                if (mode == LauncherUiMode.PHONE_8) {
+                    compose.onNodeWithTag("phone-app-search-toggle").performClick()
+                }
+                awaitUi("$mode All Apps settings button") {
+                    compose.onAllNodesWithTag("phone-launcher-settings")
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithTag("phone-launcher-settings").performClick()
+                awaitUi("$mode PC settings content") {
+                    compose.onAllNodesWithText("Open Android System Settings")
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
             }
 
             fun selectMode(mode: LauncherUiMode) {
@@ -102,23 +115,15 @@ class LauncherModeSwitchTest {
                     compose.onAllNodesWithTag("phone-bottom-home")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
+                compose.onNodeWithTag("phone-bottom-home").performClick()
+                compose.waitForIdle()
                 assertFalse("Activity finished while rendering $mode", compose.activity.isFinishing)
             }
 
-            selectMode(LauncherUiMode.PHONE_8)
-
-            compose.onNodeWithTag("phone-bottom-search").performClick()
-            compose.onNodeWithTag("phone-app-search-toggle").performClick()
-            awaitUi("WP8.1 All Apps search toolbar") {
-                compose.onAllNodesWithTag("phone-launcher-settings")
-                    .fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("phone-launcher-settings").performClick()
-            awaitUi("phone PC settings content") {
-                compose.onAllNodesWithText("Open Android System Settings")
-                    .fetchSemanticsNodes().isNotEmpty()
-            }
+            openPhoneSettings(LauncherUiMode.PHONE_8)
             selectMode(LauncherUiMode.MOBILE_10)
+            openPhoneSettings(LauncherUiMode.MOBILE_10)
+            selectMode(LauncherUiMode.PHONE_8)
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 LauncherFeatureStore.setLauncherUiMode(context, previousMode)
