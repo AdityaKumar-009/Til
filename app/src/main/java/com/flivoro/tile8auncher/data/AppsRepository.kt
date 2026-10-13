@@ -264,25 +264,27 @@ class AppsRepository(private val context: Context) {
             try {
                 iconDecodePermits.withPermit {
                     val cached = readPersistedVisualBitmap(
-                        packageName, "disco_foreground_color_v2_$maxCachedIconPx",
+                        packageName, "disco_foreground_color_v3_$maxCachedIconPx",
                     )?.asImageBitmap()
                     val resolved = cached ?: runCatching {
                         val drawable = packageManager.getApplicationIcon(packageName)
                         val glyph = drawableToDiscoForeground(drawable)
+                        val colorfulForeground = hasColoredArtwork(glyph)
+                        visualPrefs.edit {
+                            putBoolean("disco_layer_color_v3:$packageName", colorfulForeground)
+                        }
                         persistVisualBitmap(
-                            packageName, "disco_foreground_color_v2_$maxCachedIconPx", glyph,
+                            packageName, "disco_foreground_color_v3_$maxCachedIconPx", glyph,
                         )
                         if (drawable is AdaptiveIconDrawable) {
                             val background = renderDrawableAtResolution(drawable.background, 64)
-                            val backgroundAccent = usableDiscoTileAccent(
-                                extractAppAccentColor(background),
-                            )
+                            val backgroundColor = extractAppAccentColor(background)
                             background.recycle()
-                            // Ignore neutral adaptive plates; choose a meaningful
-                            // foreground accent or preserve the tile's own color.
-                            val proposed = backgroundAccent ?: usableDiscoTileAccent(
-                                extractAppAccentColor(glyph),
-                            )
+                            // An app's neutral background is intentional if its
+                            // foreground carries colored artwork (YouTube etc).
+                            val proposed = if (colorfulForeground) backgroundColor
+                                else usableDiscoTileAccent(backgroundColor)
+                                    ?: usableDiscoTileAccent(extractAppAccentColor(glyph))
                             proposed?.let { persistAppAccent(packageName, it) }
                         }
                         glyph.asImageBitmap()
@@ -323,6 +325,30 @@ class AppsRepository(private val context: Context) {
         // separate foreground. Never silently replace colorful legacy
         // logos with a black/white silhouette.
         return drawableToBitmap(drawable, maxCachedIconPx)
+    }
+
+    /** Neutral backgrounds are allowed only when an app has vivid
+     * foreground artwork; otherwise the Metro tile accent is preserved. */
+    fun getDiscoTileAccentColor(packageName: String): Long? {
+        val candidate = getCachedAppAccentColor(packageName)
+        if (usableDiscoTileAccent(candidate) != null) return candidate
+        return candidate.takeIf {
+            visualPrefs.getBoolean("disco_layer_color_v3:$packageName", false)
+        }
+    }
+
+    private fun hasColoredArtwork(image: Bitmap): Boolean {
+        val pixels = IntArray(image.width * image.height)
+        image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+        val hsv = FloatArray(3)
+        var colorful = 0
+        for (pixel in pixels) {
+            if (Color.alpha(pixel) < 96) continue
+            Color.colorToHSV(pixel, hsv)
+            if (hsv[1] > .28f && hsv[2] > .2f) colorful++
+            if (colorful >= pixels.size / 95 + 5) return true
+        }
+        return false
     }
 
     fun getCachedAllAppsIcon(
