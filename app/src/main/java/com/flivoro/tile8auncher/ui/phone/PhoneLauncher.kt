@@ -482,6 +482,18 @@ fun PhoneLauncherSurface(
     // here too: otherwise the app list grows relative to the native tile grid.
     val classicUnit = ((surfaceBounds.width / densityScale).takeIf { it > 0f }
         ?: LocalConfiguration.current.screenWidthDp.toFloat()) / 480f
+    // Search mode in Disco moves the list from left 81 to 19 and down to 83.
+    // This track is independent of the working launcher/return animations.
+    val classicSearchProgress by animateFloatAsState(
+        targetValue = if (isClassicPhone && phone8SearchVisible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (phone8SearchVisible) 400 else 100,
+            easing = if (phone8SearchVisible)
+                androidx.compose.animation.core.CubicBezierEasing(.5f, 0f, 0f, 1f)
+            else androidx.compose.animation.core.CubicBezierEasing(.5f, 0f, 1f, 1f),
+        ),
+        label = "classic-search-content",
+    )
     val appListContentLeftCssPx = if (isClassicPhone) 81f * classicUnit else 18f
     val appListSearchLeftCssPx = 25f * classicUnit
     val appListSearchSizeCssPx = 42f * classicUnit
@@ -1071,13 +1083,13 @@ fun PhoneLauncherSurface(
                         } else Modifier)) {
                         Column(
                             Modifier.fillMaxSize().padding(
-                                start = appListContentLeftCssPx.dp,
+                                start = if (isClassicPhone) ((81f - 62f * classicSearchProgress) * classicUnit).dp else appListContentLeftCssPx.dp,
                                 end = if (isClassicPhone) (18f * classicUnit).dp else 14.dp,
-                                top = if (isClassicPhone) (24f * classicUnit).dp else 0.dp,
+                                top = if (isClassicPhone) ((24f + 59f * classicSearchProgress) * classicUnit).dp else 0.dp,
                                 bottom = if (isClassicPhone) (24f * classicUnit).dp else 0.dp,
                             ),
                         ) {
-                        if (isTen || phone8SearchVisible) {
+                        if (isTen) {
                         var toolbarBounds by remember { mutableStateOf(Rect.Zero) }
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp)
                             .testTag("phone-apps-toolbar")
@@ -1143,11 +1155,16 @@ fun PhoneLauncherSurface(
                             recentlyInstalledApps,
                             showRecentlyInstalledPhoneApps,
                             search,
+                            phone8SearchVisible,
+                            isClassicPhone,
                         ) {
                             val alphabetical = filtered.groupBy {
                                 it.label.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
                             }.toSortedMap()
-                            if (showRecentlyInstalledPhoneApps && search.isBlank() &&
+                            if (isClassicPhone && phone8SearchVisible) {
+                                // Search results are one continuous list, without A-Z anchors.
+                                mapOf("" to filtered)
+                            } else if (showRecentlyInstalledPhoneApps && search.isBlank() &&
                                 recentlyInstalledApps.isNotEmpty()
                             ) {
                                 buildMap {
@@ -1161,7 +1178,7 @@ fun PhoneLauncherSurface(
                             buildMap {
                                 groups.forEach { (letter, apps) ->
                                     put(letter, index)
-                                    index += 1 + apps.size
+                                    index += (if (letter.isEmpty()) 0 else 1) + apps.size
                                 }
                             }
                         }
@@ -1224,7 +1241,7 @@ fun PhoneLauncherSurface(
                             userScrollEnabled = interactionEnabled && !isLaunching &&
                                 !(isClassicPhone && editing?.startsWith("app:") == true)) {
                             groups.forEach { (letter, groupApps) ->
-                                item(key = "letter_$letter") {
+                                if (letter.isNotEmpty()) item(key = "letter_$letter") {
                                     var headerBounds by remember(letter) { mutableStateOf(Rect.Zero) }
                                     fun headerMotion(): PhoneStartMotionFrame =
                                         classicAppsMotion(
@@ -1303,7 +1320,7 @@ fun PhoneLauncherSurface(
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
-                                    val listIndex = (positions[letter] ?: 0) + appIndex + 1
+                                    val listIndex = (positions[letter] ?: 0) + appIndex + if (letter.isEmpty()) 0 else 1
                                     val animationIndex = PhoneStartChoreography.appListAnimationIndex(
                                         listIndex, firstVisibleListIndex, lastVisibleListIndex,
                                     )
@@ -1493,7 +1510,23 @@ fun PhoneLauncherSurface(
                             }
                         }
                     }
-                    if (isClassicPhone && !phone8SearchVisible) {
+                    if (isClassicPhone) {
+                        ClassicPhoneSearchField(
+                            visible = phone8SearchVisible,
+                            query = search,
+                            onQueryChange = { search = it },
+                            onClose = { phone8SearchVisible = false; search = "" },
+                            classicUnit = classicUnit,
+                            enabled = interactionEnabled && !isLaunching,
+                            accent = accent,
+                            modifier = Modifier
+                                .offset(x = (24f * classicUnit).dp, y = (4f * classicUnit).dp)
+                                .width(((surfaceBounds.width / densityScale)
+                                    .takeIf { it > 0f } ?: 480f) .let { (it - 48f * classicUnit).coerceAtLeast(80f) }.dp)
+                                .height((48f * classicUnit).dp),
+                        )
+                    }
+                    if (isClassicPhone) {
                         var searchIconBounds by remember { mutableStateOf(Rect.Zero) }
                         fun searchIconMotion(): PhoneStartMotionFrame =
                             classicAppsMotion(
@@ -1520,13 +1553,14 @@ fun PhoneLauncherSurface(
                                     }
                                 }
                                 .graphicsLayer {
-                                    alpha = appSearchIconAlpha.value *
+                                    alpha = appSearchIconAlpha.value * (1f - classicSearchProgress) *
                                         (if (classicAppsMotionActive) searchIconMotion().alpha else 1f)
                                 }
                                 .border((2.5f * classicUnit).dp, Color.White, CircleShape)
                                 .testTag("phone-app-search-toggle")
-                                .clickable(enabled = interactionEnabled && !isLaunching) {
+                                .clickable(enabled = interactionEnabled && !isLaunching && !phone8SearchVisible) {
                                     phone8SearchVisible = true
+                                    panoramaScope.launch { appsState.scrollToItem(0) }
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
