@@ -198,12 +198,13 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             (context as? Activity)?.recreate()
         }
 
+        SettingsActionRow(
+            title = "Start background picture style",
+            description = LauncherFeatureStore.backgroundStyle(context, launcherMode).displayName,
+            glyph = "photos",
+        ) { showPhoneBackgroundStylePicker = true }
+
         if (launcherMode == LauncherUiMode.MOBILE_10) {
-            SettingsActionRow(
-                title = "Start background picture style",
-                description = LauncherFeatureStore.phoneBackgroundStyle(context).displayName,
-                glyph = "photos",
-            ) { showPhoneBackgroundStylePicker = true }
             SettingsToggleRow(
                 title = "Recently installed apps",
                 description = "Show recently installed apps at the top of the Windows 10 Mobile app list.",
@@ -408,15 +409,15 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     if (showPhoneBackgroundStylePicker) {
         Dialog(onDismissRequest = { showPhoneBackgroundStylePicker = false }) {
             Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
-                Text("Windows 10 Mobile background style", fontSize = 20.sp,
+                Text("Start background picture style", fontSize = 20.sp,
                     color = settingsPurple)
                 PhoneBackgroundStyle.entries.forEach { style ->
                     ChoiceRow(
                         label = style.displayName,
-                        selected = LauncherFeatureStore.phoneBackgroundStyle(context) == style,
+                        selected = LauncherFeatureStore.backgroundStyle(context, launcherMode) == style,
                         lightSurface = true,
                         onClick = {
-                            LauncherFeatureStore.setPhoneBackgroundStyle(context, style)
+                            LauncherFeatureStore.setBackgroundStyle(context, launcherMode, style)
                             showPhoneBackgroundStylePicker = false
                         },
                     )
