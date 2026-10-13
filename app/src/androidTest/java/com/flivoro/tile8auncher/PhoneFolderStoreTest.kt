@@ -13,10 +13,9 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PhoneFolderStoreTest {
     @Test
-    fun foldersPersistAndStayIndependentAcrossPhoneModes() {
+    fun foldersPersistAndAreSharedAcrossPhoneThemes() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val before81 = PhoneFolderStore.read(context, LauncherUiMode.PHONE_8)
-        val before10 = PhoneFolderStore.read(context, LauncherUiMode.MOBILE_10)
         try {
             PhoneFolderStore.save(context, LauncherUiMode.PHONE_8, emptyList())
             PhoneFolderStore.save(context, LauncherUiMode.MOBILE_10, emptyList())
@@ -36,7 +35,10 @@ class PhoneFolderStoreTest {
                 "Music & Photos",
                 PhoneFolderStore.read(context, LauncherUiMode.PHONE_8).single().name,
             )
-            assertTrue(PhoneFolderStore.read(context, LauncherUiMode.MOBILE_10).isEmpty())
+            assertEquals("Music & Photos",
+                PhoneFolderStore.read(context, LauncherUiMode.MOBILE_10).single().name)
+            assertEquals(3,
+                PhoneFolderStore.read(context, LauncherUiMode.MOBILE_10).single().children.size)
             PhoneFolderStore.removeChild(context, LauncherUiMode.PHONE_8, folderId, "app:camera")
             assertEquals(2, PhoneFolderStore.read(context, LauncherUiMode.PHONE_8).single().children.size)
             assertEquals(
@@ -46,7 +48,7 @@ class PhoneFolderStoreTest {
             assertTrue(PhoneFolderStore.read(context, LauncherUiMode.PHONE_8).isEmpty())
         } finally {
             PhoneFolderStore.save(context, LauncherUiMode.PHONE_8, before81)
-            PhoneFolderStore.save(context, LauncherUiMode.MOBILE_10, before10)
+            // Both phone modes address the same canonical folder store.
         }
     }
 }
