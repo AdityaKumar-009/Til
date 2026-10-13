@@ -14,6 +14,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -1362,7 +1363,7 @@ fun PhoneLauncherSurface(
                 .pointerInput(interactionEnabled) {
                     if (interactionEnabled) {
                         var distance = 0f
-                        androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                        detectVerticalDragGestures(
                             onDragStart = { distance = 0f },
                             onVerticalDrag = { change, dy ->
                                 distance += dy
