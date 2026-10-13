@@ -1535,8 +1535,11 @@ fun PhoneLauncherSurface(
                 mode = mode,
                 onClose = { phoneSettingsOpen = false },
                 onLauncherSettings = {
-                    phoneSettingsOpen = false
+                    // Change the parent launch destination before removing this
+                    // phone Settings composable. Removing the child first can lose
+                    // the click's destination during the same recomposition.
                     onOpenSettings()
+                    phoneSettingsOpen = false
                 },
             )
         }
