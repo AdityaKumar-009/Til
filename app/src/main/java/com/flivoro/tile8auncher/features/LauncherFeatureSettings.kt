@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -353,8 +354,16 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                         label = "${mode.title}\n${mode.detail}",
                         selected = launcherMode == mode,
                         lightSurface = true,
+                        modifier = Modifier.testTag("launcher-mode-${mode.name}"),
                         onClick = {
-                            LauncherFeatureStore.setLauncherUiMode(context, mode)
+                            // This is a live choice from the Settings screen. Mark the phone
+                            // renderer as attempted in the same preference transaction so a
+                            // process death before its first stable frame can recover to Desktop.
+                            LauncherFeatureStore.setLauncherUiMode(
+                                context,
+                                mode,
+                                phoneRenderAttempted = mode != LauncherUiMode.DESKTOP,
+                            )
                             showLauncherModePicker = false
                         },
                     )
@@ -600,6 +609,7 @@ private fun ChoiceRow(
     label: String,
     selected: Boolean,
     lightSurface: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val foreground = if (lightSurface) Color(0xFF242424) else Color.White
@@ -607,6 +617,7 @@ private fun ChoiceRow(
     val outline = if (lightSurface) Color(0xFF777777) else Color(0x99FFFFFF)
     Row(
         Modifier.fillMaxWidth()
+            .then(modifier)
             .background(if (lightSurface && selected) Color(0xFFF1EBFA) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 12.dp),

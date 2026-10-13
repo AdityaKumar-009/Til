@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.features
 
 import android.content.Context
+import android.os.Process
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
@@ -83,6 +84,7 @@ object LauncherFeatureStore {
     private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
     private const val PHONE_RENDER_PENDING = "phone_render_pending"
     private const val PHONE_RENDER_ATTEMPTED = "phone_render_attempted"
+    private const val PHONE_RENDER_PROCESS_ID = "phone_render_process_id"
     private const val PHONE_RENDER_MODE = "mode"
     private const val PHONE_RENDER_SETTINGS = "settings"
     private const val PHONE_LAST_CRASH = "phone_last_crash"
@@ -112,7 +114,11 @@ object LauncherFeatureStore {
         return LauncherUiMode.entries.firstOrNull { it.name == saved } ?: LauncherUiMode.DESKTOP
     }
 
-    fun setLauncherUiMode(context: Context, mode: LauncherUiMode) {
+    fun setLauncherUiMode(
+        context: Context,
+        mode: LauncherUiMode,
+        phoneRenderAttempted: Boolean = false,
+    ) {
         if (launcherUiMode(context) == mode) return
         // Persist the pending render with the mode itself. If switching to a phone
         // surface crashes before it displays, recover on the next cold launch.
@@ -121,37 +127,55 @@ object LauncherFeatureStore {
             if (mode == LauncherUiMode.DESKTOP) {
                 remove(PHONE_RENDER_PENDING)
                 remove(PHONE_RENDER_ATTEMPTED)
+                remove(PHONE_RENDER_PROCESS_ID)
             } else {
                 putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
                 // Selection and rendering are different. A persisted selection made by
                 // an instrumentation test (or just before a cold launch) is not a crash.
-                putBoolean(PHONE_RENDER_ATTEMPTED, false)
+                putBoolean(PHONE_RENDER_ATTEMPTED, phoneRenderAttempted)
+                if (phoneRenderAttempted) putInt(PHONE_RENDER_PROCESS_ID, Process.myPid())
+                else remove(PHONE_RENDER_PROCESS_ID)
             }
         }
         LauncherFeatureRuntime.notifyLauncherModeChanged()
     }
 
     /** Restore a usable home without deleting the user's tiles, colors or layouts. */
-    fun recoverInterruptedPhoneRender(context: Context): Boolean {
+    fun recoverInterruptedPhoneRender(
+        context: Context,
+        currentProcessId: Int = Process.myPid(),
+    ): Boolean {
         val preferences = prefs(context)
-        if (preferences.getString(PHONE_RENDER_PENDING, null) == null ||
-            !preferences.getBoolean(PHONE_RENDER_ATTEMPTED, false)
-        ) return false
-        val needsRecovery = launcherUiMode(context) != LauncherUiMode.DESKTOP
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == null) return false
+        val attempted = preferences.getBoolean(PHONE_RENDER_ATTEMPTED, false)
+        val renderProcessId = preferences.getInt(PHONE_RENDER_PROCESS_ID, -1)
+        // A recreated Activity in the same process is a normal Android lifecycle event.
+        // Roll back only when the process that began a visible phone render has ended.
+        if (!attempted || renderProcessId == currentProcessId) return false
+        val failedMode = launcherUiMode(context)
+        val needsRecovery = failedMode != LauncherUiMode.DESKTOP
         preferences.edit(commit = true) {
             remove(PHONE_RENDER_PENDING)
             remove(PHONE_RENDER_ATTEMPTED)
-            if (needsRecovery) putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+            remove(PHONE_RENDER_PROCESS_ID)
+            if (needsRecovery) {
+                putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+                putString(
+                    PHONE_LAST_CRASH,
+                    "Recovered ${failedMode.title} after its rendering process ended before the first stable frame.",
+                )
+            }
         }
         if (needsRecovery) LauncherFeatureRuntime.notifyLauncherModeChanged()
         return needsRecovery
     }
 
-    fun beginPhoneRender(context: Context) {
+    fun beginPhoneRender(context: Context, processId: Int = Process.myPid()) {
         if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
             prefs(context).edit(commit = true) {
                 putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
                 putBoolean(PHONE_RENDER_ATTEMPTED, true)
+                putInt(PHONE_RENDER_PROCESS_ID, processId)
             }
         }
     }
@@ -161,6 +185,7 @@ object LauncherFeatureStore {
             prefs(context).edit(commit = true) {
                 putString(PHONE_RENDER_PENDING, PHONE_RENDER_SETTINGS)
                 putBoolean(PHONE_RENDER_ATTEMPTED, true)
+                putInt(PHONE_RENDER_PROCESS_ID, Process.myPid())
             }
         }
     }
@@ -179,6 +204,7 @@ object LauncherFeatureStore {
             preferences.edit {
                 remove(PHONE_RENDER_PENDING)
                 remove(PHONE_RENDER_ATTEMPTED)
+                remove(PHONE_RENDER_PROCESS_ID)
             }
         }
     }
@@ -205,6 +231,7 @@ object LauncherFeatureStore {
             putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
             remove(PHONE_RENDER_PENDING)
             remove(PHONE_RENDER_ATTEMPTED)
+            remove(PHONE_RENDER_PROCESS_ID)
         }
         return true
     }
