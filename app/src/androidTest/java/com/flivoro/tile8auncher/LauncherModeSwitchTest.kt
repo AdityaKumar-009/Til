@@ -102,12 +102,7 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
-                awaitUi("$mode native phone settings") {
-                    compose.onAllNodesWithText("TIL launcher settings")
-                        .fetchSemanticsNodes().isNotEmpty()
-                }
-                compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
-                awaitUi("$mode PC settings content") {
+                awaitUi("$mode Mosaic Settings content") {
                     compose.onAllNodesWithTag("til-advanced-settings-content")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
@@ -155,7 +150,6 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
-                compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
                 compose.onNodeWithTag("til-advanced-settings-content").assertExists()
                 compose.onNodeWithText("✕").performClick()
                 compose.waitForIdle()
