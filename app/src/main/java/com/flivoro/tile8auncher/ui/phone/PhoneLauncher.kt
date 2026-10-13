@@ -16,8 +16,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -373,13 +371,10 @@ fun PhoneLauncherSurface(
             mode, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
         )
     } else if (isLaunching && showApps) {
-        if (isTen) MobileAppsMotion.EXIT_TOTAL_MS
-        else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
+        maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
+            if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
     } else if (isTen && motionUsesBack && !isLaunching) {
-        // Both panorama panes stay mounted. Let their shared clock reach both
-        // resting poses, even though All apps visibly settles first; otherwise
-        // a later swipe to Start reveals tiles stuck at the shorter Apps time.
-        maxOf(MobileAppsMotion.BACK_TOTAL_MS, MobileStartMotion.BACK_TOTAL_MS)
+        MobileStartMotion.BACK_TOTAL_MS
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
         PhoneStartChoreography.APPS_RETURN_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
@@ -422,10 +417,7 @@ fun PhoneLauncherSurface(
         sourceMotionMillis(), animationIndex, viewportHeightCssPx,
         surfaceBounds.width / densityScale, selected, letter, tileLeftCssPx, tileWidthCssPx,
     )
-    fun mobileWallpaperAlpha(): Float = if (showApps) MobileAppsMotion.chromeAlpha(
-        exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
-        returningFromApp = motionUsesBack && !isLaunching,
-    ) else MobileStartMotion.wallpaperAlpha(
+    fun mobileWallpaperAlpha(): Float = MobileStartMotion.wallpaperAlpha(
         exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
         returningFromApp = motionUsesBack && !isLaunching,
     )
@@ -797,7 +789,7 @@ fun PhoneLauncherSurface(
                         .graphicsLayer {
                             val listExitEnd = when {
                                 isClassicPhone -> duration
-                                isTen -> MobileAppsMotion.EXIT_TOTAL_MS
+                                isTen -> MobileStartMotion.EXIT_TOTAL_MS
                                 else -> PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
                             }
                             if (animateHomeAppsPage) {
@@ -888,15 +880,32 @@ fun PhoneLauncherSurface(
                             ),
                         ) {
                         if (isTen || phone8SearchVisible) {
+                        var toolbarBounds by remember { mutableStateOf(Rect.Zero) }
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp)
                             .testTag("phone-apps-toolbar")
+                            .onGloballyPositioned {
+                                toolbarBounds = Rect(it.positionInWindow(),
+                                    Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                            }
                             .graphicsLayer {
-                                if (isTen && showApps) {
-                                    alpha = MobileAppsMotion.chromeAlpha(
+                                if (isTen && showApps && toolbarBounds.width > 0f) {
+                                    val motion = MobileStartMotion.sample(
                                         exiting = isLaunching,
                                         returningFromApp = motionUsesBack && !isLaunching,
-                                        elapsedMillis = sourceMotionMillis(),
+                                        elapsedMillis = if (isLaunching || motionUsesBack) sourceMotionMillis()
+                                            else MobileStartMotion.ENTRY_TOTAL_MS,
+                                        row = 0f,
+                                        centerX = toolbarBounds.center.x,
+                                        centerY = toolbarBounds.center.y,
+                                        viewportCenterX = surfaceBounds.center.x,
+                                        viewportCenterY = surfaceBounds.center.y,
                                     )
+                                    alpha = motion.alpha
+                                    translationX = motion.translationXPx
+                                    translationY = motion.translationYPx
+                                    scaleX = motion.scale
+                                    scaleY = motion.scale
+                                    transformOrigin = TransformOrigin.Center
                                 }
                             }, verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.foundation.text.BasicTextField(
@@ -969,7 +978,7 @@ fun PhoneLauncherSurface(
                                 lastVisibleListTop,
                             )
                             val backReturn = !exiting && motionUsesBack
-                            val motion = MobileAppsMotion.sample(
+                            val motion = MobileStartMotion.sample(
                                 exiting = exiting,
                                 elapsedMillis = when {
                                     exiting -> sourceMotionMillis()
@@ -1083,8 +1092,6 @@ fun PhoneLauncherSurface(
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
-                                    val rowInteraction = remember(app.packageName) { MutableInteractionSource() }
-                                    val rowPressed by rowInteraction.collectIsPressedAsState()
                                     val listIndex = (positions[letter] ?: 0) + appIndex + 1
                                     val animationIndex = PhoneStartChoreography.appListAnimationIndex(
                                         listIndex, firstVisibleListIndex, lastVisibleListIndex,
@@ -1098,9 +1105,8 @@ fun PhoneLauncherSurface(
                                             tileLeftCssPx = appListContentLeftCssPx,
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
-                                    // W10M uses its own faster row wave and rectangular press
-                                    // highlight. Keep the selected highlight after pointer-up
-                                    // until that row starts leaving; Back has no selection delay.
+                                    // W10M app launch/return uses the approved shared Start zoom.
+                                    // Ordinary panorama swipes keep rows settled.
                                     Row(
                                         Modifier.fillMaxWidth()
                                             .height(if (isClassicPhone) (73f * classicUnit).dp else 60.dp)
@@ -1161,29 +1167,11 @@ fun PhoneLauncherSurface(
                                                     cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                                 }
                                             })
-                                            .then(if (isTen) Modifier.drawWithContent {
-                                                val row = MobileStartMotion.rowFraction(
-                                                    mobileBounds.top - appsListBounds.top,
-                                                    firstVisibleListTop, lastVisibleListTop,
-                                                )
-                                                val launchHighlight = isLaunching &&
-                                                    exitTileId == "phone_app_${app.packageName}" &&
-                                                    sourceMotionMillis() < MobileAppsMotion.exitDelayMillis(row, true)
-                                                if ((!isLaunching && rowPressed) || launchHighlight) {
-                                                    drawRect(Color.White.copy(alpha = .18f))
-                                                }
-                                                drawContent()
-                                            }.combinedClickable(
-                                                interactionSource = rowInteraction,
-                                                indication = null,
+                                            .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
                                                 onClick = { onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS) },
                                                 onLongClick = { editing = "app:${app.packageName}" },
-                                            ) else Modifier.combinedClickable(
-                                                enabled = interactionEnabled && !isLaunching,
-                                                onClick = { onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS) },
-                                                onLongClick = { editing = "app:${app.packageName}" },
-                                            ))
+                                            )
                                             .padding(vertical = if (isClassicPhone) 0.dp else 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
