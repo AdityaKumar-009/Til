@@ -1069,7 +1069,9 @@ fun Tile8LauncherApp(
                 })
             }
         }) {
-        WindowsWallpaper(
+        val desktopTilePictureMode = LauncherFeatureStore.backgroundStyle(
+            context, LauncherUiMode.DESKTOP) == PhoneBackgroundStyle.TILE_PICTURE
+        if (!desktopTilePictureMode) WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
             enabled = wallpaperParallaxEnabled,
             scrollOffsetPx = {
@@ -1160,6 +1162,8 @@ fun Tile8LauncherApp(
                         },
                         initialWallpaperScrollPx = startWallpaperScrollPx,
                         onWallpaperScrollOffsetChanged = { startWallpaperScrollPx = it },
+                        tilePictureMode = desktopTilePictureMode,
+                        tileWallpaperStyle = wallpaperStyle,
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
                         onCharmsClick = { if (entranceReady) showCharms = true },
