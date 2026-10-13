@@ -333,13 +333,16 @@ fun PhoneLauncherSurface(
             "tile_photos", "tile_camera", "tile_ie", "tile_weather",
             "tile_settings", "tile_store", "tile_clock", "tile_maps",
         )
-        (topAppIds + stockIds).distinct().mapNotNull { id ->
+        val nativePhoneDefaults = (topAppIds + stockIds).distinct().mapNotNull { id ->
             desktopById[id] ?: if (id.startsWith("app:")) {
                 byPackage[id.removePrefix("app:")]?.let { app ->
                     TileModel(id = id, title = app.label, packageName = app.packageName)
                 }
             } else null
         }
+        // Render callers such as emulator motion fixtures supply non-stock tile
+        // IDs; preserve their complete fixture rather than producing an empty Start.
+        nativePhoneDefaults.ifEmpty { tiles }
     }
     var order by remember(mode) {
         mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
