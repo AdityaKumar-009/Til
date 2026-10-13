@@ -364,6 +364,7 @@ fun PhoneLauncherSurface(
     }
     var alphabetOpen by remember(mode) { mutableStateOf(false) }
     var actionCenterOpen by remember(mode) { mutableStateOf(false) }
+    var phoneSettingsOpen by remember(mode) { mutableStateOf(false) }
     var search by remember(mode) { mutableStateOf("") }
     var phone8SearchVisible by remember(mode) { mutableStateOf(false) }
     var phoneRevision by remember(mode) { mutableStateOf(0) }
@@ -1471,7 +1472,7 @@ fun PhoneLauncherSurface(
                                 .background(Color(0xFF303030))
                                 .clickable {
                                     actionCenterOpen = false
-                                    if (intentAction.isEmpty()) onOpenSettings()
+                                    if (intentAction.isEmpty()) phoneSettingsOpen = true
                                     else runCatching { context.startActivity(Intent(intentAction)) }
                                 }.padding(5.dp), contentAlignment = Alignment.Center) {
                                 Text(title, color = Color.White,
@@ -1528,6 +1529,16 @@ fun PhoneLauncherSurface(
                     actionCenterOpen = false
                 }.padding(8.dp))
             }
+        }
+        if (phoneSettingsOpen) {
+            PhoneNativeSettingsSurface(
+                mode = mode,
+                onClose = { phoneSettingsOpen = false },
+                onLauncherSettings = {
+                    phoneSettingsOpen = false
+                    onOpenSettings()
+                },
+            )
         }
     }
 
@@ -1980,10 +1991,10 @@ private fun PhoneTile(
 
 
 /** Windows Phone navigation glyphs drawn independently of Android's installed fonts. */
-private enum class PhoneNavKey { BACK, START, SEARCH }
+internal enum class PhoneNavKey { BACK, START, SEARCH }
 
 @Composable
-private fun PhoneNavGlyph(key: PhoneNavKey, modifier: Modifier = Modifier) {
+internal fun PhoneNavGlyph(key: PhoneNavKey, modifier: Modifier = Modifier) {
     androidx.compose.foundation.Canvas(modifier) {
         val w = size.width
         val h = size.height
