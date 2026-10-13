@@ -45,7 +45,7 @@ private val letterEnter = CubicBezierEasing(0f, 0f, .58f, 1f)
 private val letterExit = CubicBezierEasing(.42f, 0f, 1f, 1f)
 
 @Composable
-private fun GlobeSymbol(color: Color) {
+internal fun DiscoGlobeSymbol(color: Color) {
     // Disco's final private-use glyph is font-dependent on Android. Draw the
     // same globe shape ourselves so the last cell never displays a blank box.
     Canvas(Modifier.size(35.dp)) {
@@ -102,7 +102,7 @@ private fun DiscoLetterRow(
                     .then(if (isGlobe) Modifier else Modifier.padding(start = 8.dp, bottom = 5.dp)),
                 contentAlignment = if (isGlobe) Alignment.Center else Alignment.BottomStart,
             ) {
-                if (isGlobe) GlobeSymbol(Color.White)
+                if (isGlobe) DiscoGlobeSymbol(Color.White)
                 else Text(
                     label,
                     color = if (enabled) Color.White else Color(0xFF696969),
