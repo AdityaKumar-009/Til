@@ -23,9 +23,10 @@ adb install -r app/build/outputs/apk/performance/app-performance.apk
 # so launch that exact optimized package with each persisted phone mode before the debug tests.
 adb root
 adb wait-for-device
-app_uid="$(adb shell dumpsys package com.flivoro.tile8auncher \
-    | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -n 1 | tr -d '\r')"
+app_uid="$(adb shell pm list packages -U com.flivoro.tile8auncher \
+    | sed -n 's/.*uid:\([0-9][0-9]*\).*/\1/p' | head -n 1 | tr -d '\r')"
 if [[ -z "$app_uid" ]]; then
+    adb shell pm list packages -U com.flivoro.tile8auncher
     echo "Could not determine the optimized launcher package UID."
     exit 1
 fi
