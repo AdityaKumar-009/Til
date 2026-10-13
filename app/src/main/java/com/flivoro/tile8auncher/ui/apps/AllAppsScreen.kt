@@ -1062,7 +1062,7 @@ private fun SemanticAllAppsRow(
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
         AppIconStyle.DISCO_LAYERED
     val tileColor = if (layered) {
-        usableDiscoTileAccent(appsRepository.getCachedAppAccentColor(app.packageName))?.toTileColor() ?: appTileAccent
+        appsRepository.getDiscoTileAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
     } else appTileAccent
     val tileForeground = readableAllAppsTileForeground(tileColor)
 
@@ -1135,7 +1135,7 @@ private fun AppListItem(
     val effectiveColors = useAppAccentColors || layered
     val effectiveTileAccent by produceState(
         initialValue = if (effectiveColors) {
-            usableDiscoTileAccent(appsRepository.getCachedAppAccentColor(app.packageName))?.toTileColor() ?: appTileAccent
+            appsRepository.getDiscoTileAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
         } else {
             appTileAccent
         },
@@ -1145,9 +1145,11 @@ private fun AppListItem(
     ) {
         value = if (effectiveColors) {
             withContext(Dispatchers.IO) {
-                val cached = appsRepository.loadAppAccentColor(app.packageName)
-                if (layered) usableDiscoTileAccent(cached)?.toTileColor() ?: appTileAccent
-                else cached.toTileColor()
+                if (layered) {
+                    appsRepository.loadDiscoLayeredAppIcon(app.packageName)
+                    appsRepository.getDiscoTileAccentColor(app.packageName)
+                        ?.toTileColor() ?: appTileAccent
+                } else appsRepository.loadAppAccentColor(app.packageName).toTileColor()
             }
         } else {
             appTileAccent
