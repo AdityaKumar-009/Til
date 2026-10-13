@@ -92,6 +92,7 @@ import com.flivoro.tile8auncher.features.LiveTileNotificationStore
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.loadEnhancedApps
 import com.flivoro.tile8auncher.features.recentlyInstalledApps as selectRecentlyInstalledApps
@@ -328,6 +329,10 @@ fun PhoneLauncherSurface(
     var phone8SearchVisible by remember(mode) { mutableStateOf(false) }
     var phoneRevision by remember(mode) { mutableStateOf(0) }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
+    val mobileTilePictureMode = remember(mode, densityRevision) {
+        isTen && LauncherFeatureStore.phoneBackgroundStyle(context) ==
+            PhoneBackgroundStyle.TILE_PICTURE
+    }
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
     val tileOpacity = remember(mode, densityRevision) {
         if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
@@ -601,7 +606,7 @@ fun PhoneLauncherSurface(
         .testTag("phone-navigation-state")
         .semantics { stateDescription = motionHomeRequest.toString() }
         .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
-        if (isTen) {
+        if (isTen && !mobileTilePictureMode) {
             Box(Modifier.fillMaxSize().graphicsLayer {
                 alpha = mobileWallpaperAlpha()
             }) {
@@ -665,6 +670,7 @@ fun PhoneLauncherSurface(
                             mode = mode,
                             tileOpacity = tileOpacity,
                             wallpaperStyle = wallpaperStyle,
+                            mobileTilePictureMode = mobileTilePictureMode,
                             appsRepository = appsRepository,
                             editingTileId = editing.takeIf { !showApps },
                             onResizeTile = { id ->
@@ -1552,6 +1558,7 @@ private fun PhoneStartGrid(
     mode: LauncherUiMode,
     tileOpacity: Float,
     wallpaperStyle: Int,
+    mobileTilePictureMode: Boolean,
     appsRepository: AppsRepository,
     editingTileId: String?,
     onResizeTile: (String) -> Unit,
@@ -1610,7 +1617,7 @@ private fun PhoneStartGrid(
         val firstVisibleTop = visibleTops.minOrNull() ?: 0f
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
-        val tilePicture = mode == LauncherUiMode.PHONE_8 &&
+        val tilePicture = (mode == LauncherUiMode.PHONE_8 || mobileTilePictureMode) &&
             (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
             if (tilePicture) {
