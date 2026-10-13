@@ -54,6 +54,7 @@ internal fun PhoneAppContextMenu(
     yPx: Int,
     onPinChanged: () -> Unit,
     onAppInfo: () -> Unit,
+    onUninstall: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -129,9 +130,7 @@ internal fun PhoneAppContextMenu(
                     item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
                     if (packageName != "mosaic.launcher.settings") {
                         item("app info", action = onAppInfo)
-                        if (isUninstallable) item("uninstall") {
-                            launchIntent(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
-                        }
+                        if (isUninstallable) item("uninstall", action = onUninstall)
                     } else item("Mosaic Settings", action = onAppInfo)
                 }
                 Box(
@@ -160,9 +159,7 @@ internal fun PhoneAppContextMenu(
                         }
                         launchIntent(Intent.createChooser(send, "Share app"))
                     }
-                    item("uninstall") {
-                        launchIntent(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
-                    }
+                    item("uninstall", action = onUninstall)
                     item("app info", action = onAppInfo)
                 } else item("Mosaic Settings", action = onAppInfo)
             }
