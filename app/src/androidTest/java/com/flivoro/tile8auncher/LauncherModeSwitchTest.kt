@@ -91,7 +91,7 @@ class LauncherModeSwitchTest {
                 )
             }
             awaitUi("WP8.1 Start screen") {
-                compose.onAllNodesWithTag("phone-bottom-home")
+                compose.onAllNodesWithTag("phone-navigation-state")
                     .fetchSemanticsNodes().isNotEmpty()
             }
 
@@ -115,10 +115,9 @@ class LauncherModeSwitchTest {
                 assertFalse("Activity finished while selecting $mode", compose.activity.isFinishing)
                 compose.onNodeWithText("✕").performClick()
                 awaitUi("$mode Start screen after closing Settings") {
-                    compose.onAllNodesWithTag("phone-bottom-home")
+                    compose.onAllNodesWithTag("phone-navigation-state")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
-                compose.onNodeWithTag("phone-bottom-home").performClick()
                 compose.waitForIdle()
                 assertFalse("Activity finished while rendering $mode", compose.activity.isFinishing)
             }
@@ -145,7 +144,7 @@ class LauncherModeSwitchTest {
                     LauncherFeatureStore.setLauncherUiMode(context, mode)
                 }
                 compose.waitUntil(timeoutMillis = 20_000) {
-                    compose.onAllNodesWithTag("phone-bottom-search")
+                    compose.onAllNodesWithTag("phone-navigation-state")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
@@ -175,7 +174,7 @@ class LauncherModeSwitchTest {
                     LauncherFeatureStore.setLauncherUiMode(context, mode)
                 }
                 compose.waitUntil(timeoutMillis = 20_000) {
-                    compose.onAllNodesWithTag("phone-bottom-home")
+                    compose.onAllNodesWithTag("phone-navigation-state")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
                 compose.waitForIdle()
@@ -183,9 +182,12 @@ class LauncherModeSwitchTest {
                     .fetchSemanticsNode().config[SemanticsProperties.StateDescription]
                 val before = transitionCount()
 
+                // Android owns Home/Back. At root, dispatching system Back repeatedly
+                // must neither finish the launcher nor restart its entrance.
                 repeat(3) {
-                    compose.onNodeWithTag("phone-bottom-home").performClick()
-                    compose.onNodeWithTag("phone-bottom-back").performClick()
+                    compose.runOnUiThread {
+                        compose.activity.onBackPressedDispatcher.onBackPressed()
+                    }
                 }
                 compose.waitForIdle()
                 assertEquals("Repeated HOME/BACK replayed Start entrance in $mode",
