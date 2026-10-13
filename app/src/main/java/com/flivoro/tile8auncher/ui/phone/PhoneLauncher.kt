@@ -2212,9 +2212,10 @@ private fun PhoneStartGrid(
                             else -> .925f
                         },
                         animationSpec = if (mode == LauncherUiMode.PHONE_8) tween(
-                            if (isSelectedForEdit && classicEditIntro) 500 else
-                                if (isSelectedForEdit) 250 else 500,
-                            easing = androidx.compose.animation.core.CubicBezierEasing(.075f, .82f, .165f, 1f),
+                            if (classicEditIntro) 500 else 250,
+                            easing = if (classicEditIntro)
+                                androidx.compose.animation.core.CubicBezierEasing(.0f, .0f, 1f, 1f)
+                            else androidx.compose.animation.core.CubicBezierEasing(.43f, 1.5f, .5f, 1f),
                         ) else tween(250),
                         label = "disco-edit-tile-scale",
                     )
@@ -2242,7 +2243,8 @@ private fun PhoneStartGrid(
                             else -> .68f
                         },
                         animationSpec = tween(
-                            if (mode == LauncherUiMode.PHONE_8) 350 else 250,
+                            if (mode == LauncherUiMode.PHONE_8) 250 else 250,
+                            easing = androidx.compose.animation.core.CubicBezierEasing(.25f, 0f, .53f, 1f),
                         ), label = "classic-edit-opacity",
                     )
                     // Animated reflow is only activated when editing reorders tiles;
