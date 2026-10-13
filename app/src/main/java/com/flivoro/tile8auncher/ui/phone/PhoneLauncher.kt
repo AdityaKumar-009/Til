@@ -354,6 +354,7 @@ fun PhoneLauncherSurface(
     onExitFinished: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAppInfo: (String) -> Unit,
+    onUninstallApp: (String) -> Unit = {},
     onVisiblePageChanged: (Boolean) -> Unit = {},
     resumeUsesBackMotion: Boolean = false,
     screenOffRequest: Int = 0,
@@ -2059,6 +2060,7 @@ fun PhoneLauncherSurface(
                     if (pkg == MOSAIC_SETTINGS_ID) onOpenSettings()
                     else onOpenAppInfo(pkg)
                 },
+                onUninstall = { onUninstallApp(pkg) },
                 onDismiss = { editing = null },
             )
         } else editing = null
