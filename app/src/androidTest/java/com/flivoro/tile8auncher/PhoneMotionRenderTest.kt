@@ -141,20 +141,48 @@ class PhoneMotionRenderTest {
         val resting = capture("00-rest")
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
-        if (mode == LauncherUiMode.PHONE_8) {
-            // The panorama must follow a held finger, before pointer-up.
-            // A button-only test could not catch the old release-only swipe.
+        // Both WP8.1 and W10M must advance with the finger *before* pointer-up.
+        // Check two distinct held positions: a gesture-only transition would
+        // leave both frames unchanged until the release.
+        compose.onRoot().performTouchInput {
+            down(center)
+            moveBy(Offset(-width * .30f, 0f), 100)
+        }
+        compose.mainClock.advanceTimeByFrame()
+        val heldThirtyPercent = capture("panorama-finger-30-percent")
+        assertTrue("${mode.name} panorama did not move with the held finger",
+            difference(resting, heldThirtyPercent) > .03)
+        compose.onRoot().performTouchInput {
+            moveBy(Offset(-width * .30f, 0f), 100)
+        }
+        compose.mainClock.advanceTimeByFrame()
+        assertTrue("${mode.name} panorama stopped following the finger during drag",
+            difference(heldThirtyPercent, capture("panorama-finger-60-percent")) > .03)
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithText("Alpha").assertIsDisplayed()
+
+        if (mode == LauncherUiMode.MOBILE_10) {
+            // Verify that swiping backward follows the finger too, not merely
+            // Start -> All Apps. Finish on Start for the remaining motion tests.
+            val appsRestAfterDrag = capture("w10-apps-after-finger-swipe")
             compose.onRoot().performTouchInput {
                 down(center)
-                moveBy(Offset(-width * .30f, 0f), 100)
-                moveBy(Offset(-width * .30f, 0f), 100)
+                moveBy(Offset(width * .30f, 0f), 100)
             }
             compose.mainClock.advanceTimeByFrame()
-            assertTrue("Panorama did not follow the finger before release",
-                difference(resting, capture("panorama-finger-held")) > .03)
+            val reverseHeld = capture("w10-reverse-finger-30-percent")
+            assertTrue("W10M All Apps -> Start remained still during held drag",
+                difference(appsRestAfterDrag, reverseHeld) > .03)
+            compose.onRoot().performTouchInput {
+                moveBy(Offset(width * .30f, 0f), 100)
+            }
+            compose.mainClock.advanceTimeByFrame()
+            assertTrue("W10M reverse panorama stopped following the finger",
+                difference(reverseHeld, capture("w10-reverse-finger-60-percent")) > .03)
             compose.onRoot().performTouchInput { up() }
             compose.mainClock.advanceTimeBy(400)
-            compose.onNodeWithText("Alpha").assertIsDisplayed()
+        } else {
             compose.onNodeWithText("‹").performClick()
             compose.mainClock.advanceTimeBy(400)
 
