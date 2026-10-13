@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -61,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -725,6 +727,17 @@ fun PhoneLauncherSurface(
                             onUnpinTile = { id ->
                                 saveOrder(order.filterNot { it == id })
                                 editing = null
+                            },
+                            onMoveTile = { fromId, toId ->
+                                val fromIndex = order.indexOf(fromId)
+                                val toIndex = order.indexOf(toId)
+                                if (fromIndex >= 0 && toIndex >= 0 && fromIndex != toIndex) {
+                                    val nextOrder = order.toMutableList()
+                                    val tileId = nextOrder.removeAt(fromIndex)
+                                    val insertion = nextOrder.indexOf(toId).coerceAtLeast(0)
+                                    nextOrder.add(insertion, tileId)
+                                    saveOrder(nextOrder)
+                                }
                             },
                             onClick = { tile, bounds ->
                                 if (editing != null) editing = null
@@ -1605,10 +1618,12 @@ private fun PhoneStartGrid(
     editingTileId: String?,
     onResizeTile: (String) -> Unit,
     onUnpinTile: (String) -> Unit,
+    onMoveTile: (String, String) -> Unit,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
+    var tileDragOffset by remember(editingTileId) { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current.density
     // Keep clipping/visibility tied to the pane height, but use the full
     // source window height to calculate Disco's CSS stagger scale.
@@ -1692,6 +1707,10 @@ private fun PhoneStartGrid(
                     firstVisibleTop, lastVisibleTop,
                 )
                 key(tile.id) {
+                    val editKey = if (tile.id.startsWith("phone_app_")) {
+                        "app:" + tile.id.removePrefix("phone_app_")
+                    } else tile.id
+                    val isSelectedForEdit = editingTileId == editKey
                     PhoneTile(
                         tile = tile, mode = mode,
                         visibleRowFraction = rowFraction,
@@ -1721,7 +1740,14 @@ private fun PhoneStartGrid(
                             .offset(x = side + (cell + gap) * pos.column,
                                     y = (cell + gap) * pos.row)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
-                                  height = cell * pos.rows + gap * (pos.rows - 1)),
+                                  height = cell * pos.rows + gap * (pos.rows - 1))
+                            .zIndex(if (isSelectedForEdit) 4f else 0f)
+                            .graphicsLayer {
+                                if (isSelectedForEdit) {
+                                    translationX = tileDragOffset.x
+                                    translationY = tileDragOffset.y
+                                }
+                            },
                         onClick = { rect -> onClick(tile, rect) },
                         onLongClick = {
                             onLongClick(
@@ -1731,16 +1757,53 @@ private fun PhoneStartGrid(
                             )
                         },
                     )
-                    val editKey = if (tile.id.startsWith("phone_app_")) {
-                        "app:" + tile.id.removePrefix("phone_app_")
-                    } else tile.id
-                    if (editingTileId == editKey) {
+                    if (isSelectedForEdit) {
                         Box(Modifier
                             .offset(x = side + (cell + gap) * pos.column,
                                 y = (cell + gap) * pos.row)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                 height = cell * pos.rows + gap * (pos.rows - 1))
-                            .border(2.dp, Color.White)) {
+                            .zIndex(5f)
+                            .graphicsLayer {
+                                translationX = tileDragOffset.x
+                                translationY = tileDragOffset.y
+                            }
+                            .border(2.dp, Color.White)
+                            .testTag("phone-tile-drag-handle")
+                            .pointerInput(editKey, slots, cellStepPx, interactionEnabled) {
+                                if (!interactionEnabled || isLaunching) return@pointerInput
+                                detectDragGestures(
+                                    onDrag = { change, amount ->
+                                        tileDragOffset += amount
+                                        change.consume()
+                                    },
+                                    onDragEnd = {
+                                        val moved = tileDragOffset
+                                        val fromSlot = slots[index]
+                                        val currentCenterX = (fromSlot.column + fromSlot.columns * .5f) * cellStepPx + moved.x
+                                        val currentCenterY = (fromSlot.row + fromSlot.rows * .5f) * cellStepPx + moved.y
+                                        if (moved.getDistance() > cellStepPx * .22f) {
+                                            val destination = slots.indices
+                                                .filter { it != index }
+                                                .minByOrNull { target ->
+                                                    val slot = slots[target]
+                                                    val targetX = (slot.column + slot.columns * .5f) * cellStepPx
+                                                    val targetY = (slot.row + slot.rows * .5f) * cellStepPx
+                                                    val dx = currentCenterX - targetX
+                                                    val dy = currentCenterY - targetY
+                                                    dx * dx + dy * dy
+                                                }
+                                            destination?.let { onMoveTile(editKey, tiles[it].id.let { targetId ->
+                                                if (targetId.startsWith("phone_app_"))
+                                                    "app:" + targetId.removePrefix("phone_app_")
+                                                else targetId
+                                            }) }
+                                        }
+                                        tileDragOffset = Offset.Zero
+                                    },
+                                    onDragCancel = { tileDragOffset = Offset.Zero },
+                                )
+                            }) {
                             Box(Modifier.align(Alignment.TopEnd)
                                 .offset(x = 8.dp, y = (-8).dp)
                                 .size(28.dp).background(Color.White, CircleShape)
