@@ -16,3 +16,19 @@ fun usableDiscoTileAccent(color: Long?): Long? {
         hsv[2] < .16f) return null
     return color
 }
+
+/** True white adaptive backgrounds are valid when a separate colored logo
+ * occupies the foreground. For black/white foreground glyphs, a neutral
+ * background is a plate and the original Metro tile color must survive. */
+fun discoLayeredAccentOrNull(
+    context: android.content.Context,
+    packageName: String?,
+    color: Long?,
+): Long? {
+    usableDiscoTileAccent(color)?.let { return it }
+    if (color == null || packageName.isNullOrBlank()) return null
+    val knownColorForeground = context.getSharedPreferences(
+        "tile8_app_visual_cache_v1", android.content.Context.MODE_PRIVATE,
+    ).getBoolean("disco_layer_color_v3:$packageName", false)
+    return color.takeIf { knownColorForeground }
+}
