@@ -1970,11 +1970,11 @@ private fun PhoneStartGrid(
                             classicEditIntro -> 1f
                             else -> .925f
                         },
-                        animationSpec = tween(
+                        animationSpec = if (mode == LauncherUiMode.PHONE_8) tween(
                             if (isSelectedForEdit && classicEditIntro) 500 else
                                 if (isSelectedForEdit) 250 else 500,
                             easing = androidx.compose.animation.core.CubicBezierEasing(.075f, .82f, .165f, 1f),
-                        ),
+                        ) else tween(250),
                         label = "disco-edit-tile-scale",
                     )
                     val editAlpha by animateFloatAsState(
