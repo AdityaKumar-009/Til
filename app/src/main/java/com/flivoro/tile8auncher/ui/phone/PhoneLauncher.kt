@@ -74,6 +74,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
@@ -103,6 +104,7 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileNotificationStore
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
@@ -1450,6 +1452,8 @@ fun PhoneLauncherSurface(
                                 }
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
+                                    val discoLayered = LauncherFeatureStore.appIconStyle(context) ==
+                                        AppIconStyle.DISCO_LAYERED
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
                                     val listIndex = (positions[letter] ?: 0) + appIndex +
@@ -1558,7 +1562,7 @@ fun PhoneLauncherSurface(
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
                                             .size(if (isClassicPhone) (52f * classicUnit).dp else 45.dp)
                                             .background(
-                                                if (isTen) appsRepository.getCachedAppAccentColor(app.packageName)
+                                                if (isTen || discoLayered) appsRepository.getCachedAppAccentColor(app.packageName)
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
                                             if (app.packageName == MOSAIC_SETTINGS_ID) {
@@ -1566,7 +1570,8 @@ fun PhoneLauncherSurface(
                                                     glyph = "settings", size = 27.dp)
                                             } else if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
-                                                modifier = Modifier.size(if (isClassicPhone) (52f * classicUnit).dp else 28.dp))
+                                                modifier = Modifier.size(if (isClassicPhone) (52f * classicUnit).dp else 28.dp),
+                                                colorFilter = if (discoLayered) ColorFilter.tint(Color.White) else null)
                                             else Text(app.label.take(1), color = Color.White,
                                                 fontSize = if (isClassicPhone) (34f * classicUnit).sp else 22.sp)
                                         }
@@ -2508,6 +2513,12 @@ private fun PhoneTile(
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current.density
     val icon = rememberAppIcon(repository, tile.packageName)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val resolvedTile = if (layered && !tile.packageName.isNullOrBlank()) {
+        repository.getCachedAppAccentColor(tile.packageName)?.let { tile.copy(colorValue = it) }
+            ?: tile
+    } else tile
 
     fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
         val mobile = MobileStartMotion.sample(
@@ -2585,7 +2596,7 @@ private fun PhoneTile(
     }
 
     WindowsTileFace(
-        tile = tile,
+        tile = resolvedTile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
         backgroundContent = tilePictureContent,
