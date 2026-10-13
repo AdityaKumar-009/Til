@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
@@ -85,6 +86,7 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
@@ -599,7 +601,11 @@ fun AllAppsScreen(
                                 modifier = Modifier.size(40.dp).background(appTileAccent),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (icon != null) Image(icon, currentApp.label, Modifier.size(28.dp))
+                                if (icon != null) Image(
+                                    icon, currentApp.label, Modifier.size(28.dp),
+                                    colorFilter = if (LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+                                        AppIconStyle.DISCO_LAYERED) ColorFilter.tint(Color.White) else null,
+                                )
                                 else MetroIcon(glyph = "app", color = Color.White, size = 24.dp)
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -1053,7 +1059,12 @@ private fun SemanticAllAppsRow(
     appTileAccent: Color,
 ) {
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
-    val tileForeground = readableAllAppsTileForeground(appTileAccent)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val tileColor = if (layered) {
+        appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+    } else appTileAccent
+    val tileForeground = readableAllAppsTileForeground(tileColor)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1064,7 +1075,7 @@ private fun SemanticAllAppsRow(
         Box(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
-                .background(appTileAccent),
+                .background(tileColor),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
@@ -1072,6 +1083,7 @@ private fun SemanticAllAppsRow(
                     bitmap = icon,
                     contentDescription = null,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                    colorFilter = if (layered) ColorFilter.tint(Color.White) else null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
@@ -1118,17 +1130,20 @@ private fun AppListItem(
 ) {
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val effectiveColors = useAppAccentColors || layered
     val effectiveTileAccent by produceState(
-        initialValue = if (useAppAccentColors) {
+        initialValue = if (effectiveColors) {
             appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
         } else {
             appTileAccent
         },
         app.packageName,
         appTileAccent,
-        useAppAccentColors,
+        effectiveColors,
     ) {
-        value = if (useAppAccentColors) {
+        value = if (effectiveColors) {
             withContext(Dispatchers.IO) {
                 appsRepository.loadAppAccentColor(app.packageName).toTileColor()
             }
@@ -1163,6 +1178,7 @@ private fun AppListItem(
                     bitmap = icon,
                     contentDescription = app.label,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                    colorFilter = if (layered) ColorFilter.tint(Color.White) else null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
