@@ -264,20 +264,26 @@ class AppsRepository(private val context: Context) {
             try {
                 iconDecodePermits.withPermit {
                     val cached = readPersistedVisualBitmap(
-                        packageName, "disco_foreground_$maxCachedIconPx",
+                        packageName, "disco_foreground_color_v2_$maxCachedIconPx",
                     )?.asImageBitmap()
                     val resolved = cached ?: runCatching {
                         val drawable = packageManager.getApplicationIcon(packageName)
                         val glyph = drawableToDiscoForeground(drawable)
                         persistVisualBitmap(
-                            packageName, "disco_foreground_$maxCachedIconPx", glyph,
+                            packageName, "disco_foreground_color_v2_$maxCachedIconPx", glyph,
                         )
                         if (drawable is AdaptiveIconDrawable) {
-                            val background = renderDrawableAtResolution(
-                                drawable.background, 64,
+                            val background = renderDrawableAtResolution(drawable.background, 64)
+                            val backgroundAccent = usableDiscoTileAccent(
+                                extractAppAccentColor(background),
                             )
-                            persistAppAccent(packageName, extractAppAccentColor(background))
                             background.recycle()
+                            // Ignore neutral adaptive plates; choose a meaningful
+                            // foreground accent or preserve the tile's own color.
+                            val proposed = backgroundAccent ?: usableDiscoTileAccent(
+                                extractAppAccentColor(glyph),
+                            )
+                            proposed?.let { persistAppAccent(packageName, it) }
                         }
                         glyph.asImageBitmap()
                     }.getOrNull()
@@ -295,17 +301,20 @@ class AppsRepository(private val context: Context) {
         return (active ?: candidate).await()
     }
 
-    /** Render the app foreground separately, rejecting dense white plates. */
+    /** Preserve native colored adaptive foregrounds, not a forced white mask. */
     private fun drawableToDiscoForeground(drawable: Drawable): Bitmap {
         if (drawable is AdaptiveIconDrawable) {
-            val foreground = renderTintedDrawable(drawable.foreground,
-                Color.WHITE, maxCachedIconPx)
+            val foreground = renderDrawableAtResolution(
+                drawable.foreground, maxCachedIconPx,
+            )
             val w = foreground.width
             val h = foreground.height
             val pixels = IntArray(w * h)
             foreground.getPixels(pixels, 0, w, 0, 0, w, h)
             val solid = pixels.count { Color.alpha(it) >= 96 }
-            if (solid in (w * h / 50)..(w * h * 2 / 3)) {
+            // Keep color detail where the app actually provides a transparent
+            // foreground. Dense opaque plates are not suitable glyphs.
+            if (solid in (w * h / 75)..(w * h * 2 / 3)) {
                 return foreground
             }
             foreground.recycle()
