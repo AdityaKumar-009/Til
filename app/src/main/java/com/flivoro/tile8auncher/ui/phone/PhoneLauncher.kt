@@ -2028,7 +2028,13 @@ fun PhoneLauncherSurface(
                                 delay(300)
                                 val selectedTiles = nextOrder.mapNotNull(::tileFor)
                                 val placements = packPhoneTiles(selectedTiles.map(TileModel::size), columns)
-                                val targetIndex = selectedTiles.indexOfFirst { it.id == id }
+                                // Persisted pin keys are "app:package", while
+                                // rendered tile IDs are "phone_app_package".
+                                val renderedId = if (id.startsWith("app:"))
+                                    "phone_app_${id.removePrefix("app:")}" else id
+                                val targetIndex = selectedTiles.indexOfFirst {
+                                    it.id == renderedId
+                                }
                                 if (targetIndex >= 0) {
                                     val pos = placements[targetIndex]
                                     val viewportWidthDp = paneBounds.width / densityScale
