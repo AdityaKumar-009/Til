@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -1831,29 +1832,8 @@ private fun PhoneStartGrid(
         val tilePicture = (mode == LauncherUiMode.PHONE_8 || mobileTilePictureMode) &&
             (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
-            if (tilePicture) {
-                // WP8.1's image appears only inside supported tile footprints.
-                // An even-odd mask leaves all gaps, side margins and empty cells black.
-                WindowsWallpaper(
-                    modifier = Modifier.fillMaxSize(),
-                    wallpaperStyle = wallpaperStyle,
-                    enabled = false,
-                )
-                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                    val mask = androidx.compose.ui.graphics.Path().apply {
-                        fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
-                        addRect(Rect(0f, 0f, size.width, size.height))
-                        slots.forEach { slot ->
-                            val x = (side + (cell + gap) * slot.column).value * density
-                            val y = ((cell + gap) * slot.row).value * density
-                            val width = (cell * slot.columns + gap * (slot.columns - 1)).value * density
-                            val height = (cell * slot.rows + gap * (slot.rows - 1)).value * density
-                            addRect(Rect(x, y, x + width, y + height))
-                        }
-                    }
-                    drawPath(mask, Color.Black)
-                }
-            }
+            // Picture pixels are part of each tile's transformed face below.
+            // The empty grid and gutters remain black without a detached mask.
             tiles.forEachIndexed { index, tile ->
                 val pos = slots[index]
                 val rowFraction = MobileStartMotion.rowFraction(
@@ -1888,6 +1868,29 @@ private fun PhoneStartGrid(
                         selectedTile = launchingTileId == tile.id,
                         tileOpacity = if (tilePicture &&
                             tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) 0f else tileOpacity,
+                        tilePictureContent = if (tilePicture &&
+                            tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) {
+                            {
+                                // Align a shared-picture coordinate space to the tile.
+                                // This composable is inside PhoneTile's existing graphics
+                                // transform, so tiles and wallpaper depart together.
+                                Box(Modifier.fillMaxSize().clipToBounds()) {
+                                    WindowsWallpaper(
+                                        modifier = Modifier
+                                            .offset(
+                                                x = -(side + (cell + gap) * pos.column),
+                                                y = -((cell + gap) * pos.row),
+                                            )
+                                            .requiredSize(
+                                                width = maxWidth,
+                                                height = (cell + gap) * heightRows,
+                                            ),
+                                        wallpaperStyle = wallpaperStyle,
+                                        enabled = false,
+                                    )
+                                }
+                            }
+                        } else null,
                         repository = appsRepository,
                         resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier
@@ -2023,6 +2026,7 @@ private fun PhoneTile(
     elapsedMillis: () -> Int,
     selectedTile: Boolean,
     tileOpacity: Float,
+    tilePictureContent: (@Composable () -> Unit)? = null,
     repository: AppsRepository,
     modifier: Modifier,
     onClick: (Rect) -> Unit,
@@ -2113,6 +2117,7 @@ private fun PhoneTile(
         tile = tile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
+        backgroundContent = tilePictureContent,
         // Native glyphs and labels remain attached to the tile face throughout its turn.
         innerModifier = Modifier,
         modifier = modifier
