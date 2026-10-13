@@ -657,9 +657,8 @@ fun PhoneLauncherSurface(
         title = app.label,
         packageName = app.packageName,
         activityName = app.activityName,
-        colorValue = com.flivoro.tile8auncher.data.usableDiscoTileAccent(
-            appsRepository.getCachedAppAccentColor(app.packageName),
-        ) ?: StartPersonalization.accentArgb,
+        colorValue = appsRepository.getDiscoTileAccentColor(app.packageName)
+            ?: StartPersonalization.accentArgb,
         tileType = if (app.packageName == MOSAIC_SETTINGS_ID)
             com.flivoro.tile8auncher.data.TileType.SETTINGS
         else com.flivoro.tile8auncher.data.TileType.APP,
@@ -1569,8 +1568,7 @@ fun PhoneLauncherSurface(
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
                                             .size(if (isClassicPhone) (52f * classicUnit).dp else 45.dp)
                                             .background(
-                                                if (isTen || discoLayered) com.flivoro.tile8auncher.data.usableDiscoTileAccent(
-                                                    appsRepository.getCachedAppAccentColor(app.packageName))
+                                                if (isTen || discoLayered) appsRepository.getDiscoTileAccentColor(app.packageName)
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
                                             if (app.packageName == MOSAIC_SETTINGS_ID) {
@@ -2535,8 +2533,7 @@ private fun PhoneTile(
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
         AppIconStyle.DISCO_LAYERED
     val resolvedTile = if (layered && !tile.packageName.isNullOrBlank()) {
-        com.flivoro.tile8auncher.data.usableDiscoTileAccent(
-            repository.getCachedAppAccentColor(tile.packageName))
+        repository.getDiscoTileAccentColor(tile.packageName)
             ?.let { tile.copy(colorValue = it) } ?: tile
     } else tile
 
