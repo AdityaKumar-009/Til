@@ -88,6 +88,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -816,7 +820,7 @@ fun PhoneLauncherSurface(
                 ) {
                     Column(Modifier.fillMaxSize().elasticVerticalScroll(
                         classicPhonePhysics = isClassicPhone,
-                        maxOverscroll = (125f * classicUnit).dp,
+                        maxOverscroll = if (isClassicPhone) (125f * classicUnit).dp else 96.dp,
                     )
                         .verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 25.dp))
@@ -1236,10 +1240,21 @@ fun PhoneLauncherSurface(
                             }
                             .elasticVerticalScroll(
                                 classicPhonePhysics = isClassicPhone,
-                                maxOverscroll = (125f * classicUnit).dp,
+                                maxOverscroll = if (isClassicPhone) (125f * classicUnit).dp else 96.dp,
                             ),
                             userScrollEnabled = interactionEnabled && !isLaunching &&
                                 !(isClassicPhone && editing?.startsWith("app:") == true)) {
+                            if (isClassicPhone && phone8SearchVisible && filtered.isEmpty()) {
+                                item(key = "classic-empty-search") {
+                                    Text(
+                                        "No results for \"$search\"",
+                                        color = Color.LightGray,
+                                        fontSize = (25f * classicUnit).sp,
+                                        fontWeight = FontWeight.Light,
+                                        modifier = Modifier.padding(top = 12.dp),
+                                    )
+                                }
+                            }
                             groups.forEach { (letter, groupApps) ->
                                 if (letter.isNotEmpty()) item(key = "letter_$letter") {
                                     var headerBounds by remember(letter) { mutableStateOf(Rect.Zero) }
@@ -1320,7 +1335,8 @@ fun PhoneLauncherSurface(
                                     val icon = rememberAppIcon(appsRepository, app.packageName)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
-                                    val listIndex = (positions[letter] ?: 0) + appIndex + if (letter.isEmpty()) 0 else 1
+                                    val listIndex = (positions[letter] ?: 0) + appIndex +
+                                        (if (letter.isEmpty()) 0 else 1)
                                     val animationIndex = PhoneStartChoreography.appListAnimationIndex(
                                         listIndex, firstVisibleListIndex, lastVisibleListIndex,
                                     )
@@ -1395,7 +1411,7 @@ fun PhoneLauncherSurface(
                                                     cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                                 }
                                             })
-                                            .then(if (isClassicPhone) Modifier.graphicsLayer {
+                                            .then(if (isClassicPhone && editing?.startsWith("app:") == true) Modifier.graphicsLayer {
                                                 val menuEditing = editing?.startsWith("app:") == true
                                                 val isHeld = editing == "app:${app.packageName}"
                                                 alpha = if (menuEditing && !isHeld) .55f else 1f
@@ -1432,7 +1448,22 @@ fun PhoneLauncherSurface(
                                             else Text(app.label.take(1), color = Color.White,
                                                 fontSize = if (isClassicPhone) (34f * classicUnit).sp else 22.sp)
                                         }
-                                        Text(app.label, color = Color.White,
+                                        val displayTitle = remember(app.label, search, phone8SearchVisible, isClassicPhone, accent) {
+                                            if (!isClassicPhone || !phone8SearchVisible || search.isBlank()) {
+                                                AnnotatedString(app.label)
+                                            } else buildAnnotatedString {
+                                                val match = app.label.indexOf(search, ignoreCase = true)
+                                                if (match < 0) append(app.label)
+                                                else {
+                                                    append(app.label.substring(0, match))
+                                                    withStyle(SpanStyle(color = accent)) {
+                                                        append(app.label.substring(match, match + search.length))
+                                                    }
+                                                    append(app.label.substring(match + search.length))
+                                                }
+                                            }
+                                        }
+                                        Text(displayTitle, color = Color.White,
                                             fontSize = if (isClassicPhone) (30f * classicUnit).sp else 18.sp,
                                             fontWeight = if (isClassicPhone) FontWeight.Light else FontWeight.Normal,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis,
