@@ -6,6 +6,9 @@ import android.graphics.Matrix as PlatformMatrix
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -1828,6 +1831,20 @@ private fun PhoneStartGrid(
                         "app:" + tile.id.removePrefix("phone_app_")
                     } else tile.id
                     val isSelectedForEdit = editingTileId == editKey
+                    // Animated reflow is only activated when editing reorders tiles;
+                    // app launch/return interpolation is not modified.
+                    val tileLeft by animateDpAsState(
+                        side + (cell + gap) * pos.column,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium),
+                        label = "phone-reflow-x",
+                    )
+                    val tileTop by animateDpAsState(
+                        (cell + gap) * pos.row,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium),
+                        label = "phone-reflow-y",
+                    )
                     PhoneTile(
                         tile = tile, mode = mode,
                         visibleRowFraction = rowFraction,
@@ -1870,8 +1887,7 @@ private fun PhoneStartGrid(
                         repository = appsRepository,
                         resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier
-                            .offset(x = side + (cell + gap) * pos.column,
-                                    y = (cell + gap) * pos.row)
+                            .offset(x = tileLeft, y = tileTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                   height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(if (isSelectedForEdit) 4f else 0f)
@@ -1879,6 +1895,11 @@ private fun PhoneStartGrid(
                                 if (isSelectedForEdit) {
                                     translationX = tileDragOffset.x
                                     translationY = tileDragOffset.y
+                                }
+                                if (editingTileId != null) {
+                                    alpha = if (isSelectedForEdit) 1f else .68f
+                                    scaleX = if (isSelectedForEdit) .975f else 1f
+                                    scaleY = if (isSelectedForEdit) .975f else 1f
                                 }
                             },
                         onClick = { rect -> onClick(tile, rect) },
@@ -1895,19 +1916,23 @@ private fun PhoneStartGrid(
                             children = children,
                             repository = appsRepository,
                             modifier = Modifier
-                                .offset(x = side + (cell + gap) * pos.column,
-                                    y = (cell + gap) * pos.row)
+                                .offset(x = tileLeft, y = tileTop)
                                 .size(
                                     width = cell * pos.columns + gap * (pos.columns - 1),
                                     height = cell * pos.rows + gap * (pos.rows - 1),
                                 )
-                                .zIndex(1f),
+                                .zIndex(1f)
+                                .graphicsLayer {
+                                    if (isSelectedForEdit) {
+                                        translationX = tileDragOffset.x
+                                        translationY = tileDragOffset.y
+                                    }
+                                },
                         )
                     }
                     if (isSelectedForEdit) {
                         Box(Modifier
-                            .offset(x = side + (cell + gap) * pos.column,
-                                y = (cell + gap) * pos.row)
+                            .offset(x = tileLeft, y = tileTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                 height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(5f)
