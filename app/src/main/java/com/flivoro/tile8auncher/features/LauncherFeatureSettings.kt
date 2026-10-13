@@ -64,6 +64,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var showLauncherModePicker by remember { mutableStateOf(false) }
     var showPhoneColumnsPicker by remember { mutableStateOf(false) }
     var showPhoneTransparencyPicker by remember { mutableStateOf(false) }
+    var showPhoneBackgroundStylePicker by remember { mutableStateOf(false) }
     val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
     val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
@@ -189,6 +190,11 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         ) { showPhoneColumnsPicker = true }
 
         if (launcherMode == LauncherUiMode.MOBILE_10) {
+            SettingsActionRow(
+                title = "Start background picture style",
+                description = LauncherFeatureStore.phoneBackgroundStyle(context).displayName,
+                glyph = "photos",
+            ) { showPhoneBackgroundStylePicker = true }
             SettingsToggleRow(
                 title = "Recently installed apps",
                 description = "Show recently installed apps at the top of the Windows 10 Mobile app list.",
@@ -383,6 +389,26 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                         onClick = {
                             LauncherFeatureStore.setPhoneSmallColumns(context, launcherMode, n)
                             showPhoneColumnsPicker = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showPhoneBackgroundStylePicker) {
+        Dialog(onDismissRequest = { showPhoneBackgroundStylePicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Windows 10 Mobile background style", fontSize = 20.sp,
+                    color = settingsPurple)
+                PhoneBackgroundStyle.entries.forEach { style ->
+                    ChoiceRow(
+                        label = style.displayName,
+                        selected = LauncherFeatureStore.phoneBackgroundStyle(context) == style,
+                        lightSurface = true,
+                        onClick = {
+                            LauncherFeatureStore.setPhoneBackgroundStyle(context, style)
+                            showPhoneBackgroundStylePicker = false
                         },
                     )
                 }
