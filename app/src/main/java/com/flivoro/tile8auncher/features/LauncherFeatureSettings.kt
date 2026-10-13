@@ -47,6 +47,7 @@ import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
+import com.flivoro.tile8auncher.ui.phone.PhoneLayoutStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -188,6 +189,14 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             description = "${LauncherFeatureStore.phoneSmallColumns(context, launcherMode)} small tiles across. Adjusts only ${launcherMode.title}.",
             glyph = "app",
         ) { showPhoneColumnsPicker = true }
+        SettingsActionRow(
+            title = "Restore Lumia-style Start layout",
+            description = "Reset this phone mode's pinned tile order to the phone-specific starting layout. This does not modify Desktop or other phone modes.",
+            glyph = "app",
+        ) {
+            PhoneLayoutStore.resetOrder(context, launcherMode)
+            (context as? Activity)?.recreate()
+        }
 
         if (launcherMode == LauncherUiMode.MOBILE_10) {
             SettingsActionRow(
