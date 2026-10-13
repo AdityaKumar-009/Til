@@ -1889,6 +1889,7 @@ private fun PhoneStartGrid(
         .takeIf { it > 0f } ?: viewportHeightPx / density
     val viewportWidthCssPx = surfaceBounds.width / density
     BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val classicUnit = maxWidth.value / 480f
         // Disco paints 6 CSS-pixel insets on both sides of each GridStack cell:
         // the visible gap is 12/480 of the viewport. Painted gutters are
         // 19+6 = 25 units (four columns) or 6+6 = 12 (six columns).
