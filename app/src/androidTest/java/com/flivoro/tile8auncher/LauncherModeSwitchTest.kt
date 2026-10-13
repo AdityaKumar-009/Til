@@ -90,15 +90,12 @@ class LauncherModeSwitchTest {
             }
 
             fun openPhoneSettings(mode: LauncherUiMode) {
-                compose.onNodeWithTag("phone-bottom-search").performClick()
-                if (mode == LauncherUiMode.PHONE_8) {
-                    compose.onNodeWithTag("phone-app-search-toggle").performClick()
-                }
-                awaitUi("$mode All Apps settings button") {
-                    compose.onAllNodesWithTag("phone-launcher-settings")
+                awaitUi("$mode Action Center trigger") {
+                    compose.onAllNodesWithTag("phone-action-center-trigger")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
-                compose.onNodeWithTag("phone-launcher-settings").performClick()
+                compose.onNodeWithTag("phone-action-center-trigger").performClick()
+                compose.onNodeWithText("All settings").performClick()
                 awaitUi("$mode PC settings content") {
                     compose.onAllNodesWithText("Open Android System Settings")
                         .fetchSemanticsNodes().isNotEmpty()
@@ -145,11 +142,8 @@ class LauncherModeSwitchTest {
                     compose.onAllNodesWithTag("phone-bottom-search")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
-                compose.onNodeWithTag("phone-bottom-search").performClick()
-                if (mode == LauncherUiMode.PHONE_8) {
-                    compose.onNodeWithTag("phone-app-search-toggle").performClick()
-                }
-                compose.onNodeWithTag("phone-launcher-settings").performClick()
+                compose.onNodeWithTag("phone-action-center-trigger").performClick()
+                compose.onNodeWithText("All settings").performClick()
                 compose.onNodeWithText("Open Android System Settings").assertExists()
                 compose.onNodeWithText("✕").performClick()
                 compose.waitForIdle()
