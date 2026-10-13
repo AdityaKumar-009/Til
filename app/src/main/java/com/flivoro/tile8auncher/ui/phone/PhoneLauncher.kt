@@ -2325,17 +2325,17 @@ private fun PhoneStartGrid(
                                 // Disco's overlay is two outlined 42px circles at
                                 // (-15,-15) and (right+15,bottom+15), not a full border.
                                 Box(Modifier.align(Alignment.TopEnd)
-                                    .offset(x = 15.dp, y = (-15).dp)
-                                    .size(42.dp)
+                                    .offset(x = (15f * classicUnit).dp, y = (-15f * classicUnit).dp)
+                                    .size((42f * classicUnit).dp)
                                     .background(Color.Black, CircleShape)
-                                    .border(3.dp, Color.White, CircleShape)
+                                    .border((3f * classicUnit).dp, Color.White, CircleShape)
                                     .clickable { onUnpinTile(editKey) }
                                     .testTag("disco-tile-unpin"),
                                     contentAlignment = Alignment.Center) {
                                     // The source draws a crossed-circle control;
                                     // font glyphs have device-dependent baselines.
-                                    androidx.compose.foundation.Canvas(Modifier.size(23.dp)) {
-                                        val stroke = 2.6.dp.toPx()
+                                    androidx.compose.foundation.Canvas(Modifier.size((23f * classicUnit).dp)) {
+                                        val stroke = (2.6f * classicUnit).dp.toPx()
                                         drawLine(Color.White,
                                             Offset(size.width * .18f, size.height * .18f),
                                             Offset(size.width * .82f, size.height * .82f),
@@ -2349,15 +2349,15 @@ private fun PhoneStartGrid(
                                     }
                                 }
                                 Box(Modifier.align(Alignment.BottomEnd)
-                                    .offset(x = 15.dp, y = 15.dp)
-                                    .size(42.dp)
+                                    .offset(x = (15f * classicUnit).dp, y = (15f * classicUnit).dp)
+                                    .size((42f * classicUnit).dp)
                                     .background(Color.Black, CircleShape)
-                                    .border(3.dp, Color.White, CircleShape)
+                                    .border((3f * classicUnit).dp, Color.White, CircleShape)
                                     .clickable { onResizeTile(editKey) }
                                     .testTag("disco-tile-resize"),
                                     contentAlignment = Alignment.Center) {
                                     androidx.compose.foundation.Canvas(
-                                        Modifier.size(23.dp).graphicsLayer {
+                                        Modifier.size((23f * classicUnit).dp).graphicsLayer {
                                             rotationZ = when (tile.size) {
                                                 TileSize.LARGE -> 90f
                                                 TileSize.WIDE -> 0f
@@ -2366,7 +2366,7 @@ private fun PhoneStartGrid(
                                             }
                                         },
                                     ) {
-                                        val stroke = 2.6.dp.toPx()
+                                        val stroke = (2.6f * classicUnit).dp.toPx()
                                         val tl = Offset(size.width * .2f, size.height * .2f)
                                         val br = Offset(size.width * .8f, size.height * .8f)
                                         drawLine(Color.White, tl, br, strokeWidth = stroke,
