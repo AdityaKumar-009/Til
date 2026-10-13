@@ -534,17 +534,16 @@ fun PhoneLauncherSurface(
         }
     }
 
-    // On Android app Back the launcher may be composed again from saved UI state.
-    // Restore the physical pane position before its first frame, not via a 270 ms
-    // Start-to-All-Apps tween. Ordinary user swipes still animate this same Animatable.
+    // Both phone modes use the same finger-driven panorama. Initialise from the
+    // remembered page so app Back does not briefly slide through Start.
+    // The W10M tile/app launch effects remain on their independent motion clock.
     val classicPanorama = remember(mode) { Animatable(if (showApps) 1f else 0f) }
     val panoramaScope = rememberCoroutineScope()
     var classicDragPosition by remember(mode) { mutableStateOf<Float?>(null) }
     var classicReleasePosition by remember(mode) { mutableStateOf<Float?>(null) }
     var classicReleaseRequest by remember(mode) { mutableStateOf(0) }
-    LaunchedEffect(isClassicPhone, showApps, suppressReturnPaneTransition, classicReleaseRequest) {
-        if (!isClassicPhone) return@LaunchedEffect
-        if (suppressReturnPaneTransition) {
+    LaunchedEffect(mode, showApps, suppressReturnPaneTransition, classicReleaseRequest) {
+        if (suppressReturnPaneTransition && isClassicPhone) {
             classicDragPosition = null
             classicReleasePosition = null
             classicPanorama.snapTo(0f)
@@ -552,17 +551,17 @@ fun PhoneLauncherSurface(
             classicReleasePosition?.let { classicPanorama.snapTo(it) }
             classicReleasePosition = null
             classicDragPosition = null
-            classicPanorama.animateTo(if (showApps) 1f else 0f, tween(270,
+            classicPanorama.animateTo(if (showApps) 1f else 0f, tween(
+                durationMillis = if (isTen) 260 else 270,
                 easing = androidx.compose.animation.core.Easing {
                     PhoneMotionTimeline.exponentialEaseOut6(it)
                 }))
         }
     }
-    var horizontalDistance by remember { mutableStateOf(0f) }
     val gestureModifier = Modifier.pointerInput(mode, showApps, interactionEnabled, isLaunching) {
         if (!interactionEnabled || isLaunching) return@pointerInput
         val velocity = VelocityTracker()
-        fun releaseClassicDrag(cancelled: Boolean) {
+        fun releasePanoramaDrag(cancelled: Boolean) {
             val position = classicDragPosition ?: return
             if (!cancelled) {
                 val speed = velocity.calculateVelocity().x / densityScale
@@ -573,34 +572,19 @@ fun PhoneLauncherSurface(
         }
         detectHorizontalDragGestures(
             onDragStart = {
-                horizontalDistance = 0f
                 velocity.resetTracking()
-                if (isClassicPhone) {
-                    classicForwardEntranceActive = false
-                    classicDragPosition = classicPanorama.value
-                    panoramaScope.launch { classicPanorama.stop() }
-                }
+                if (isClassicPhone) classicForwardEntranceActive = false
+                classicDragPosition = classicPanorama.value
+                panoramaScope.launch { classicPanorama.stop() }
             },
             onHorizontalDrag = { change, amount ->
-                horizontalDistance += amount
-                if (isClassicPhone) {
-                    velocity.addPosition(change.uptimeMillis, change.position)
-                    classicDragPosition = ((classicDragPosition ?: classicPanorama.value) -
-                        amount / paneBounds.width.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                }
+                velocity.addPosition(change.uptimeMillis, change.position)
+                classicDragPosition = ((classicDragPosition ?: classicPanorama.value) -
+                    amount / paneBounds.width.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 change.consume()
             },
-            onDragEnd = {
-                if (isClassicPhone) releaseClassicDrag(false) else {
-                    if (horizontalDistance < -70f) showApps = true
-                    if (horizontalDistance > 70f) showApps = false
-                }
-                horizontalDistance = 0f
-            },
-            onDragCancel = {
-                if (isClassicPhone) releaseClassicDrag(true)
-                horizontalDistance = 0f
-            },
+            onDragEnd = { releasePanoramaDrag(false) },
+            onDragCancel = { releasePanoramaDrag(true) },
         )
     }
 
@@ -635,21 +619,10 @@ fun PhoneLauncherSurface(
             // AnimatedContent was destroying the All Apps page whenever Start was selected,
             // so its independent 3D return was missing after launching from Start.
             // Keep both pages mounted and move the panorama with one shared X translation.
-            val nonClassicPanoramaProgress by animateFloatAsState(
-                targetValue = if (showApps && !suppressReturnPaneTransition) 1f else 0f,
-                animationSpec = if (suppressReturnPaneTransition && isClassicPhone) snap()
-                    else tween(
-                        durationMillis = if (isTen) 260 else 270,
-                        easing = androidx.compose.animation.core.Easing {
-                            PhoneMotionTimeline.exponentialEaseOut6(it)
-                        },
-                    ),
-                label = "Phone panorama position",
-            )
-            val panoramaProgress = if (isClassicPhone) {
-                if (suppressReturnPaneTransition) 0f
+            // The drag position is composed immediately; only release settles
+            // with the pre-existing 260/270 ms curve. Both panes translate together.
+            val panoramaProgress = if (suppressReturnPaneTransition && isClassicPhone) 0f
                 else classicDragPosition ?: classicPanorama.value
-            } else nonClassicPanoramaProgress
             Box(
                 Modifier.weight(1f).fillMaxWidth().clipToBounds()
                     .onGloballyPositioned { paneBounds = it.boundsInWindow() }
