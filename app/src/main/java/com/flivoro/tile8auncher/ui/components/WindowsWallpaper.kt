@@ -52,6 +52,8 @@ fun PhoneTilePicture(
     tileTopPx: Float,
     gridWidthPx: Float,
     gridHeightPx: Float,
+    /** Undo the tile's animation matrix AFTER clipping to its moving face. */
+    inverseTileProjection: (() -> Matrix?)? = null,
 ) {
     val uri = StartPersonalization.customWallpaperUri
     val bitmap = if (uri != null) {
@@ -78,6 +80,10 @@ fun PhoneTilePicture(
                 val native = canvas.nativeCanvas
                 val save = native.save()
                 native.clipRect(0f, 0f, size.width, size.height)
+                // The clip stays on the animated tile, while bitmap sampling is
+                // transformed back into the unchanged Start wallpaper plane.
+                // This is Disco's static-wallpaper-through-moving-tiles effect.
+                inverseTileProjection?.invoke()?.let(native::concat)
                 native.drawBitmap(bitmap, null,
                     android.graphics.RectF(x, y, x + scaledWidth, y + scaledHeight),
                     paint)
