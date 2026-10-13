@@ -117,6 +117,8 @@ import kotlin.math.roundToInt
 /** Phone Start coordinates are independent from Desktop's horizontal tile-group coordinates. */
 internal data class PhoneTileSlot(val column: Int, val row: Int, val columns: Int, val rows: Int)
 
+private const val MOSAIC_SETTINGS_ID = "mosaic.launcher.settings"
+
 // Preview/instrumentation can inspect an exact motion timestamp independently
 // of a device's vsync interval. Production always uses the display clock.
 internal val LocalPhoneMotionSampleMillis = staticCompositionLocalOf<(() -> Int?)?> { null }
@@ -334,12 +336,18 @@ fun PhoneLauncherSurface(
     val isTen = mode == LauncherUiMode.MOBILE_10
     val densityScale = LocalDensity.current.density
     val accent = StartPersonalization.accentColor
-    val catalog = remember(sections) { sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
+    val catalog = remember(sections) {
+        (sections.flatMap(AppSection::apps) + AppInfo(
+            label = "Mosaic Settings",
+            packageName = MOSAIC_SETTINGS_ID,
+            activityName = "",
+        )).distinctBy(AppInfo::packageName)
+    }
     val byPackage = remember(catalog) { catalog.associateBy(AppInfo::packageName) }
     val desktopById = remember(tiles, mode) {
         tiles.associateBy(TileModel::id).mapValues { (id, tile) ->
             when (id) {
-                "tile_settings" -> tile.copy(title = "Settings")
+                "tile_settings" -> tile.copy(title = "Mosaic Settings", iconGlyph = "settings")
                 "tile_mail", "tile_calendar" -> tile.copy(size = TileSize.MEDIUM)
                 else -> tile
             }
@@ -558,6 +566,10 @@ fun PhoneLauncherSurface(
         activityName = app.activityName,
         colorValue = appsRepository.getCachedAppAccentColor(app.packageName)
             ?: StartPersonalization.accentArgb,
+        tileType = if (app.packageName == MOSAIC_SETTINGS_ID)
+            com.flivoro.tile8auncher.data.TileType.SETTINGS
+        else com.flivoro.tile8auncher.data.TileType.APP,
+        iconGlyph = if (app.packageName == MOSAIC_SETTINGS_ID) "settings" else "",
     )
 
     fun tileFor(id: String): TileModel? {
@@ -833,6 +845,8 @@ fun PhoneLauncherSurface(
                             },
                             onClick = { tile, bounds ->
                                 if (editing != null) editing = null
+                                else if (tile.id == "phone_app_$MOSAIC_SETTINGS_ID" ||
+                                    tile.id == "tile_settings") onOpenSettings()
                                 else if (tile.id.startsWith("phone_folder_")) {
                                     openFolderId = tile.id
                                     openFolderBounds = bounds
@@ -1331,7 +1345,10 @@ fun PhoneLauncherSurface(
                                             })
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
-                                                onClick = { onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS) },
+                                                onClick = {
+                                                    if (app.packageName == MOSAIC_SETTINGS_ID) onOpenSettings()
+                                                    else onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS)
+                                                },
                                                 onLongClick = { editing = "app:${app.packageName}" },
                                             )
                                             .padding(vertical = if (isClassicPhone) 0.dp else 5.dp),
@@ -1343,7 +1360,10 @@ fun PhoneLauncherSurface(
                                                 if (isTen) appsRepository.getCachedAppAccentColor(app.packageName)
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
-                                            if (icon != null) androidx.compose.foundation.Image(
+                                            if (app.packageName == MOSAIC_SETTINGS_ID) {
+                                                com.flivoro.tile8auncher.ui.components.MetroIcon(
+                                                    glyph = "settings", size = 27.dp)
+                                            } else if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
                                                 modifier = Modifier.size(if (isClassicPhone) (42f * classicUnit).dp else 28.dp))
                                             else Text(app.label.take(1), color = Color.White,
@@ -1566,7 +1586,7 @@ fun PhoneLauncherSurface(
                                 .background(Color(0xFF303030))
                                 .clickable {
                                     actionCenterOpen = false
-                                    if (intentAction.isEmpty()) phoneSettingsOpen = true
+                                    if (intentAction.isEmpty()) onOpenSettings()
                                     else runCatching { context.startActivity(Intent(intentAction)) }
                                 }.padding(5.dp), contentAlignment = Alignment.Center) {
                                 Text(title, color = Color.White,
@@ -1624,17 +1644,7 @@ fun PhoneLauncherSurface(
                 }.padding(8.dp))
             }
         }
-        if (phoneSettingsOpen) {
-            PhoneNativeSettingsSurface(
-                mode = mode,
-                onClose = { phoneSettingsOpen = false },
-                onLauncherSettings = {
-                    // The parent changes activeInAppTile and owns the screen swap.
-                    // Keep this surface mounted until the parent has changed screens.
-                    onOpenSettings()
-                },
-            )
-        }
+
     }
 
     openFolderId?.let { folderId ->
