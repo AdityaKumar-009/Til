@@ -447,6 +447,9 @@ fun PhoneLauncherSurface(
     var showApps by rememberSaveable(mode, motionHomeRequest, screenOffRequest) {
         mutableStateOf(false)
     }
+    // Disco pins with a deliberate 750ms panorama return; ordinary
+    // swipes and Back retain their independently tuned timing.
+    var classicPinReturn by remember(mode) { mutableStateOf(false) }
     LaunchedEffect(showApps) { onVisiblePageChanged(showApps) }
     var suppressReturnPaneTransition by remember(mode, entranceRequest, motionHomeRequest, screenOffRequest) {
         // A request counter > 0 means an event occurred in the past, NOT that Home is
@@ -778,10 +781,12 @@ fun PhoneLauncherSurface(
             classicReleasePosition = null
             classicDragPosition = null
             classicPanorama.animateTo(if (showApps) 1f else 0f, tween(
-                durationMillis = if (isTen) 260 else 270,
+                durationMillis = if (isTen) 260
+                    else if (isClassicPhone && classicPinReturn) 750 else 270,
                 easing = androidx.compose.animation.core.Easing {
                     PhoneMotionTimeline.exponentialEaseOut6(it)
                 }))
+            if (!showApps) classicPinReturn = false
         }
     }
     val gestureModifier = Modifier.pointerInput(mode, showApps, interactionEnabled, isLaunching) {
@@ -2018,6 +2023,7 @@ fun PhoneLauncherSurface(
                                 // Source: 300ms pre-pan, then center the newly pinned
                                 // tile over 500ms instead of jumping to Start's bottom.
                                 delay(300)
+                                classicPinReturn = true
                                 showApps = false
                                 delay(300)
                                 val selectedTiles = nextOrder.mapNotNull(::tileFor)
