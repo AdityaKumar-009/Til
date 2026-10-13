@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -57,6 +58,8 @@ internal fun PhoneAppContextMenu(
     val context = LocalContext.current
     val classic = mode == LauncherUiMode.PHONE_8
     val screenWidth = LocalConfiguration.current.screenWidthDp
+    val screenWidthPx = with(LocalDensity.current) { screenWidth.dp.toPx() }.coerceAtLeast(1f)
+    val pointerFraction = (xPx / screenWidthPx).coerceIn(0f, 1f)
     val scale = screenWidth / 480f
     val introduction = remember(packageName, mode) { Animatable(if (classic) 0f else 1f) }
     LaunchedEffect(packageName, mode) {
@@ -131,7 +134,7 @@ internal fun PhoneAppContextMenu(
                         .graphicsLayer {
                             scaleX = (phase / .5f).coerceIn(.001f, 1f)
                             alpha = if (phase < .55f) 1f else 0f
-                            transformOrigin = TransformOrigin(.5f, 0f)
+                            transformOrigin = TransformOrigin(pointerFraction, 0f)
                         }
                         .background(Color.White)
                 )
