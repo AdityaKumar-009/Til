@@ -402,6 +402,7 @@ fun PhoneLauncherSurface(
         mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
     }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
+    var appContextBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     // Back returns to the previously visible page. Only Home and screen-off reset to Start;
     // entranceRequest must not recreate showApps or wipe the app drawer's scroll position.
     var showApps by rememberSaveable(mode, motionHomeRequest, screenOffRequest) {
@@ -1361,7 +1362,10 @@ fun PhoneLauncherSurface(
                                                     if (app.packageName == MOSAIC_SETTINGS_ID) onOpenSettings()
                                                     else onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS)
                                                 },
-                                                onLongClick = { editing = "app:${app.packageName}" },
+                                                onLongClick = {
+                                                    editing = "app:${app.packageName}"
+                                                    appContextBounds = bounds
+                                                },
                                             )
                                             .padding(vertical = if (isClassicPhone) 0.dp else 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1695,67 +1699,31 @@ fun PhoneLauncherSurface(
         }
     }
 
-    editing?.takeIf { showApps }?.let { id ->
-        val tile = tileFor(id)
-        if (tile != null) {
-            AlertDialog(
-                onDismissRequest = { editing = null },
-                containerColor = Color(0xFF1E1E1E),
-                title = { Text(tile.title, color = Color.White) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        if (id.startsWith("app:")) {
-                            Text("Pin to Start", color = accent,
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    saveOrder(order + id)
-                                    editing = null
-                                    showApps = false
-                                }.padding(8.dp))
-                            Text("App info", color = Color.White,
-                                modifier = Modifier.clickable {
-                                    tile.packageName?.let(onOpenAppInfo)
-                                    editing = null
-                                }.padding(8.dp))
-                        } else {
-                            Text("Resize", color = Color.White, fontSize = 17.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TileSize.entries.filter { it != TileSize.LARGE }
-                                    .forEach { size ->
-                                    Text(size.name.take(1), color = if (size == tile.size) accent else Color.White,
-                                        modifier = Modifier.clickable {
-                                            PhoneLayoutStore.saveSize(context, mode, id, size)
-                                            phoneRevision++
-                                            editing = null
-                                        }.padding(8.dp))
-                                }
-                            }
-                            Text("Tile accent", color = Color.White, fontSize = 17.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(0xFF0078D7L,0xFF603CBA,0xFF008A00,0xFFE51400,0xFF00ABA9,0xFFD80073)
-                                    .forEach { value ->
-                                        Box(Modifier.size(28.dp).background(Color(value)).clickable {
-                                            PhoneLayoutStore.saveColor(context, mode, id, value)
-                                            phoneRevision++
-                                            editing = null
-                                        })
-                                    }
-                            }
-                            Text("Move to beginning", color = Color.White,
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    saveOrder(listOf(id) + order.filterNot { it == id })
-                                    editing = null
-                                }.padding(7.dp))
-                            Text("Unpin from phone Start", color = Color.White,
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    saveOrder(order.filterNot { it == id })
-                                    editing = null
-                                }.padding(7.dp))
-                        }
-                    }
+    // Native Windows Phone uses a compact menu beside the held app row.
+    editing?.takeIf { showApps && it.startsWith("app:") }?.let { id ->
+        val pkg = id.removePrefix("app:")
+        val app = byPackage[pkg]
+        if (app != null) {
+            val menuHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+                265.dp.toPx()
+            }
+            PhoneAppContextMenu(
+                mode = mode,
+                packageName = pkg,
+                alreadyPinned = id in order,
+                xPx = appContextBounds.left.toInt().coerceAtLeast(8),
+                yPx = appContextBounds.bottom.toInt().coerceAtMost(
+                    (surfaceBounds.height - menuHeightPx).toInt().coerceAtLeast(0),
+                ),
+                onPinChanged = {
+                    if (id in order) saveOrder(order.filterNot { it == id })
+                    else saveOrder(order + id)
                 },
-                confirmButton = { TextButton(onClick = { editing = null }) {
-                    Text("Done", color = accent)
-                } },
+                onAppInfo = {
+                    if (pkg == MOSAIC_SETTINGS_ID) onOpenSettings()
+                    else onOpenAppInfo(pkg)
+                },
+                onDismiss = { editing = null },
             )
         } else editing = null
     }
