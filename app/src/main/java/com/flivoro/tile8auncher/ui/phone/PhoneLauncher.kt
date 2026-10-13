@@ -658,7 +658,8 @@ fun PhoneLauncherSurface(
                     },
                     horizontalArrangement = Arrangement.End) {
                     Text("⌄", color = Color.White, fontSize = 20.sp,
-                        modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) {
+                        modifier = Modifier.testTag("phone-action-center-trigger")
+                            .clickable(enabled = interactionEnabled && !isLaunching) {
                             actionCenterOpen = !actionCenterOpen
                         })
                 }
@@ -1393,6 +1394,10 @@ fun PhoneLauncherSurface(
             // Android's real notification shade remains system-owned.
             Box(Modifier.align(Alignment.TopCenter).statusBarsPadding()
                 .fillMaxWidth().height(20.dp)
+                .testTag("phone-action-center-trigger")
+                .clickable(enabled = interactionEnabled && !isLaunching) {
+                    actionCenterOpen = true
+                }
                 .pointerInput(interactionEnabled) {
                     if (interactionEnabled) {
                         var distance = 0f
