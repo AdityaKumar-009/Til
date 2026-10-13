@@ -51,6 +51,13 @@ jobs:
           path: app/build/outputs/apk/performance/*.apk
           if-no-files-found: error
           retention-days: 2
+      - name: Upload performance R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-r8-mapping
+          path: app/build/outputs/mapping/performance/mapping.txt
+          if-no-files-found: error
+          retention-days: 2
       - name: Fail if unit tests failed
         if: steps.unit_tests.outcome == 'failure'
         run: |

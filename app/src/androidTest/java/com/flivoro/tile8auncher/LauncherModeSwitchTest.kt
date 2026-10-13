@@ -66,6 +66,14 @@ class LauncherModeSwitchTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val previousMode = LauncherFeatureStore.launcherUiMode(context)
         try {
+            fun awaitUi(description: String, condition: () -> Boolean) {
+                try {
+                    compose.waitUntil(timeoutMillis = 20_000) { condition() }
+                } catch (failure: Throwable) {
+                    throw AssertionError("Timed out waiting for $description", failure)
+                }
+            }
+
             compose.runOnUiThread {
                 LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.DESKTOP)
                 LauncherFeatureStore.confirmPhoneRender(context)
@@ -75,11 +83,11 @@ class LauncherModeSwitchTest {
 
             // Follow the visible PC Settings path used by the mode picker, rather than
             // changing SharedPreferences behind the UI as the lower-level tests do.
-            compose.waitUntil(timeoutMillis = 20_000) {
+            awaitUi("desktop PC settings tile") {
                 compose.onAllNodesWithText("PC settings").fetchSemanticsNodes().isNotEmpty()
             }
             compose.onNodeWithText("PC settings").performClick()
-            compose.waitUntil(timeoutMillis = 20_000) {
+            awaitUi("PC settings content") {
                 compose.onAllNodesWithText("Open Android System Settings")
                     .fetchSemanticsNodes().isNotEmpty()
             }
@@ -90,7 +98,7 @@ class LauncherModeSwitchTest {
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse("Activity finished while selecting $mode", compose.activity.isFinishing)
                 compose.onNodeWithText("✕").performClick()
-                compose.waitUntil(timeoutMillis = 20_000) {
+                awaitUi("$mode Start screen after closing Settings") {
                     compose.onAllNodesWithTag("phone-bottom-home")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
@@ -101,12 +109,12 @@ class LauncherModeSwitchTest {
 
             compose.onNodeWithTag("phone-bottom-search").performClick()
             compose.onNodeWithTag("phone-app-search-toggle").performClick()
-            compose.waitUntil(timeoutMillis = 20_000) {
+            awaitUi("WP8.1 All Apps search toolbar") {
                 compose.onAllNodesWithTag("phone-launcher-settings")
                     .fetchSemanticsNodes().isNotEmpty()
             }
             compose.onNodeWithTag("phone-launcher-settings").performClick()
-            compose.waitUntil(timeoutMillis = 20_000) {
+            awaitUi("phone PC settings content") {
                 compose.onAllNodesWithText("Open Android System Settings")
                     .fetchSemanticsNodes().isNotEmpty()
             }
