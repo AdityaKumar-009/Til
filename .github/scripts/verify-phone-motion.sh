@@ -67,6 +67,16 @@ EOF
         exit 1
     fi
     echo "Optimized launcher remained alive in $mode."
+
+    # Keep a small visual snapshot for each public APK build. These PNGs are
+    # independent emulator renders, not motion-frame archives.
+    local sdk
+    sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+    mkdir -p app/build/phone-ui-snapshots
+    adb exec-out screencap -p > "app/build/phone-ui-snapshots/${mode}-start-api${sdk}.png"
+    adb shell input swipe 900 1100 150 1100 390
+    sleep 1
+    adb exec-out screencap -p > "app/build/phone-ui-snapshots/${mode}-all-apps-api${sdk}.png"
 }
 verify_phone_mode_startup PHONE_8
 verify_phone_mode_startup MOBILE_10
