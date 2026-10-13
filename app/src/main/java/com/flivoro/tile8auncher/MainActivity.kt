@@ -940,20 +940,13 @@ fun Tile8LauncherApp(
     val launcherMode = remember(launcherModeRevision) {
         LauncherFeatureStore.launcherUiMode(context)
     }
-    // Only the phone facsimiles draw their own Windows Phone navigation keys.
-    // Never leave a second Android 3-button row under them. Desktop is unchanged.
+    // The phone skins are Android launchers, not standalone operating systems:
+    // keep the user's real Android gesture/three-button navigation visible.
+    // The classic mock navigation row was removed from PhoneLauncherSurface.
     LaunchedEffect(launcherMode) {
         (context as? Activity)?.window?.let { hostWindow ->
-            val systemNavigation = WindowCompat.getInsetsController(
-                hostWindow, hostWindow.decorView,
-            )
-            if (launcherMode == LauncherUiMode.DESKTOP) {
-                systemNavigation.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            } else {
-                systemNavigation.systemBarsBehavior =
-                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                systemNavigation.hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
-            }
+            WindowCompat.getInsetsController(hostWindow, hostWindow.decorView)
+                .show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
         }
     }
     val phoneSurfaceStates = rememberSaveableStateHolder()
