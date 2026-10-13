@@ -376,7 +376,10 @@ fun PhoneLauncherSurface(
         if (isTen) MobileAppsMotion.EXIT_TOTAL_MS
         else PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
     } else if (isTen && motionUsesBack && !isLaunching) {
-        if (showApps) MobileAppsMotion.BACK_TOTAL_MS else MobileStartMotion.BACK_TOTAL_MS
+        // Both panorama panes stay mounted. Let their shared clock reach both
+        // resting poses, even though All apps visibly settles first; otherwise
+        // a later swipe to Start reveals tiles stuck at the shorter Apps time.
+        maxOf(MobileAppsMotion.BACK_TOTAL_MS, MobileStartMotion.BACK_TOTAL_MS)
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
         PhoneStartChoreography.APPS_RETURN_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {

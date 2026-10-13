@@ -450,6 +450,11 @@ class PhoneMotionRenderTest {
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             assertTrue("W10M Back failed to restore the originating app list",
                 difference(appsRest, capture("w10-apps-back-return-settled")) < .01)
+            compose.runOnIdle { sampledMotionMillis.value = null }
+            compose.onNodeWithText("‹").performClick()
+            compose.mainClock.advanceTimeBy(400)
+            assertTrue("Start remained frozen at the shorter All apps Back duration",
+                difference(resting, capture("w10-start-after-apps-back")) < .01)
         }
     }
 
