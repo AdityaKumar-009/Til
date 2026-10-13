@@ -1610,6 +1610,7 @@ fun PhoneLauncherSurface(
             PhoneFolderSurface(
                 folder = folder,
                 children = folder.children.mapNotNull { tileFor(it) },
+                repository = appsRepository,
                 onOpenChild = { childId ->
                     tileFor(childId)?.let { child ->
                         openFolderId = null
@@ -1871,6 +1872,7 @@ private fun PhoneStartGrid(
                     folderPreviews[tile.id]?.let { children ->
                         PhoneFolderPreview(
                             children = children,
+                            repository = appsRepository,
                             modifier = Modifier
                                 .offset(x = side + (cell + gap) * pos.column,
                                     y = (cell + gap) * pos.row)
