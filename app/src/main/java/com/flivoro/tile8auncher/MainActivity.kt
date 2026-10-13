@@ -1031,6 +1031,7 @@ fun Tile8LauncherApp(
                         },
                         onOpenSettings = { openLauncherSettings() },
                         onOpenAppInfo = { onOpenAppInfo(it) },
+                        onUninstallApp = { onUninstallApp(it) },
                         onVisiblePageChanged = onPhonePageChanged,
                         )
                     }
