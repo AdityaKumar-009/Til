@@ -368,6 +368,13 @@ fun PhoneLauncherSurface(
     var search by remember(mode) { mutableStateOf("") }
     var phone8SearchVisible by remember(mode) { mutableStateOf(false) }
     var phoneRevision by remember(mode) { mutableStateOf(0) }
+    var folderRevision by remember(mode) { mutableIntStateOf(0) }
+    val phoneFolders = remember(mode, folderRevision) {
+        PhoneFolderStore.read(context, mode)
+    }
+    val foldersById = remember(phoneFolders) { phoneFolders.associateBy(PhoneFolder::id) }
+    var openFolderId by remember(mode) { mutableStateOf<String?>(null) }
+    var openFolderBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
     val mobileTilePictureMode = remember(mode, densityRevision) {
         isTen && LauncherFeatureStore.phoneBackgroundStyle(context) ==
@@ -522,20 +529,49 @@ fun PhoneLauncherSurface(
     )
 
     fun tileFor(id: String): TileModel? {
-        val source = desktopById[id] ?: if (id.startsWith("app:")) {
-            byPackage[id.removePrefix("app:")]?.let(::appTile)
-        } else null
+        val source = desktopById[id] ?: when {
+            id.startsWith("app:") -> byPackage[id.removePrefix("app:")]?.let(::appTile)
+            id.startsWith("phone_folder_") -> foldersById[id]?.let { folder ->
+                TileModel(
+                    id = folder.id,
+                    title = folder.name,
+                    size = TileSize.MEDIUM,
+                    colorValue = StartPersonalization.accentArgb,
+                    iconGlyph = "folder",
+                )
+            }
+            else -> null
+        }
         return source?.copy(
             size = PhoneLayoutStore.size(context, mode, source),
             colorValue = PhoneLayoutStore.color(context, mode, source),
         )
     }
 
-    val phoneTiles = remember(order, tiles, catalog, phoneRevision) { order.mapNotNull { id -> tileFor(id) } }
+    val phoneTiles = remember(order, tiles, catalog, phoneRevision, folderRevision) {
+        order.mapNotNull { id -> tileFor(id) }
+    }
+    val folderPreviews = remember(phoneFolders, catalog, tiles, phoneRevision) {
+        phoneFolders.associate { folder ->
+            folder.id to folder.children.mapNotNull { id -> tileFor(id) }
+        }
+    }
 
     fun saveOrder(next: List<String>) {
         order = next.distinct()
         PhoneLayoutStore.saveOrder(context, mode, order)
+    }
+
+    fun ungroupFolder(id: String) {
+        val children = PhoneFolderStore.dissolve(context, mode, id)
+        if (children.isEmpty()) return
+        val oldIndex = order.indexOf(id).coerceAtLeast(0)
+        val next = order.filterNot { it == id }.toMutableList()
+        next.addAll(oldIndex.coerceAtMost(next.size), children)
+        saveOrder(next)
+        folderRevision++
+        editing = null
+        openFolderId = null
     }
 
     // Handle only a NEW Home request. Relaunching/recomposing the phone surface must not
@@ -579,8 +615,10 @@ fun PhoneLauncherSurface(
         }
     }
 
-    BackHandler(interactionEnabled && (showApps || alphabetOpen || actionCenterOpen || editing != null)) {
+    BackHandler(interactionEnabled && (showApps || alphabetOpen || actionCenterOpen ||
+        editing != null || openFolderId != null)) {
         when {
+            openFolderId != null -> openFolderId = null
             editing != null -> editing = null
             alphabetOpen -> alphabetOpen = false
             actionCenterOpen -> actionCenterOpen = false
@@ -714,6 +752,7 @@ fun PhoneLauncherSurface(
                             mobileTilePictureMode = mobileTilePictureMode,
                             appsRepository = appsRepository,
                             editingTileId = editing.takeIf { !showApps },
+                            folderPreviews = folderPreviews,
                             onResizeTile = { id ->
                                 tileFor(id)?.let { tile ->
                                     val size = when (tile.size) {
@@ -726,8 +765,28 @@ fun PhoneLauncherSurface(
                                 }
                             },
                             onUnpinTile = { id ->
-                                saveOrder(order.filterNot { it == id })
-                                editing = null
+                                if (id.startsWith("phone_folder_")) ungroupFolder(id)
+                                else {
+                                    saveOrder(order.filterNot { it == id })
+                                    editing = null
+                                }
+                            },
+                            onMergeTile = { fromId, toId ->
+                                if (fromId in order && toId in order && fromId != toId) {
+                                    val folderId = PhoneFolderStore.createOrAdd(
+                                        context, mode, fromId, toId,
+                                    )
+                                    if (folderId != null) {
+                                        val result = order.filterNot { it == fromId }.toMutableList()
+                                        if (toId != folderId) {
+                                            val index = result.indexOf(toId)
+                                            if (index >= 0) result[index] = folderId
+                                        }
+                                        saveOrder(result)
+                                        folderRevision++
+                                        editing = null
+                                    }
+                                }
                             },
                             onMoveTile = { fromId, toId ->
                                 val fromIndex = order.indexOf(fromId)
@@ -742,7 +801,10 @@ fun PhoneLauncherSurface(
                             },
                             onClick = { tile, bounds ->
                                 if (editing != null) editing = null
-                                else onLaunch(tile, bounds, LaunchOrigin.START)
+                                else if (tile.id.startsWith("phone_folder_")) {
+                                    openFolderId = tile.id
+                                    openFolderBounds = bounds
+                                } else onLaunch(tile, bounds, LaunchOrigin.START)
                             },
                             onLongClick = { editing = it },
                         )
@@ -1543,6 +1605,41 @@ fun PhoneLauncherSurface(
         }
     }
 
+    openFolderId?.let { folderId ->
+        phoneFolders.firstOrNull { it.id == folderId }?.let { folder ->
+            PhoneFolderSurface(
+                folder = folder,
+                children = folder.children.mapNotNull { tileFor(it) },
+                onOpenChild = { childId ->
+                    tileFor(childId)?.let { child ->
+                        openFolderId = null
+                        onLaunch(child, openFolderBounds, LaunchOrigin.START)
+                    }
+                },
+                onRemoveChild = { childId ->
+                    val remaining = PhoneFolderStore.removeChild(context, mode, folderId, childId)
+                    val index = order.indexOf(folderId).coerceAtLeast(0)
+                    val result = order.toMutableList()
+                    if (remaining.size < 2) {
+                        result.remove(folderId)
+                        result.addAll(index.coerceAtMost(result.size), remaining + childId)
+                        openFolderId = null
+                    } else {
+                        result.add((index + 1).coerceAtMost(result.size), childId)
+                    }
+                    saveOrder(result)
+                    folderRevision++
+                },
+                onRename = { name ->
+                    PhoneFolderStore.rename(context, mode, folderId, name)
+                    folderRevision++
+                },
+                onUngroup = { ungroupFolder(folderId) },
+                onDismiss = { openFolderId = null },
+            )
+        }
+    }
+
     editing?.takeIf { showApps }?.let { id ->
         val tile = tileFor(id)
         if (tile != null) {
@@ -1631,6 +1728,8 @@ private fun PhoneStartGrid(
     onResizeTile: (String) -> Unit,
     onUnpinTile: (String) -> Unit,
     onMoveTile: (String, String) -> Unit,
+    onMergeTile: (String, String) -> Unit,
+    folderPreviews: Map<String, List<TileModel>>,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
 ) {
@@ -1769,6 +1868,19 @@ private fun PhoneStartGrid(
                             )
                         },
                     )
+                    folderPreviews[tile.id]?.let { children ->
+                        PhoneFolderPreview(
+                            children = children,
+                            modifier = Modifier
+                                .offset(x = side + (cell + gap) * pos.column,
+                                    y = (cell + gap) * pos.row)
+                                .size(
+                                    width = cell * pos.columns + gap * (pos.columns - 1),
+                                    height = cell * pos.rows + gap * (pos.rows - 1),
+                                )
+                                .zIndex(1f),
+                        )
+                    }
                     if (isSelectedForEdit) {
                         Box(Modifier
                             .offset(x = side + (cell + gap) * pos.column,
@@ -1805,11 +1917,22 @@ private fun PhoneStartGrid(
                                                     val dy = currentCenterY - targetY
                                                     dx * dx + dy * dy
                                                 }
-                                            destination?.let { onMoveTile(editKey, tiles[it].id.let { targetId ->
-                                                if (targetId.startsWith("phone_app_"))
-                                                    "app:" + targetId.removePrefix("phone_app_")
-                                                else targetId
-                                            }) }
+                                            destination?.let { target ->
+                                                val chosen = slots[target]
+                                                val centerX = (chosen.column + chosen.columns * .5f) * cellStepPx
+                                                val centerY = (chosen.row + chosen.rows * .5f) * cellStepPx
+                                                val targetId = tiles[target].id.let { tileId ->
+                                                    if (tileId.startsWith("phone_app_"))
+                                                        "app:" + tileId.removePrefix("phone_app_")
+                                                    else tileId
+                                                }
+                                                val centered = kotlin.math.abs(currentCenterX - centerX) <
+                                                    chosen.columns * cellStepPx * .32f &&
+                                                    kotlin.math.abs(currentCenterY - centerY) <
+                                                    chosen.rows * cellStepPx * .32f
+                                                if (centered) onMergeTile(editKey, targetId)
+                                                else onMoveTile(editKey, targetId)
+                                            }
                                         }
                                         tileDragOffset = Offset.Zero
                                     },
