@@ -2286,9 +2286,21 @@ private fun PhoneStartGrid(
                                     .clickable { onUnpinTile(editKey) }
                                     .testTag("disco-tile-unpin"),
                                     contentAlignment = Alignment.Center) {
-                                    Text("×", color = Color.White,
-                                        fontSize = 30.sp,
-                                        fontWeight = FontWeight.Light)
+                                    // The source draws a crossed-circle control;
+                                    // font glyphs have device-dependent baselines.
+                                    androidx.compose.foundation.Canvas(Modifier.size(23.dp)) {
+                                        val stroke = 2.6.dp.toPx()
+                                        drawLine(Color.White,
+                                            Offset(size.width * .18f, size.height * .18f),
+                                            Offset(size.width * .82f, size.height * .82f),
+                                            strokeWidth = stroke,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                        drawLine(Color.White,
+                                            Offset(size.width * .82f, size.height * .18f),
+                                            Offset(size.width * .18f, size.height * .82f),
+                                            strokeWidth = stroke,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                    }
                                 }
                                 Box(Modifier.align(Alignment.BottomEnd)
                                     .offset(x = 15.dp, y = 15.dp)
@@ -2298,9 +2310,30 @@ private fun PhoneStartGrid(
                                     .clickable { onResizeTile(editKey) }
                                     .testTag("disco-tile-resize"),
                                     contentAlignment = Alignment.Center) {
-                                    Text("↘", color = Color.White,
-                                        fontSize = 28.sp,
-                                        fontWeight = FontWeight.Light)
+                                    androidx.compose.foundation.Canvas(
+                                        Modifier.size(23.dp).graphicsLayer {
+                                            rotationZ = when (tile.size) {
+                                                TileSize.LARGE -> 90f
+                                                TileSize.WIDE -> 0f
+                                                TileSize.MEDIUM -> 45f
+                                                TileSize.SMALL -> 225f
+                                            }
+                                        },
+                                    ) {
+                                        val stroke = 2.6.dp.toPx()
+                                        val tl = Offset(size.width * .2f, size.height * .2f)
+                                        val br = Offset(size.width * .8f, size.height * .8f)
+                                        drawLine(Color.White, tl, br, strokeWidth = stroke,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                        drawLine(Color.White,
+                                            Offset(size.width * .38f, size.height * .8f), br,
+                                            strokeWidth = stroke,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                        drawLine(Color.White,
+                                            Offset(size.width * .8f, size.height * .38f), br,
+                                            strokeWidth = stroke,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                    }
                                 }
                             } else {
                                 Box(Modifier.align(Alignment.TopEnd)
