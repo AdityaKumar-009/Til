@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -36,9 +37,13 @@ fun Modifier.elasticVerticalScroll(
     resistance: Float = 0.52f,
     maxOverscroll: Dp = 96.dp,
     classicPhonePhysics: Boolean = false,
+    onTopPullRelease: (() -> Unit)? = null,
 ): Modifier {
     val density = LocalDensity.current
-    val resistanceFactor = resistance.coerceIn(0.05f, 1f)
+    val latestOnTopPullRelease by rememberUpdatedState(onTopPullRelease)
+    // WP8.1 has a 50%-stronger rubber band; desktop/W10M are unchanged.
+    val resistanceFactor = (if (classicPhonePhysics) resistance * 1.5f
+        else resistance).coerceIn(0.05f, 1f)
     val maxOverscrollPx = with(density) { maxOverscroll.toPx() }.coerceAtLeast(1f)
     var overscrollPx by remember { mutableFloatStateOf(0f) }
     var viewportHeightPx by remember { mutableFloatStateOf(0f) }
@@ -109,7 +114,8 @@ fun Modifier.elasticVerticalScroll(
 
                 cancelReturn()
                 val cap = if (viewportHeightPx > 0f) {
-                    min(maxOverscrollPx, viewportHeightPx * 0.24f)
+                    min(maxOverscrollPx, viewportHeightPx *
+                        if (classicPhonePhysics) .36f else .24f)
                 } else maxOverscrollPx
                 overscrollPx = elasticOffset(overscrollPx, available.y, cap, resistanceFactor)
                 // Keep touch drags responsive; fling velocity is handed to the return spring.
@@ -117,7 +123,13 @@ fun Modifier.elasticVerticalScroll(
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                val releaseCap = min(maxOverscrollPx,
+                    (viewportHeightPx * .36f).coerceAtLeast(1f))
+                val openSearch = classicPhonePhysics &&
+                    overscrollPx >= releaseCap * .52f &&
+                    latestOnTopPullRelease != null
                 startReturn(available.y * resistanceFactor)
+                if (openSearch) latestOnTopPullRelease?.invoke()
                 return Velocity(0f, available.y)
             }
         }
@@ -132,7 +144,7 @@ fun Modifier.elasticVerticalScroll(
                 // Disco overscrollFramework: a maximum 125 CSS-pixel pull
                 // compresses the content axis from 62 to 58 (roughly 6.45%).
                 val cap = min(maxOverscrollPx, if (viewportHeightPx > 0f)
-                    viewportHeightPx * .24f else maxOverscrollPx).coerceAtLeast(1f)
+                    viewportHeightPx * .36f else maxOverscrollPx).coerceAtLeast(1f)
                 scaleY = 1f - (abs(overscrollPx) / cap).coerceIn(0f, 1f) * (1f - 58f / 62f)
                 transformOrigin = TransformOrigin(.5f, if (overscrollPx >= 0f) 0f else 1f)
             }
