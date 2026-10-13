@@ -96,6 +96,11 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
+                awaitUi("$mode native phone settings") {
+                    compose.onAllNodesWithText("TIL launcher settings")
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText("TIL launcher settings").performClick()
                 awaitUi("$mode PC settings content") {
                     compose.onAllNodesWithText("Open Android System Settings")
                         .fetchSemanticsNodes().isNotEmpty()
@@ -144,6 +149,7 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
+                compose.onNodeWithText("TIL launcher settings").performClick()
                 compose.onNodeWithText("Open Android System Settings").assertExists()
                 compose.onNodeWithText("✕").performClick()
                 compose.waitForIdle()
