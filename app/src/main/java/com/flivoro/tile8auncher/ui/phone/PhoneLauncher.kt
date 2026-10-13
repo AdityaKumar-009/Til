@@ -296,8 +296,19 @@ fun PhoneLauncherSurface(
     val accent = StartPersonalization.accentColor
     val catalog = remember(sections) { sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
     val byPackage = remember(catalog) { catalog.associateBy(AppInfo::packageName) }
-    val desktopById = remember(tiles) { tiles.associateBy(TileModel::id) }
-    var order by remember(mode) { mutableStateOf(PhoneLayoutStore.order(context, mode, tiles)) }
+    val desktopById = remember(tiles, mode) {
+        tiles.associateBy(TileModel::id).mapValues { (id, tile) ->
+            if (id == "tile_settings") tile.copy(title = "Settings") else tile
+        }
+    }
+    // The desktop's PC and Reading List shortcuts are not a native phone default.
+    // Preserve any explicitly saved phone order, including a user's custom pins.
+    val phoneSeed = remember(tiles) {
+        tiles.filterNot { it.id in setOf("tile_desktop", "tile_reading_list") }
+    }
+    var order by remember(mode) {
+        mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
+    }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
     // Back returns to the previously visible page. Only Home and screen-off reset to Start;
     // entranceRequest must not recreate showApps or wipe the app drawer's scroll position.
@@ -653,8 +664,28 @@ fun PhoneLauncherSurface(
                             resumeUsesBackMotion = motionUsesBack,
                             mode = mode,
                             tileOpacity = tileOpacity,
+                            wallpaperStyle = wallpaperStyle,
                             appsRepository = appsRepository,
-                            onClick = { tile, bounds -> onLaunch(tile, bounds, LaunchOrigin.START) },
+                            editingTileId = editing.takeIf { !showApps },
+                            onResizeTile = { id ->
+                                tileFor(id)?.let { tile ->
+                                    val size = when (tile.size) {
+                                        TileSize.SMALL -> TileSize.MEDIUM
+                                        TileSize.MEDIUM -> TileSize.WIDE
+                                        TileSize.WIDE, TileSize.LARGE -> TileSize.SMALL
+                                    }
+                                    PhoneLayoutStore.saveSize(context, mode, id, size)
+                                    phoneRevision++
+                                }
+                            },
+                            onUnpinTile = { id ->
+                                saveOrder(order.filterNot { it == id })
+                                editing = null
+                            },
+                            onClick = { tile, bounds ->
+                                if (editing != null) editing = null
+                                else onLaunch(tile, bounds, LaunchOrigin.START)
+                            },
                             onLongClick = { editing = it },
                         )
                         fun bannerMotion(): PhoneStartMotionFrame {
@@ -1386,7 +1417,7 @@ fun PhoneLauncherSurface(
         }
     }
 
-    editing?.let { id ->
+    editing?.takeIf { showApps }?.let { id ->
         val tile = tileFor(id)
         if (tile != null) {
             AlertDialog(
@@ -1467,7 +1498,11 @@ private fun PhoneStartGrid(
     resumeUsesBackMotion: Boolean,
     mode: LauncherUiMode,
     tileOpacity: Float,
+    wallpaperStyle: Int,
     appsRepository: AppsRepository,
+    editingTileId: String?,
+    onResizeTile: (String) -> Unit,
+    onUnpinTile: (String) -> Unit,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
 ) {
@@ -1522,7 +1557,32 @@ private fun PhoneStartGrid(
         val firstVisibleTop = visibleTops.minOrNull() ?: 0f
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
+        val tilePicture = mode == LauncherUiMode.PHONE_8 &&
+            (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
+            if (tilePicture) {
+                // WP8.1's image appears only inside supported tile footprints.
+                // An even-odd mask leaves all gaps, side margins and empty cells black.
+                WindowsWallpaper(
+                    modifier = Modifier.fillMaxSize(),
+                    wallpaperStyle = wallpaperStyle,
+                    enabled = false,
+                )
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    val mask = androidx.compose.ui.graphics.Path().apply {
+                        fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+                        addRect(Rect(0f, 0f, size.width, size.height))
+                        slots.forEach { slot ->
+                            val x = (side + (cell + gap) * slot.column).value * density
+                            val y = ((cell + gap) * slot.row).value * density
+                            val width = (cell * slot.columns + gap * (slot.columns - 1)).value * density
+                            val height = (cell * slot.rows + gap * (slot.rows - 1)).value * density
+                            addRect(Rect(x, y, x + width, y + height))
+                        }
+                    }
+                    drawPath(mask, Color.Black)
+                }
+            }
             tiles.forEachIndexed { index, tile ->
                 val pos = slots[index]
                 val rowFraction = MobileStartMotion.rowFraction(
@@ -1551,7 +1611,9 @@ private fun PhoneStartGrid(
                         exiting = isLaunching,
                         elapsedMillis = elapsedMillis,
                         selectedTile = launchingTileId == tile.id,
-                        tileOpacity = tileOpacity, repository = appsRepository,
+                        tileOpacity = if (tilePicture &&
+                            tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) 0f else tileOpacity,
+                        repository = appsRepository,
                         resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier
                             .offset(x = side + (cell + gap) * pos.column,
@@ -1559,8 +1621,40 @@ private fun PhoneStartGrid(
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                   height = cell * pos.rows + gap * (pos.rows - 1)),
                         onClick = { rect -> onClick(tile, rect) },
-                        onLongClick = { onLongClick(tile.id) },
+                        onLongClick = {
+                            onLongClick(
+                                if (tile.id.startsWith("phone_app_"))
+                                    "app:" + tile.id.removePrefix("phone_app_")
+                                else tile.id
+                            )
+                        },
                     )
+                    val editKey = if (tile.id.startsWith("phone_app_")) {
+                        "app:" + tile.id.removePrefix("phone_app_")
+                    } else tile.id
+                    if (editingTileId == editKey) {
+                        Box(Modifier
+                            .offset(x = side + (cell + gap) * pos.column,
+                                y = (cell + gap) * pos.row)
+                            .size(width = cell * pos.columns + gap * (pos.columns - 1),
+                                height = cell * pos.rows + gap * (pos.rows - 1))
+                            .border(2.dp, Color.White)) {
+                            Box(Modifier.align(Alignment.TopEnd)
+                                .offset(x = 8.dp, y = (-8).dp)
+                                .size(28.dp).background(Color.White, CircleShape)
+                                .clickable { onUnpinTile(editKey) },
+                                contentAlignment = Alignment.Center) {
+                                Text("×", color = Color.Black, fontSize = 22.sp)
+                            }
+                            Box(Modifier.align(Alignment.BottomEnd)
+                                .offset(x = 8.dp, y = 8.dp)
+                                .size(28.dp).background(Color.White, CircleShape)
+                                .clickable { onResizeTile(editKey) },
+                                contentAlignment = Alignment.Center) {
+                                Text("↘", color = Color.Black, fontSize = 19.sp)
+                            }
+                        }
+                    }
                 }
             }
         }
