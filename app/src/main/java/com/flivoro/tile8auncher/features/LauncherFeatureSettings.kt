@@ -182,6 +182,14 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         glyph = "app",
     ) { showLauncherModePicker = true }
 
+    if (launcherMode == LauncherUiMode.DESKTOP) {
+        SettingsActionRow(
+            title = "Start background picture style",
+            description = LauncherFeatureStore.backgroundStyle(context, launcherMode).displayName,
+            glyph = "photos",
+        ) { showPhoneBackgroundStylePicker = true }
+    }
+
     if (launcherMode != LauncherUiMode.DESKTOP) {
         SettingsCategoryHeader("Phone Start screen")
         SettingsActionRow(
