@@ -319,7 +319,10 @@ class AppsRepository(private val context: Context) {
             }
             foreground.recycle()
         }
-        return drawableToMonochromeBitmap(drawable)
+        // Disco uses the source icon when Android cannot provide a
+        // separate foreground. Never silently replace colorful legacy
+        // logos with a black/white silhouette.
+        return drawableToBitmap(drawable, maxCachedIconPx)
     }
 
     fun getCachedAllAppsIcon(
