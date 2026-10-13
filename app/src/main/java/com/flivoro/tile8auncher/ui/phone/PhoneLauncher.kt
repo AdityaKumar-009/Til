@@ -856,7 +856,16 @@ fun PhoneLauncherSurface(
                             folderPreviews = folderPreviews,
                             onResizeTile = { id ->
                                 tileFor(id)?.let { tile ->
-                                    val size = when (tile.size) {
+                                    val size = if (isClassicPhone) {
+                                        // Disco wTileMenu.previousSize cycles the
+                                        // supported sizes in reverse, not forward.
+                                        when (tile.size) {
+                                            TileSize.SMALL -> TileSize.WIDE
+                                            TileSize.MEDIUM -> TileSize.SMALL
+                                            TileSize.WIDE -> TileSize.MEDIUM
+                                            TileSize.LARGE -> TileSize.WIDE
+                                        }
+                                    } else when (tile.size) {
                                         TileSize.SMALL -> TileSize.MEDIUM
                                         TileSize.MEDIUM -> TileSize.WIDE
                                         TileSize.WIDE, TileSize.LARGE -> TileSize.SMALL
@@ -1189,7 +1198,15 @@ fun PhoneLauncherSurface(
                                     initial.isDigit() -> "#"
                                     else -> "&"
                                 }
-                            }.toSortedMap()
+                            }
+                            // Disco's order is #, A..Z, then the symbols globe.
+                            val orderedAlphabetical = buildMap<String, List<AppInfo>> {
+                                alphabetical["#"]?.let { put("#", it) }
+                                ('A'..'Z').forEach { letter ->
+                                    alphabetical[letter.toString()]?.let { put(letter.toString(), it) }
+                                }
+                                alphabetical["&"]?.let { put("&", it) }
+                            }
                             if (isClassicPhone && phone8SearchVisible) {
                                 // Search results are one continuous list, without A-Z anchors.
                                 mapOf("" to filtered)
@@ -1198,9 +1215,9 @@ fun PhoneLauncherSurface(
                             ) {
                                 buildMap {
                                     put("Recently installed", recentlyInstalledApps)
-                                    alphabetical.forEach { (letter, apps) -> put(letter, apps) }
+                                    orderedAlphabetical.forEach { (letter, apps) -> put(letter, apps) }
                                 }
-                            } else alphabetical
+                            } else orderedAlphabetical
                         }
                         val positions = remember(groups) {
                             var index = 0
@@ -1341,9 +1358,19 @@ fun PhoneLauncherSurface(
                                                     .border((3f * classicUnit).dp, accent),
                                                 contentAlignment = Alignment.TopStart,
                                             ) {
-                                                Text(letter.lowercase(), color = accent, fontSize = (30f * classicUnit).sp,
+                                                if (letter == "&") {
+                                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                        DiscoGlobeSymbol(accent)
+                                                    }
+                                                } else Text(
+                                                    letter.lowercase(), color = accent,
+                                                    fontSize = (30f * classicUnit).sp,
                                                     fontWeight = FontWeight.Light,
-                                                    modifier = Modifier.padding(start = (8f * classicUnit).dp))
+                                                    modifier = Modifier.padding(
+                                                        start = (8f * classicUnit).dp,
+                                                        top = (5f * classicUnit).dp,
+                                                    ),
+                                                )
                                             }
                                         }
                                     } else {
@@ -1621,7 +1648,11 @@ fun PhoneLauncherSurface(
                                         ),
                                     contentAlignment = Alignment.TopStart,
                                 ) {
-                                    Text(
+                                    if (section.key == "&") {
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            DiscoGlobeSymbol(accent)
+                                        }
+                                    } else Text(
                                         section.key.lowercase(),
                                         color = accent,
                                         fontSize = (30f * classicUnit).sp,
@@ -1894,7 +1925,18 @@ fun PhoneLauncherSurface(
                 ),
                 onPinChanged = {
                     if (id in order) saveOrder(order.filterNot { it == id })
-                    else saveOrder(order + id)
+                    else {
+                        saveOrder(order + id)
+                        if (isClassicPhone) {
+                            // Disco navigates to Start, then centres the
+                            // newly pinned tile instead of leaving All Apps up.
+                            showApps = false
+                            panoramaScope.launch {
+                                delay(300)
+                                startScroll.animateScrollTo(startScroll.maxValue)
+                            }
+                        }
+                    }
                 },
                 onAppInfo = {
                     if (pkg == MOSAIC_SETTINGS_ID) onOpenSettings()
