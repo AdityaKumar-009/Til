@@ -419,6 +419,7 @@ fun PhoneLauncherSurface(
         mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
     }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
+    var deletingTileId by remember(mode) { mutableStateOf<String?>(null) }
     var appContextBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     // Back returns to the previously visible page. Only Home and screen-off reset to Start;
     // entranceRequest must not recreate showApps or wipe the app drawer's scroll position.
@@ -862,6 +863,7 @@ fun PhoneLauncherSurface(
                             mobileTilePictureMode = mobileTilePictureMode,
                             appsRepository = appsRepository,
                             editingTileId = editing.takeIf { !showApps },
+                            deletingTileId = deletingTileId,
                             folderPreviews = folderPreviews,
                             onResizeTile = { id ->
                                 tileFor(id)?.let { tile ->
@@ -885,7 +887,17 @@ fun PhoneLauncherSurface(
                             },
                             onUnpinTile = { id ->
                                 if (id.startsWith("phone_folder_")) ungroupFolder(id)
-                                else {
+                                else if (isClassicPhone) {
+                                    // Disco animates the inner tile down to 50%
+                                    // and zero opacity for 200ms before removing it.
+                                    deletingTileId = id
+                                    panoramaScope.launch {
+                                        delay(200)
+                                        saveOrder(order.filterNot { it == id })
+                                        editing = null
+                                        deletingTileId = null
+                                    }
+                                } else {
                                     saveOrder(order.filterNot { it == id })
                                     editing = null
                                 }
@@ -1981,6 +1993,7 @@ private fun PhoneStartGrid(
     mobileTilePictureMode: Boolean,
     appsRepository: AppsRepository,
     editingTileId: String?,
+    deletingTileId: String?,
     onResizeTile: (String) -> Unit,
     onUnpinTile: (String) -> Unit,
     onMoveTile: (String, String) -> Unit,
@@ -1994,8 +2007,10 @@ private fun PhoneStartGrid(
     val classicEditing = mode == LauncherUiMode.PHONE_8 && editingTileId != null
     // Disco has a 500ms .home-menu-back-intro before its fully edited state.
     // The held tile grows to 112% during that phase, then settles at 105%.
-    var classicEditIntro by remember(editingTileId) { mutableStateOf(classicEditing) }
-    LaunchedEffect(editingTileId) {
+    // Switching selection inside edit mode is immediate: it must NOT
+    // restart the source's initial 500ms edit-mode entrance.
+    var classicEditIntro by remember(classicEditing) { mutableStateOf(classicEditing) }
+    LaunchedEffect(classicEditing) {
         if (classicEditing) {
             classicEditIntro = true
             delay(500)
@@ -2110,6 +2125,14 @@ private fun PhoneStartGrid(
                         ) else tween(250),
                         label = "disco-edit-tile-scale",
                     )
+                    val deletion by animateFloatAsState(
+                        targetValue = if (deletingTileId == editKey) 1f else 0f,
+                        animationSpec = tween(
+                            200,
+                            easing = androidx.compose.animation.core.CubicBezierEasing(0f, 0f, .58f, 1f),
+                        ),
+                        label = "disco-unpin-delete",
+                    )
                     val editAlpha by animateFloatAsState(
                         targetValue = when {
                             editingTileId == null || isSelectedForEdit -> 1f
@@ -2182,9 +2205,9 @@ private fun PhoneStartGrid(
                                   height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(if (isSelectedForEdit) 4f else 0f)
                             .graphicsLayer {
-                                alpha = editAlpha
-                                scaleX = editScale
-                                scaleY = editScale
+                                alpha = editAlpha * (1f - deletion)
+                                scaleX = editScale * (1f - .5f * deletion)
+                                scaleY = editScale * (1f - .5f * deletion)
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
@@ -2224,7 +2247,8 @@ private fun PhoneStartGrid(
                                 },
                         )
                     }
-                    if (isSelectedForEdit && (!classicEditing || !classicEditIntro)) {
+                    if (isSelectedForEdit && deletingTileId != editKey &&
+                        (!classicEditing || !classicEditIntro)) {
                         Box(Modifier
                             .offset(x = tileLeft, y = tileTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
