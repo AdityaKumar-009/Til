@@ -108,7 +108,7 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-native-advanced-settings").performClick()
                 awaitUi("$mode PC settings content") {
-                    compose.onAllNodesWithText("Open Android System Settings")
+                    compose.onAllNodesWithTag("til-advanced-settings-content")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
             }
@@ -156,7 +156,7 @@ class LauncherModeSwitchTest {
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
                 compose.onNodeWithTag("phone-native-advanced-settings").performClick()
-                compose.onNodeWithText("Open Android System Settings").assertExists()
+                compose.onNodeWithTag("til-advanced-settings-content").assertExists()
                 compose.onNodeWithText("✕").performClick()
                 compose.waitForIdle()
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
