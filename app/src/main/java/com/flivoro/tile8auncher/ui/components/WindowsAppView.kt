@@ -45,6 +45,7 @@ import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -413,6 +414,7 @@ private fun PCSettingsAppContent(
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
+    var showLauncherPreferences by remember { mutableStateOf(true) }
 
     fun updateWallpaperParallax(enabled: Boolean) {
         wallpaperParallaxEnabled = enabled
@@ -440,6 +442,25 @@ private fun PCSettingsAppContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // The single Mosaic Settings destination contains all launcher options.
+        // The old animation tools are retained as a section rather than a second app.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(true to "Launcher & appearance", false to "Animation tools").forEach { (tab, title) ->
+                Text(
+                    text = title, color = if (showLauncherPreferences == tab) Color.White
+                        else Color(0xFF313131), fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                        .background(if (showLauncherPreferences == tab) Color(0xFF5133AB)
+                            else Color(0xFFDEDEDE))
+                        .clickable { showLauncherPreferences = tab }
+                        .padding(horizontal = 7.dp, vertical = 13.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        if (showLauncherPreferences) {
+            LauncherFeatureSettings(appsRepository)
+        } else {
         // Group Header
         Text(
             text = "App opening animation",
@@ -689,6 +710,7 @@ private fun PCSettingsAppContent(
                 style = WindowsTypography.bodyMedium.copy(color = Color.Gray, fontSize = 12.sp)
             )
         }
+        } // Animation tools tab
     }
 }
 
