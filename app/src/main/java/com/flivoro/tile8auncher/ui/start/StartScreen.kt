@@ -1756,9 +1756,19 @@ fun StartScreen(
                                                             com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
                                                                 modifier = Modifier.fillMaxSize(),
                                                                 wallpaperStyle = tileWallpaperStyle,
-                                                                tileLeftPx = with(dragDensity) { targetX.toPx() },
+                                                                // Window-fixed wallpaper fragments across the
+                                                                // complete horizontally scrolling Start grid.
+                                                                // Unscrolling the absolute band coordinate
+                                                                // makes neighboring tiles reveal one canvas.
+                                                                tileLeftPx = bandItemWidthsPx.take(bandIndex).sum() +
+                                                                    with(dragDensity) { targetX.toPx() } -
+                                                                    absoluteStartScrollPx(
+                                                                        bandItemWidthsPx,
+                                                                        listState.firstVisibleItemIndex,
+                                                                        listState.firstVisibleItemScrollOffset,
+                                                                    ),
                                                                 tileTopPx = with(dragDensity) { targetY.toPx() },
-                                                                gridWidthPx = with(dragDensity) { metrics.bandWidthDp.dp.toPx() },
+                                                                gridWidthPx = with(dragDensity) { layoutWidth.toPx() },
                                                                 gridHeightPx = with(dragDensity) {
                                                                     (metrics.bandHeightDp + groupLabelHeightDp).dp.toPx()
                                                                 },
