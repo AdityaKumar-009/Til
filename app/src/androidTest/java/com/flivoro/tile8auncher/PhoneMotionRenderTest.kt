@@ -183,14 +183,15 @@ class PhoneMotionRenderTest {
             compose.onRoot().performTouchInput { up() }
             compose.mainClock.advanceTimeBy(400)
         } else {
-            compose.onNodeWithTag("phone-bottom-back").performClick()
+            compose.onRoot().performTouchInput { swipeRight() }
             compose.mainClock.advanceTimeBy(400)
 
             // Home on an already-settled Start page must NOT replay the entry.
             // The previous test expected exactly the unwanted regression reported
             // on device. Keep the return-from-All-Apps animation checked below.
             val rootBeforeRepeatHome = capture("start-before-repeated-home")
-            compose.onNodeWithTag("phone-bottom-home").performClick()
+            // The real Android Home key, not an in-app control, now owns root Home.
+            // A settled Start without a new external Home request remains stable.
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             compose.onNodeWithTag("wp81-home-return-app-page").assertDoesNotExist()
@@ -204,7 +205,7 @@ class PhoneMotionRenderTest {
 
         // A panorama round trip must reveal real All Apps pixels, not merely
         // keep offscreen/semantics nodes alive (the previous regression).
-        compose.onNodeWithTag("phone-bottom-search").performClick()
+        compose.onRoot().performTouchInput { swipeLeft() }
         if (mode == LauncherUiMode.MOBILE_10) {
             // A horizontal swipe must not replay row-entrance choreography.
             // Once the panorama reaches All Apps, its contents stay frame-stable.
@@ -240,7 +241,7 @@ class PhoneMotionRenderTest {
         compose.mainClock.advanceTimeBy(500)
         assertTrue("${mode.name} All Apps did not spring back from its top edge",
             difference(appsAtTop, capture("apps-elastic-return")) < .01)
-        compose.onNodeWithTag("phone-bottom-back").performClick()
+        compose.onRoot().performTouchInput { swipeRight() }
         compose.mainClock.advanceTimeBy(320)
         assertTrue("Start flickered or replayed entry after Apps", difference(resting,
             capture("01-panorama-return")) < .01)
@@ -307,7 +308,7 @@ class PhoneMotionRenderTest {
         if (mode == LauncherUiMode.PHONE_8) {
             // DiscoLauncher snaps the panorama to Start and runs the second
             // Apps page's own forward turn behind the entering Start tiles.
-            compose.onNodeWithTag("phone-bottom-search").performClick()
+            compose.onRoot().performTouchInput { swipeLeft() }
             compose.mainClock.advanceTimeBy(400)
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             val appsBeforeHome = capture("apps-home-return-before")
@@ -357,7 +358,7 @@ class PhoneMotionRenderTest {
                 difference(resting, homeReturnSettled) < .01)
 
             // Exercise the separate app-list row/letter turn on the real Compose layers.
-            compose.onNodeWithTag("phone-bottom-search").performClick()
+            compose.onRoot().performTouchInput { swipeLeft() }
             compose.mainClock.advanceTimeBy(400)
             capture("apps-rest")
             val firstIconY = compose.onNodeWithText("Alpha").fetchSemanticsNode().boundsInRoot.center.y.toInt()
@@ -418,7 +419,7 @@ class PhoneMotionRenderTest {
         } else if (mode == LauncherUiMode.MOBILE_10) {
             // W10M All Apps uses the same centered row zoom/fade as Start when
             // an app opens, with the page held until its wallpaper fade ends.
-            compose.onNodeWithTag("phone-bottom-search").performClick()
+            compose.onRoot().performTouchInput { swipeLeft() }
             compose.mainClock.advanceTimeBy(700)
             val appsRest = capture("w10-apps-launch-rest")
             assertTrue("W10M All Apps app row fixture is not visible",
