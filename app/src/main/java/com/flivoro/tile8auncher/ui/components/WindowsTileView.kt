@@ -220,7 +220,8 @@ private fun SmallTileContent(
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
-    val tintMonochrome = iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
+    val tintMonochrome = iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME ||
+        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED
 
     when (tile.tileType) {
         TileType.CLOCK -> CompactClockTileContent(contentColor)
@@ -711,7 +712,8 @@ private fun LiveTileAppIcon(
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
     val tintMonochrome =
-        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
+        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME ||
+        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED
 
     if (tile.iconGlyph.isNotEmpty()) {
         MetroIcon(
