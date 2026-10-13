@@ -114,13 +114,13 @@ internal fun PhoneNativeSettingsSurface(
                 }
             } else if (page == "Personalization" || page == "start+theme") {
                 Text(if (isTen) "Start" else "start background", color = accent, fontSize = 21.sp)
-                if (isTen) {
-                    PhoneBackgroundStyle.entries.forEach { style ->
-                        PhoneSettingsRow(style.displayName,
-                            if (LauncherFeatureStore.phoneBackgroundStyle(context) == style) "selected" else "") {
-                            LauncherFeatureStore.setPhoneBackgroundStyle(context, style)
-                        }
+                PhoneBackgroundStyle.entries.forEach { style ->
+                    PhoneSettingsRow(style.displayName,
+                        if (LauncherFeatureStore.backgroundStyle(context, mode) == style) "selected" else "") {
+                        LauncherFeatureStore.setBackgroundStyle(context, mode, style)
                     }
+                }
+                if (isTen) {
                     PhoneSettingsRow("Tile transparency", "Configure in TIL settings") { onLauncherSettings() }
                 }
                 val columns = LauncherFeatureStore.phoneSmallColumns(context, mode)
