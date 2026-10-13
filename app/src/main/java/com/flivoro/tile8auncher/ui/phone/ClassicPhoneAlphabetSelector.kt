@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -75,12 +76,15 @@ private fun DiscoLetterRow(
     onSelect: (String) -> Unit,
 ) {
     val rotation = remember { Animatable(90f) }
+    val view = LocalView.current
     LaunchedEffect(visible) {
         if (visible) {
             delay(index * 20L)
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
             rotation.animateTo(0f, tween(75, easing = letterEnter))
         } else {
             delay(60L + index * 20L)
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
             rotation.animateTo(-90f, tween(75, easing = letterExit))
         }
     }
