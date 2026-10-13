@@ -36,6 +36,9 @@ fun cachedAppIconForCurrentStyle(
 ): ImageBitmap? {
     val name = packageName ?: return null
     return when (LauncherFeatureStore.appIconStyle(context)) {
+        AppIconStyle.DISCO_LAYERED ->
+            repository.getCachedDiscoLayeredAppIcon(name)
+                ?: repository.getCachedMonochromeAppIcon(name)
         AppIconStyle.DEFAULT ->
             IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
         AppIconStyle.ANDROID_ADAPTIVE ->
@@ -129,6 +132,9 @@ private fun cachedAllAppsIconForStyle(
     ResolvedAllAppsIconCache.get(packageName, style, maxPx, iconsRevision)?.let { return it }
 
     val icon = when (style) {
+    AppIconStyle.DISCO_LAYERED ->
+        repository.getCachedDiscoLayeredAppIcon(packageName)
+            ?: repository.getCachedMonochromeAppIcon(packageName)
     AppIconStyle.DEFAULT ->
         IconPackManager.peekOverride(packageName, maxPx)
             ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
@@ -192,6 +198,7 @@ private suspend fun resolveAllAppsIcon(
     )?.let { return it }
 
     val resolved = when (style) {
+        AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(packageName)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
                 IconPackManager.loadOverride(context.applicationContext, packageName, maxPx)
@@ -275,6 +282,7 @@ private suspend fun resolveStartAppIcon(
     ResolvedStartIconCache.get(packageName, style, iconsRevision)?.let { return it }
 
     val resolved = when (style) {
+        AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(packageName)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
                 IconPackManager.loadOverride(context.applicationContext, packageName)
@@ -344,6 +352,9 @@ fun rememberStartAppIcon(
         mutableStateOf(
             packageName?.let { name ->
                 ResolvedStartIconCache.get(name, iconStyle, iconsRevision) ?: when (iconStyle) {
+                    AppIconStyle.DISCO_LAYERED ->
+                        repository.getCachedDiscoLayeredAppIcon(name)
+                            ?: repository.getCachedMonochromeAppIcon(name)
                     AppIconStyle.DEFAULT ->
                         IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
                     AppIconStyle.ANDROID_ADAPTIVE ->
@@ -423,6 +434,9 @@ fun rememberAppIcon(
         mutableStateOf(
             packageName?.let { name ->
                 when (iconStyle) {
+                    AppIconStyle.DISCO_LAYERED ->
+                        repository.getCachedDiscoLayeredAppIcon(name)
+                            ?: repository.getCachedMonochromeAppIcon(name)
                     AppIconStyle.DEFAULT ->
                         IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
                     AppIconStyle.ANDROID_ADAPTIVE ->
@@ -437,6 +451,7 @@ fun rememberAppIcon(
     LaunchedEffect(repository, packageName, iconsRevision, iconStyle) {
         val name = packageName ?: return@LaunchedEffect
         icon = when (iconStyle) {
+            AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(name)
             AppIconStyle.DEFAULT -> {
                 val override = withContext(Dispatchers.IO) {
                     IconPackManager.loadOverride(context.applicationContext, name)
