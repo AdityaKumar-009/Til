@@ -656,8 +656,9 @@ fun PhoneLauncherSurface(
         title = app.label,
         packageName = app.packageName,
         activityName = app.activityName,
-        colorValue = appsRepository.getCachedAppAccentColor(app.packageName)
-            ?: StartPersonalization.accentArgb,
+        colorValue = com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+            appsRepository.getCachedAppAccentColor(app.packageName),
+        ) ?: StartPersonalization.accentArgb,
         tileType = if (app.packageName == MOSAIC_SETTINGS_ID)
             com.flivoro.tile8auncher.data.TileType.SETTINGS
         else com.flivoro.tile8auncher.data.TileType.APP,
@@ -1567,7 +1568,8 @@ fun PhoneLauncherSurface(
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
                                             .size(if (isClassicPhone) (52f * classicUnit).dp else 45.dp)
                                             .background(
-                                                if (isTen || discoLayered) appsRepository.getCachedAppAccentColor(app.packageName)
+                                                if (isTen || discoLayered) com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+                                                    appsRepository.getCachedAppAccentColor(app.packageName))
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
                                             if (app.packageName == MOSAIC_SETTINGS_ID) {
@@ -1576,7 +1578,7 @@ fun PhoneLauncherSurface(
                                             } else if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
                                                 modifier = Modifier.size(if (isClassicPhone) (52f * classicUnit).dp else 28.dp),
-                                                colorFilter = if (discoLayered) ColorFilter.tint(Color.White) else null)
+                                                colorFilter = null)
                                             else Text(app.label.take(1), color = Color.White,
                                                 fontSize = if (isClassicPhone) (34f * classicUnit).sp else 22.sp)
                                         }
@@ -2526,8 +2528,9 @@ private fun PhoneTile(
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
         AppIconStyle.DISCO_LAYERED
     val resolvedTile = if (layered && !tile.packageName.isNullOrBlank()) {
-        repository.getCachedAppAccentColor(tile.packageName)?.let { tile.copy(colorValue = it) }
-            ?: tile
+        com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+            repository.getCachedAppAccentColor(tile.packageName))
+            ?.let { tile.copy(colorValue = it) } ?: tile
     } else tile
 
     fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
