@@ -72,6 +72,7 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
