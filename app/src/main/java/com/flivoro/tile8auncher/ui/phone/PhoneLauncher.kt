@@ -232,9 +232,38 @@ internal object PhoneLayoutStore {
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(
         LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE,
     )
-    private fun key(mode: LauncherUiMode, suffix: String) = "phone_${mode.name}_$suffix"
+    // WP8.1 and W10M are themes over ONE phone Start workspace.
+    // Desktop keeps its independent layout and tiles.
+    private fun key(mode: LauncherUiMode, suffix: String) =
+        if (mode == LauncherUiMode.DESKTOP) "phone_DESKTOP_$suffix"
+        else "phone_shared_$suffix"
+
+    private fun legacyKey(mode: LauncherUiMode, suffix: String) =
+        "phone_${mode.name}_$suffix"
+
+    private fun migrateIfNeeded(context: Context, mode: LauncherUiMode, suffix: String) {
+        if (mode == LauncherUiMode.DESKTOP) return
+        val preferences = prefs(context)
+        val destination = key(mode, suffix)
+        if (preferences.contains(destination)) return
+        // Give the currently selected phone mode precedence, then recover the
+        // other mode's prior workspace. Migrate without clearing either backup.
+        val old = listOf(mode,
+            if (mode == LauncherUiMode.PHONE_8) LauncherUiMode.MOBILE_10
+            else LauncherUiMode.PHONE_8)
+            .map { legacyKey(it, suffix) }
+            .firstOrNull(preferences::contains) ?: return
+        preferences.edit {
+            when (val value = preferences.all[old]) {
+                is String -> putString(destination, value)
+                is Long -> putLong(destination, value)
+                is Int -> putInt(destination, value)
+            }
+        }
+    }
 
     fun order(context: Context, mode: LauncherUiMode, defaults: List<TileModel>): List<String> {
+        migrateIfNeeded(context, mode, "order")
         val raw = prefs(context).getString(key(mode, "order"), null)
             ?: return defaults.map(TileModel::id)
         return runCatching {
@@ -254,6 +283,7 @@ internal object PhoneLayoutStore {
     }
 
     fun size(context: Context, mode: LauncherUiMode, tile: TileModel): TileSize {
+        migrateIfNeeded(context, mode, "size_${tile.id}")
         val name = prefs(context).getString(key(mode, "size_${tile.id}"), tile.size.name)
         val chosen = TileSize.entries.firstOrNull { it.name == name } ?: tile.size
         return if (chosen == TileSize.LARGE) TileSize.WIDE else chosen
@@ -263,8 +293,10 @@ internal object PhoneLayoutStore {
         prefs(context).edit { putString(key(mode, "size_$tileId"), size.name) }
     }
 
-    fun color(context: Context, mode: LauncherUiMode, tile: TileModel): Long =
-        prefs(context).getLong(key(mode, "color_${tile.id}"), tile.colorValue)
+    fun color(context: Context, mode: LauncherUiMode, tile: TileModel): Long {
+        migrateIfNeeded(context, mode, "color_${tile.id}")
+        return prefs(context).getLong(key(mode, "color_${tile.id}"), tile.colorValue)
+    }
 
     fun saveColor(context: Context, mode: LauncherUiMode, tileId: String, color: Long) {
         prefs(context).edit { putLong(key(mode, "color_$tileId"), color) }
