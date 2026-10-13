@@ -86,6 +86,7 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.usableDiscoTileAccent
 import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
@@ -603,8 +604,7 @@ fun AllAppsScreen(
                             ) {
                                 if (icon != null) Image(
                                     icon, currentApp.label, Modifier.size(28.dp),
-                                    colorFilter = if (LauncherFeatureStore.appIconStyle(LocalContext.current) ==
-                                        AppIconStyle.DISCO_LAYERED) ColorFilter.tint(Color.White) else null,
+                                    colorFilter = null,
                                 )
                                 else MetroIcon(glyph = "app", color = Color.White, size = 24.dp)
                             }
@@ -1062,7 +1062,7 @@ private fun SemanticAllAppsRow(
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
         AppIconStyle.DISCO_LAYERED
     val tileColor = if (layered) {
-        appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+        usableDiscoTileAccent(appsRepository.getCachedAppAccentColor(app.packageName))?.toTileColor() ?: appTileAccent
     } else appTileAccent
     val tileForeground = readableAllAppsTileForeground(tileColor)
 
@@ -1083,7 +1083,7 @@ private fun SemanticAllAppsRow(
                     bitmap = icon,
                     contentDescription = null,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
-                    colorFilter = if (layered) ColorFilter.tint(Color.White) else null,
+                    colorFilter = null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
@@ -1135,7 +1135,7 @@ private fun AppListItem(
     val effectiveColors = useAppAccentColors || layered
     val effectiveTileAccent by produceState(
         initialValue = if (effectiveColors) {
-            appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+            usableDiscoTileAccent(appsRepository.getCachedAppAccentColor(app.packageName))?.toTileColor() ?: appTileAccent
         } else {
             appTileAccent
         },
@@ -1145,7 +1145,9 @@ private fun AppListItem(
     ) {
         value = if (effectiveColors) {
             withContext(Dispatchers.IO) {
-                appsRepository.loadAppAccentColor(app.packageName).toTileColor()
+                val cached = appsRepository.loadAppAccentColor(app.packageName)
+                if (layered) usableDiscoTileAccent(cached)?.toTileColor() ?: appTileAccent
+                else cached.toTileColor()
             }
         } else {
             appTileAccent
@@ -1178,7 +1180,7 @@ private fun AppListItem(
                     bitmap = icon,
                     contentDescription = app.label,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
-                    colorFilter = if (layered) ColorFilter.tint(Color.White) else null,
+                    colorFilter = null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
