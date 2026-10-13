@@ -2449,29 +2449,32 @@ private fun PhoneStartGrid(
                                     contentAlignment = Alignment.Center) {
                                     androidx.compose.foundation.Canvas(
                                         Modifier.size((23f * classicUnit).dp).graphicsLayer {
-                                            // Disco labels the action with the NEXT size,
-                                            // not the size the tile already has.
+                                            // DiscoElements.wTileMenu.updateButton:
+                                            // rotate the glyph for current size, animating
+                                            // to the new orientation after a resize click.
                                             rotationZ = when (tile.size) {
-                                                TileSize.SMALL -> 0f     // next: wide
-                                                TileSize.MEDIUM -> 225f // next: small
-                                                TileSize.WIDE -> 45f    // next: medium
-                                                TileSize.LARGE -> 0f    // next: wide
+                                                TileSize.SMALL -> 225f
+                                                TileSize.MEDIUM -> 45f
+                                                TileSize.WIDE -> 0f
+                                                TileSize.LARGE -> 90f
                                             }
                                         },
                                     ) {
-                                        val stroke = (2.6f * classicUnit).dp.toPx()
-                                        val tl = Offset(size.width * .2f, size.height * .2f)
-                                        val br = Offset(size.width * .8f, size.height * .8f)
-                                        drawLine(Color.White, tl, br, strokeWidth = stroke,
-                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                        // Disco glyph is MDI U+F004D ("arrow-left").
+                                        // Previous down-right sketch was a different icon.
+                                        val stroke = (2.8f * classicUnit).dp.toPx()
                                         drawLine(Color.White,
-                                            Offset(size.width * .38f, size.height * .8f), br,
-                                            strokeWidth = stroke,
-                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                            Offset(size.width * .15f, size.height * .5f),
+                                            Offset(size.width * .88f, size.height * .5f),
+                                            strokeWidth = stroke)
                                         drawLine(Color.White,
-                                            Offset(size.width * .8f, size.height * .38f), br,
-                                            strokeWidth = stroke,
-                                            cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                            Offset(size.width * .15f, size.height * .5f),
+                                            Offset(size.width * .46f, size.height * .19f),
+                                            strokeWidth = stroke)
+                                        drawLine(Color.White,
+                                            Offset(size.width * .15f, size.height * .5f),
+                                            Offset(size.width * .46f, size.height * .81f),
+                                            strokeWidth = stroke)
                                     }
                                 }
                             } else {
