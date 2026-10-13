@@ -430,7 +430,7 @@ private fun PCSettingsAppContent(
     ) {
         // Page Title
         Text(
-            text = "PC settings",
+            text = "Mosaic Settings",
             style = WindowsTypography.displayLarge.copy(
                 color = Color(0xFF222222),
                 fontSize = 32.sp,
@@ -605,7 +605,7 @@ private fun PCSettingsAppContent(
                 .clickable {
                     val testTile = TileModel(
                         id = "test_preview_tile",
-                        title = "PC settings",
+                        title = "Mosaic Settings",
                         colorValue = 0xFF5133AB,
                         tileType = TileType.SETTINGS,
                         iconGlyph = "settings"
