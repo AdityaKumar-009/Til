@@ -1861,6 +1861,16 @@ private fun PhoneStartGrid(
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     val classicEditing = mode == LauncherUiMode.PHONE_8 && editingTileId != null
+    // Disco has a 500ms .home-menu-back-intro before its fully edited state.
+    // The held tile grows to 112% during that phase, then settles at 105%.
+    var classicEditIntro by remember(editingTileId) { mutableStateOf(classicEditing) }
+    LaunchedEffect(editingTileId) {
+        if (classicEditing) {
+            classicEditIntro = true
+            delay(500)
+            classicEditIntro = false
+        } else classicEditIntro = false
+    }
     // A single clock gives the surrounding tiles subtle phase-shifted motion.
     val editProgress by animateFloatAsState(
         targetValue = if (classicEditing) 1f else 0f,
@@ -1955,11 +1965,14 @@ private fun PhoneStartGrid(
                         targetValue = when {
                             editingTileId == null -> 1f
                             !classicEditing -> if (isSelectedForEdit) .975f else 1f
+                            isSelectedForEdit && classicEditIntro -> 1.12f
                             isSelectedForEdit -> 1.05f
+                            classicEditIntro -> 1f
                             else -> .925f
                         },
                         animationSpec = tween(
-                            if (isSelectedForEdit) 250 else 500,
+                            if (isSelectedForEdit && classicEditIntro) 500 else
+                                if (isSelectedForEdit) 250 else 500,
                             easing = androidx.compose.animation.core.CubicBezierEasing(.075f, .82f, .165f, 1f),
                         ),
                         label = "disco-edit-tile-scale",
@@ -1967,10 +1980,13 @@ private fun PhoneStartGrid(
                     val editAlpha by animateFloatAsState(
                         targetValue = when {
                             editingTileId == null || isSelectedForEdit -> 1f
+                            classicEditing && classicEditIntro -> 1f
                             classicEditing -> .60f
                             else -> .68f
                         },
-                        animationSpec = tween(250), label = "classic-edit-opacity",
+                        animationSpec = tween(
+                            if (mode == LauncherUiMode.PHONE_8) 350 else 250,
+                        ), label = "classic-edit-opacity",
                     )
                     // Animated reflow is only activated when editing reorders tiles;
                     // app launch/return interpolation is not modified.
@@ -2037,12 +2053,12 @@ private fun PhoneStartGrid(
                                 scaleX = editScale
                                 scaleY = editScale
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
-                                    else if (classicEditing)
+                                    else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
                                             density * editProgress
                                     else 0f
                                 translationY = if (isSelectedForEdit) tileDragOffset.y
-                                    else if (classicEditing)
+                                    else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
                                             density * editProgress
                                     else 0f
@@ -2075,7 +2091,7 @@ private fun PhoneStartGrid(
                                 },
                         )
                     }
-                    if (isSelectedForEdit) {
+                    if (isSelectedForEdit && (!classicEditing || !classicEditIntro)) {
                         Box(Modifier
                             .offset(x = tileLeft, y = tileTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
