@@ -91,6 +91,14 @@ jobs:
           profile: pixel_2
           disable-animations: false
           script: bash .github/scripts/verify-phone-motion.sh
+      - name: Upload compact native phone UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-ui-screenshots-api${{ matrix.api-level }}
+          path: app/build/phone-ui-snapshots/*.png
+          if-no-files-found: warn
+          retention-days: 1
       - name: Install FFmpeg for preview
         if: always()
         run: |
