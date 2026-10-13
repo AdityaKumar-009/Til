@@ -191,7 +191,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         ) { showPhoneColumnsPicker = true }
         SettingsActionRow(
             title = "Restore Lumia-style Start layout",
-            description = "Reset this phone mode's pinned tile order to the phone-specific starting layout. This does not modify Desktop or other phone modes.",
+            description = "Reset the shared Lumia Start tile order. Both WP8.1 and W10M use the same arrangement; Desktop is unaffected.",
             glyph = "app",
         ) {
             PhoneLayoutStore.resetOrder(context, launcherMode)
@@ -225,7 +225,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         ) { showPhoneTransparencyPicker = true }
     }
     Text(
-        "Windows 8.1 Desktop remains the default. Phone layouts are stored independently and do not rearrange desktop Start.",
+        "WP8.1 and Windows 10 Mobile share one Start workspace, pinned tiles, folders, sizes and colors. Desktop layout remains separate.",
         color = Color(0xFF666666),
         fontSize = 12.sp,
         lineHeight = 16.sp,
