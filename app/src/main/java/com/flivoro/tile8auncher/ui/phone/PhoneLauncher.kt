@@ -674,7 +674,7 @@ fun PhoneLauncherSurface(
                                         TileSize.MEDIUM -> TileSize.WIDE
                                         TileSize.WIDE, TileSize.LARGE -> TileSize.SMALL
                                     }
-                                    PhoneLayoutStore.saveSize(context, mode, id, size)
+                                    PhoneLayoutStore.saveSize(context, mode, tile.id, size)
                                     phoneRevision++
                                 }
                             },
@@ -1348,29 +1348,82 @@ fun PhoneLauncherSurface(
             }
         }
 
-        if (actionCenterOpen && isTen) {
-            Column(Modifier.fillMaxWidth().statusBarsPadding()
-                .background(Color(0xFF212121)).verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Text("ACTION CENTER  ⌄",
-                    color = Color.White, fontSize = 23.sp,
-                    modifier = Modifier.clickable { actionCenterOpen = false })
-                Spacer(Modifier.height(15.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf("Wi-Fi", "Bluetooth", "Settings").forEach { title ->
-                        Text(title, color = Color.White, fontSize = 13.sp,
-                            modifier = Modifier.weight(1f).background(accent).clickable {
-                                actionCenterOpen = false
-                                if (title == "Settings") onOpenSettings()
-                                else runCatching {
-                                    context.startActivity(Intent(
-                                        if (title == "Wi-Fi") Settings.ACTION_WIFI_SETTINGS
-                                        else Settings.ACTION_BLUETOOTH_SETTINGS
-                                    ))
+        if (!isTen) {
+            // Swipe just below Android's status indicators to open the WP8.1 overlay;
+            // Android's real notification shade remains system-owned.
+            Box(Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                .fillMaxWidth().height(20.dp)
+                .pointerInput(interactionEnabled) {
+                    if (interactionEnabled) {
+                        var distance = 0f
+                        androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                            onDragStart = { distance = 0f },
+                            onVerticalDrag = { change, dy ->
+                                distance += dy
+                                if (distance > 38f) {
+                                    actionCenterOpen = true
+                                    change.consume()
                                 }
-                            }.padding(vertical = 16.dp, horizontal = 5.dp))
+                            },
+                            onDragEnd = { distance = 0f },
+                            onDragCancel = { distance = 0f },
+                        )
+                    }
+                })
+        }
+
+        if (actionCenterOpen) {
+            var quickActionsExpanded by remember(mode) { mutableStateOf(false) }
+            Column(Modifier.fillMaxSize().statusBarsPadding()
+                .background(Color.Black).verticalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isTen) "Notifications" else "ACTION CENTER",
+                        color = Color.White, fontSize = if (isTen) 18.sp else 21.sp,
+                        fontWeight = FontWeight.Light)
+                    Text(if (isTen) (if (quickActionsExpanded) "Collapse  ⌃" else "Expand  ⌄")
+                        else "Close  ⌃",
+                        color = accent, fontSize = 13.sp,
+                        modifier = Modifier.clickable {
+                            if (isTen) quickActionsExpanded = !quickActionsExpanded
+                            else actionCenterOpen = false
+                        }.padding(8.dp))
+                }
+                Spacer(Modifier.height(14.dp))
+                val actions = listOf(
+                    "Wi-Fi" to Settings.ACTION_WIFI_SETTINGS,
+                    "Bluetooth" to Settings.ACTION_BLUETOOTH_SETTINGS,
+                    "Airplane mode" to Settings.ACTION_AIRPLANE_MODE_SETTINGS,
+                    "All settings" to "",
+                    "Display" to Settings.ACTION_DISPLAY_SETTINGS,
+                    "Location" to Settings.ACTION_LOCATION_SOURCE_SETTINGS,
+                    "Sound" to Settings.ACTION_SOUND_SETTINGS,
+                    "Apps" to Settings.ACTION_APPLICATION_SETTINGS,
+                )
+                val visibleActions = if (isTen && quickActionsExpanded) actions else actions.take(4)
+                visibleActions.chunked(4).forEach { group ->
+                    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        group.forEach { (title, intentAction) ->
+                            Box(Modifier.weight(1f).height(if (isTen) 72.dp else 58.dp)
+                                .background(Color(0xFF303030))
+                                .clickable {
+                                    actionCenterOpen = false
+                                    if (intentAction.isEmpty()) onOpenSettings()
+                                    else runCatching { context.startActivity(Intent(intentAction)) }
+                                }.padding(5.dp), contentAlignment = Alignment.Center) {
+                                Text(title, color = Color.White,
+                                    fontSize = if (isTen) 11.sp else 10.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+                Text(if (isTen) "Notifications" else "notifications",
+                    color = accent, fontSize = 15.sp)
                 Spacer(Modifier.height(10.dp))
                 val activeNotifications = LiveTileNotificationStore.current()
                     .filter { it.packageName !in hidden }
