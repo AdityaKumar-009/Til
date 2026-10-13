@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -422,6 +423,7 @@ private fun PCSettingsAppContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("til-advanced-settings-content")
             .background(Color(0xFFF0F0F0))
             .verticalScroll(rememberScrollState())
             .padding(24.dp)
