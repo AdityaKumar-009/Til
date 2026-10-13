@@ -587,7 +587,7 @@ private fun AppIconStyleDialog(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Default keeps icon-pack/custom overrides. Android adaptive uses the app's platform icon. White monochrome uses Android's true monochrome layer when available; otherwise Tile8 extracts a clean white logo/detail and preserves the normal icon if extraction would become a blank plate.",
+                "Disco layered (default) extracts the Android adaptive foreground as a clean Metro glyph and samples its background for tile color. Apps without usable layers use intelligent monochrome extraction. Default preserves icon-pack overrides; Android adaptive shows the full app icon.",
                 color = Color.White.copy(alpha = .72f),
                 style = WindowsTypography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 15.sp),
             )
@@ -782,6 +782,7 @@ private fun StartDoubleTapAction.displayName(): String = when (this) {
 
 
 private fun AppIconStyle.displayName(): String = when (this) {
+    AppIconStyle.DISCO_LAYERED -> "Disco layered (recommended)"
     AppIconStyle.DEFAULT -> "Default / icon pack"
     AppIconStyle.ANDROID_ADAPTIVE -> "Android adaptive"
     AppIconStyle.WHITE_MONOCHROME -> "White monochrome"
