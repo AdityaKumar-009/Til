@@ -104,7 +104,23 @@ internal fun WindowsTileFace(
     backgroundContent: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val tileColor = tile.colorValue.toTileColor()
+    // The default Disco style paints every app tile with the extracted
+    // adaptive-background color, not the entire full-color icon bitmap.
+    // The visual cache persists this value across cold launcher restarts.
+    val iconRevisionForBackground = LauncherFeatureRuntime.iconsRevision
+    val iconStyleForBackground = remember(iconRevisionForBackground) {
+        LauncherFeatureStore.appIconStyle(context)
+    }
+    val tileBackgroundArgb = remember(tile.packageName, tile.colorValue, appIcon,
+        iconRevisionForBackground, iconStyleForBackground) {
+        if (iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
+            !tile.packageName.isNullOrBlank()) {
+            context.getSharedPreferences("tile8_app_visual_cache_v1",
+                android.content.Context.MODE_PRIVATE).getLong(
+                "app_visual_accent_color:${tile.packageName}", tile.colorValue)
+        } else tile.colorValue
+    }
+    val tileColor = tileBackgroundArgb.toTileColor()
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val liveTileEnabled = remember(tile.packageName, liveTilesRevision) {
         LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName)
