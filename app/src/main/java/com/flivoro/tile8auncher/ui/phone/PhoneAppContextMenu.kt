@@ -87,7 +87,7 @@ internal fun PhoneAppContextMenu(
             fontWeight = FontWeight.Light,
             modifier = Modifier
                 .then(if (classic) Modifier.fillMaxWidth().height((65f * scale).dp) else Modifier)
-                .clickable(enabled = enabled && introduction.value >= (if (classic) .9f else 0f)) {
+                .clickable(enabled = enabled && introduction.value >= (if (classic) .51f else 0f)) {
                     onDismiss()
                     action()
                 }
