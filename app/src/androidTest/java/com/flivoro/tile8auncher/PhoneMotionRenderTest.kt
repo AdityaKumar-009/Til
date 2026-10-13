@@ -183,7 +183,7 @@ class PhoneMotionRenderTest {
             compose.onRoot().performTouchInput { up() }
             compose.mainClock.advanceTimeBy(400)
         } else {
-            compose.onNodeWithText("‹").performClick()
+            compose.onNodeWithTag("phone-bottom-back").performClick()
             compose.mainClock.advanceTimeBy(400)
 
             // Home on an already-settled Start page must NOT replay the entry.
@@ -240,7 +240,7 @@ class PhoneMotionRenderTest {
         compose.mainClock.advanceTimeBy(500)
         assertTrue("${mode.name} All Apps did not spring back from its top edge",
             difference(appsAtTop, capture("apps-elastic-return")) < .01)
-        compose.onNodeWithText("‹").performClick()
+        compose.onNodeWithTag("phone-bottom-back").performClick()
         compose.mainClock.advanceTimeBy(320)
         assertTrue("Start flickered or replayed entry after Apps", difference(resting,
             capture("01-panorama-return")) < .01)
