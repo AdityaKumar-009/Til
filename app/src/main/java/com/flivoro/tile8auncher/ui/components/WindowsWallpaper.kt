@@ -36,6 +36,62 @@ import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+
+/**
+ * Draw a single cropped fragment of the *shared* phone Start wallpaper.
+ *
+ * Unlike a wallpaper layer behind the grid, this fragment lives inside the tile's
+ * own Compose graphics transform, so its pixels take the same opening/closing
+ * pose as the icon and label. The bitmap cache is shared by all tiles.
+ */
+@Composable
+fun PhoneTilePicture(
+    modifier: Modifier = Modifier,
+    wallpaperStyle: Int,
+    tileLeftPx: Float,
+    tileTopPx: Float,
+    gridWidthPx: Float,
+    gridHeightPx: Float,
+) {
+    val uri = StartPersonalization.customWallpaperUri
+    val bitmap = if (uri != null) {
+        rememberCustomWallpaperBitmap(uri)
+    } else if (wallpaperStyle > 0) {
+        rememberWallpaperBitmap(wallpaperResourceId(wallpaperStyle))
+    } else null
+    val overlay = if (uri != null)
+        StartPersonalization.customWallpaperOverlay.coerceIn(0f, .72f) else 0f
+    val paint = remember {
+        Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    }
+    androidx.compose.foundation.Canvas(modifier) {
+        if (bitmap != null && bitmap.width > 0 && bitmap.height > 0) {
+            val scale = max(
+                gridWidthPx / bitmap.width.coerceAtLeast(1),
+                gridHeightPx / bitmap.height.coerceAtLeast(1),
+            )
+            val scaledWidth = bitmap.width * scale
+            val scaledHeight = bitmap.height * scale
+            val x = (gridWidthPx - scaledWidth) * .5f - tileLeftPx
+            val y = (gridHeightPx - scaledHeight) * .5f - tileTopPx
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                val save = native.save()
+                native.clipRect(0f, 0f, size.width, size.height)
+                native.drawBitmap(bitmap, null,
+                    android.graphics.RectF(x, y, x + scaledWidth, y + scaledHeight),
+                    paint)
+                if (overlay > 0f) {
+                    native.drawColor(
+                        android.graphics.Color.argb((overlay * 255).toInt(), 0, 0, 0),
+                    )
+                }
+                native.restoreToCount(save)
+            }
+        }
+    }
+}
+
 private const val REPEATED_LAYER_WIDTHS = 3f
 private const val WALLPAPER_STYLE_MIN = 0
 private const val WALLPAPER_STYLE_MAX = 9
