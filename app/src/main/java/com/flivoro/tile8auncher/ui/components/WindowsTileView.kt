@@ -115,9 +115,11 @@ internal fun WindowsTileFace(
         iconRevisionForBackground, iconStyleForBackground) {
         if (iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
             !tile.packageName.isNullOrBlank()) {
-            context.getSharedPreferences("tile8_app_visual_cache_v1",
-                android.content.Context.MODE_PRIVATE).getLong(
-                "app_visual_accent_color:${tile.packageName}", tile.colorValue)
+            com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+                context.getSharedPreferences("tile8_app_visual_cache_v1",
+                    android.content.Context.MODE_PRIVATE).getLong(
+                    "app_visual_accent_color:${tile.packageName}", tile.colorValue),
+            ) ?: tile.colorValue
         } else tile.colorValue
     }
     val tileColor = tileBackgroundArgb.toTileColor()
@@ -236,8 +238,7 @@ private fun SmallTileContent(
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
-    val tintMonochrome = iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME ||
-        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED
+    val tintMonochrome = iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 
     when (tile.tileType) {
         TileType.CLOCK -> CompactClockTileContent(contentColor)
@@ -728,8 +729,7 @@ private fun LiveTileAppIcon(
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
     val tintMonochrome =
-        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME ||
-        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED
+        iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 
     if (tile.iconGlyph.isNotEmpty()) {
         MetroIcon(
