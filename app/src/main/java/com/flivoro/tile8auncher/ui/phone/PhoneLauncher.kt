@@ -1800,7 +1800,7 @@ fun PhoneLauncherSurface(
         val app = byPackage[pkg]
         if (app != null) {
             val menuHeightPx = with(LocalDensity.current) {
-                (if (isClassicPhone) 219f * classicUnit else 265f).dp.toPx()
+                (if (isClassicPhone) 219f else 265f).dp.toPx()
             }
             // Disco places the panel immediately beneath the selected row
             // unless 219px would collide with the bottom inset.
@@ -2153,27 +2153,27 @@ private fun PhoneStartGrid(
                                 // Disco's overlay is two outlined 42px circles at
                                 // (-15,-15) and (right+15,bottom+15), not a full border.
                                 Box(Modifier.align(Alignment.TopEnd)
-                                    .offset(x = (15f * classicUnit).dp, y = (-15f * classicUnit).dp)
-                                    .size((42f * classicUnit).dp)
+                                    .offset(x = 15.dp, y = (-15).dp)
+                                    .size(42.dp)
                                     .background(Color.Black, CircleShape)
-                                    .border((3f * classicUnit).dp, Color.White, CircleShape)
+                                    .border(3.dp, Color.White, CircleShape)
                                     .clickable { onUnpinTile(editKey) }
                                     .testTag("disco-tile-unpin"),
                                     contentAlignment = Alignment.Center) {
                                     Text("×", color = Color.White,
-                                        fontSize = (30f * classicUnit).sp,
+                                        fontSize = 30.sp,
                                         fontWeight = FontWeight.Light)
                                 }
                                 Box(Modifier.align(Alignment.BottomEnd)
-                                    .offset(x = (15f * classicUnit).dp, y = (15f * classicUnit).dp)
-                                    .size((42f * classicUnit).dp)
+                                    .offset(x = 15.dp, y = 15.dp)
+                                    .size(42.dp)
                                     .background(Color.Black, CircleShape)
-                                    .border((3f * classicUnit).dp, Color.White, CircleShape)
+                                    .border(3.dp, Color.White, CircleShape)
                                     .clickable { onResizeTile(editKey) }
                                     .testTag("disco-tile-resize"),
                                     contentAlignment = Alignment.Center) {
                                     Text("↘", color = Color.White,
-                                        fontSize = (28f * classicUnit).sp,
+                                        fontSize = 28.sp,
                                         fontWeight = FontWeight.Light)
                                 }
                             } else {
