@@ -16,6 +16,9 @@ trap collect_frames EXIT
 chmod +x gradlew
 adb shell wm size 1080x2160
 adb shell wm density 480
+# Android 10 shows a first-time immersive navigation warning over screenshots.
+# The test emulator can acknowledge that system-only tutorial ahead of capture.
+adb shell settings put secure immersive_mode_confirmations confirmed
 ./gradlew assemblePerformance --stacktrace
 adb install -r app/build/outputs/apk/performance/app-performance.apk
 
