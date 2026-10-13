@@ -55,10 +55,23 @@ internal object PhoneFolderStore {
             LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE,
         )
 
-    private fun key(mode: LauncherUiMode) = "phone_${mode.name}_live_folders"
+    private fun key(mode: LauncherUiMode) =
+        if (mode == LauncherUiMode.DESKTOP) "phone_DESKTOP_live_folders"
+        else "phone_shared_live_folders"
+
+    private fun migrateIfNeeded(context: Context, mode: LauncherUiMode) {
+        if (mode == LauncherUiMode.DESKTOP) return
+        val pref = preferences(context)
+        if (pref.contains(key(mode))) return
+        val current = "phone_${mode.name}_live_folders"
+        val other = "phone_${if (mode == LauncherUiMode.PHONE_8) LauncherUiMode.MOBILE_10.name else LauncherUiMode.PHONE_8.name}_live_folders"
+        val existing = listOf(current, other).firstOrNull(pref::contains) ?: return
+        pref.edit { putString(key(mode), pref.getString(existing, "[]")) }
+    }
 
     fun read(context: Context, mode: LauncherUiMode): List<PhoneFolder> =
         runCatching {
+            migrateIfNeeded(context, mode)
             val data = JSONArray(preferences(context).getString(key(mode), "[]") ?: "[]")
             (0 until data.length()).mapNotNull { index ->
                 val entry = data.optJSONObject(index) ?: return@mapNotNull null
