@@ -465,7 +465,16 @@ fun PhoneLauncherSurface(
     val viewportHeightCssPx = (surfaceBounds.height / densityScale)
         .takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
-    val classicAppMenuOpen = isClassicPhone && editing?.startsWith("app:") == true
+    // Disco automatically leaves Start edit mode after 30 seconds without
+    // selecting another tile. Reselecting restarts this idle timeout.
+    LaunchedEffect(editing, showApps, mode) {
+        if (isClassicPhone && !showApps && editing != null) {
+            delay(30_000L)
+            editing = null
+        }
+    }
+    val classicAppMenuOpen = isClassicPhone && showApps &&
+        editing?.startsWith("app:") == true
     val classicAppMenuDepth by animateFloatAsState(
         targetValue = if (classicAppMenuOpen) 1f else 0f,
         animationSpec = tween(
@@ -1192,10 +1201,15 @@ fun PhoneLauncherSurface(
                         ) {
                             val alphabetical = filtered.groupBy {
                                 val initial = it.label.firstOrNull()
+                                val folded = java.text.Normalizer.normalize(
+                                    it.label, java.text.Normalizer.Form.NFD,
+                                ).firstOrNull()?.uppercaseChar()
                                 when {
                                     initial == null -> "&"
-                                    initial.isLetter() -> initial.uppercaseChar().toString()
                                     initial.isDigit() -> "#"
+                                    folded != null && folded in 'A'..'Z' -> folded.toString()
+                                    // Keep international app names visible instead
+                                    // of dropping unmatched headings from A..Z.
                                     else -> "&"
                                 }
                             }
