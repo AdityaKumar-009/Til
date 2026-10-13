@@ -1815,6 +1815,7 @@ private fun PhoneStartGrid(
         val firstVisibleTop = visibleTops.minOrNull() ?: 0f
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
+        val gridWidthForPhoto = maxWidth
         val tilePicture = (mode == LauncherUiMode.PHONE_8 || mobileTilePictureMode) &&
             (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)) {
@@ -1879,7 +1880,7 @@ private fun PhoneStartGrid(
                                     wallpaperStyle = wallpaperStyle,
                                     tileLeftPx = (side + (cell + gap) * pos.column).value * density,
                                     tileTopPx = ((cell + gap) * pos.row).value * density,
-                                    gridWidthPx = maxWidth.value * density,
+                                    gridWidthPx = gridWidthForPhoto.value * density,
                                     gridHeightPx = ((cell + gap) * heightRows).value * density,
                                 )
                             }
