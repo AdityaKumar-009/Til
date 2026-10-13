@@ -23,6 +23,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 
 /**
  * Phone-native Settings presentation. The phone/desktop mode switch remains available
@@ -38,7 +39,7 @@ internal fun PhoneNativeSettingsSurface(
     val isTen = mode == LauncherUiMode.MOBILE_10
     var page by remember(mode) { mutableStateOf<String?>(null) }
     var filter by remember(mode) { mutableStateOf("") }
-    val accent = Color(0xFF31A5DF)
+    val accent = StartPersonalization.accentColor
     // Subscribe to preference changes so theme/density choices refresh immediately.
     @Suppress("UNUSED_VARIABLE")
     val revision = LauncherFeatureRuntime.launcherModeRevision
@@ -172,7 +173,7 @@ private fun PhoneSettingsRow(
         .then(if (tag != null) Modifier.testTag(tag) else Modifier)
         .clickable(onClick = onClick).padding(vertical = 11.dp)) {
         Text(title, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Light)
-        if (subtext.isNotBlank()) Text(subtext, color = Color(0xFF31A5DF),
+        if (subtext.isNotBlank()) Text(subtext, color = StartPersonalization.accentColor,
             fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
     }
 }
