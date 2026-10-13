@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,7 +77,8 @@ internal fun PhoneNativeSettingsSurface(
                         "Update & security", "TIL launcher settings")
                         .filter { it.contains(filter, ignoreCase = true) }
                         .forEach { title ->
-                            PhoneSettingsRow(title, "") {
+                            PhoneSettingsRow(title, "",
+                                tag = if (title == "TIL launcher settings") "phone-native-advanced-settings" else null) {
                                 if (title == "TIL launcher settings") onLauncherSettings()
                                 else page = title
                             }
@@ -92,7 +94,8 @@ internal fun PhoneNativeSettingsSurface(
                         "Bluetooth", "cellular+SIM", "lock screen", "notifications+actions",
                         "brightness", "date+time", "about", "TIL launcher settings")
                         .forEach { item ->
-                            PhoneSettingsRow(item, "") {
+                            PhoneSettingsRow(item, "",
+                                tag = if (item == "TIL launcher settings") "phone-native-advanced-settings" else null) {
                                 when (item) {
                                     "TIL launcher settings" -> onLauncherSettings()
                                     "Wi-Fi" -> openSystem(Settings.ACTION_WIFI_SETTINGS)
@@ -162,8 +165,12 @@ internal fun PhoneNativeSettingsSurface(
 }
 
 @Composable
-private fun PhoneSettingsRow(title: String, subtext: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 11.dp)) {
+private fun PhoneSettingsRow(
+    title: String, subtext: String, tag: String? = null, onClick: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()
+        .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+        .clickable(onClick = onClick).padding(vertical = 11.dp)) {
         Text(title, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Light)
         if (subtext.isNotBlank()) Text(subtext, color = Color(0xFF31A5DF),
             fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp))
