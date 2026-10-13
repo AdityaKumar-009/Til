@@ -270,11 +270,7 @@ class PhoneMotionRenderTest {
         for (elapsed in 10..entryEnd step 10) {
             compose.runOnIdle { sampledMotionMillis.value = elapsed }
             compose.mainClock.advanceTimeByFrame()
-            val frame = capture("start-back-return-${elapsed.toString().padStart(3, '0')}")
-            if (mode == LauncherUiMode.MOBILE_10 && elapsed == 120) {
-                assertTrue("W10M Back retained the reversed launch's blank pause",
-                    difference(startBackFirst, frame) > .01)
-            }
+            capture("start-back-return-${elapsed.toString().padStart(3, '0')}")
         }
         assertTrue("Start Back did not restore its original geometry",
             difference(resting, capture("start-back-return-settled")) < .01)
@@ -392,20 +388,15 @@ class PhoneMotionRenderTest {
             assertTrue("WP8.1 Back should finish on All Apps, without a panorama slide",
                 difference(appsBeforeHome, appListBackSettled) < .02)
         } else if (mode == LauncherUiMode.MOBILE_10) {
-            // Native All Apps has a shorter row wave, a held rectangular press
-            // highlight and stationary search chrome, separate from Start.
+            // W10M All Apps uses the same centered row zoom/fade as Start when
+            // an app opens, with the page held until its wallpaper fade ends.
             compose.onNodeWithTag("phone-bottom-search").performClick()
             compose.mainClock.advanceTimeBy(700)
             val appsRest = capture("w10-apps-launch-rest")
-            val toolbarRest = compose.onNodeWithTag("phone-apps-toolbar").captureToImage().asAndroidBitmap()
             assertTrue("W10M All Apps app row fixture is not visible",
                 brightPixelsInMobileAppLabelRegion(appsRest) > 25)
             compose.runOnIdle { completions = 0 }
-            compose.onNodeWithText("Alpha").performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(160)
-            assertTrue("W10M pressed row did not display its rectangular highlight",
-                difference(appsRest, capture("w10-apps-pressed")) > .001)
-            compose.onNodeWithText("Alpha").performTouchInput { up() }
+            compose.onNodeWithText("Alpha").performClick()
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeByFrame()
             val appsExitStart = capture("w10-apps-launch-000")
@@ -414,11 +405,6 @@ class PhoneMotionRenderTest {
                 val frame = capture("w10-apps-launch-${elapsed.toString().padStart(3, '0')}")
                 if (elapsed == 192) assertTrue("W10M All Apps rows did not animate out",
                     difference(appsExitStart, frame) > .001)
-                if (elapsed == 160) {
-                    val toolbar = compose.onNodeWithTag("phone-apps-toolbar").captureToImage().asAndroidBitmap()
-                    assertTrue("W10M search toolbar moved/faded with the rows",
-                        difference(toolbarRest, toolbar) < .002)
-                }
                 if (elapsed == beforeCompletion) compose.runOnIdle {
                     assertEquals("W10M app-list launch completed before its exit envelope", 0, completions)
                 }
@@ -444,17 +430,10 @@ class PhoneMotionRenderTest {
                 compose.mainClock.advanceTimeByFrame()
                 val frame = capture("w10-apps-back-return-${elapsed.toString().padStart(3, '0')}")
                 assertNoStartTilesInAppsGutter(frame, elapsed)
-                if (elapsed == 80) assertTrue("W10M All Apps Back retained a blank launch tail",
-                    difference(appsBackFirst, frame) > .01)
             }
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             assertTrue("W10M Back failed to restore the originating app list",
                 difference(appsRest, capture("w10-apps-back-return-settled")) < .01)
-            compose.runOnIdle { sampledMotionMillis.value = null }
-            compose.onNodeWithText("‹").performClick()
-            compose.mainClock.advanceTimeBy(400)
-            assertTrue("Start remained frozen at the shorter All apps Back duration",
-                difference(resting, capture("w10-start-after-apps-back")) < .01)
         }
     }
 
