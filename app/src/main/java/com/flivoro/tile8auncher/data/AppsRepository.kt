@@ -264,7 +264,7 @@ class AppsRepository(private val context: Context) {
             try {
                 iconDecodePermits.withPermit {
                     val cached = readPersistedVisualBitmap(
-                        packageName, "disco_foreground_color_v3_$maxCachedIconPx",
+                        packageName, "disco_foreground_color_v4_$maxCachedIconPx",
                     )?.asImageBitmap()
                     val resolved = cached ?: runCatching {
                         val drawable = packageManager.getApplicationIcon(packageName)
@@ -274,7 +274,7 @@ class AppsRepository(private val context: Context) {
                             putBoolean("disco_layer_color_v3:$packageName", colorfulForeground)
                         }
                         persistVisualBitmap(
-                            packageName, "disco_foreground_color_v3_$maxCachedIconPx", glyph,
+                            packageName, "disco_foreground_color_v4_$maxCachedIconPx", glyph,
                         )
                         if (drawable is AdaptiveIconDrawable) {
                             val background = renderDrawableAtResolution(drawable.background, 64)
@@ -317,7 +317,13 @@ class AppsRepository(private val context: Context) {
             // Keep color detail where the app actually provides a transparent
             // foreground. Dense opaque plates are not suitable glyphs.
             if (solid in (w * h / 75)..(w * h * 2 / 3)) {
-                return foreground
+                if (hasColoredArtwork(foreground)) return foreground
+                // Monochrome foregrounds need white glyphs when the plain
+                // native plate gets replaced by the Metro tile accent.
+                foreground.recycle()
+                return renderTintedDrawable(
+                    drawable.foreground, Color.WHITE, maxCachedIconPx,
+                )
             }
             foreground.recycle()
         }
