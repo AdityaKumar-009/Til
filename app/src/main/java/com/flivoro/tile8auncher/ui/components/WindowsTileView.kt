@@ -100,6 +100,8 @@ internal fun WindowsTileFace(
     logoModifier: Modifier = Modifier,
     innerModifier: Modifier = Modifier,
     backgroundAlpha: Float = 1f,
+    /** The tile picture is drawn within the transformed tile, not behind the grid. */
+    backgroundContent: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val tileColor = tile.colorValue.toTileColor()
@@ -116,6 +118,7 @@ internal fun WindowsTileFace(
     Box(
         modifier = modifier.background(tileColor.copy(alpha = backgroundAlpha.coerceIn(0f, 1f))),
     ) {
+        backgroundContent?.invoke()
         // Keep the tile's colored face on its outer layer. Windows Phone 8.1's
         // home-return transition turns the inner icon/text layer independently.
         Box(Modifier.fillMaxSize().then(innerModifier)) {
