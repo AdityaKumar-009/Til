@@ -4,11 +4,15 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -17,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -32,8 +37,11 @@ import androidx.compose.ui.window.PopupProperties
 import com.flivoro.tile8auncher.features.LauncherUiMode
 
 /**
- * Disco-style full-width light command strip in WP8.1; retain W10M commands.
- * The held row is highlighted by PhoneLauncherSurface while the menu unfolds.
+ * WP8.1 matches Disco's appList.scss:
+ * - 219px white menu, 12px outer padding, three 65px rows, 30px light text.
+ * - 750ms intro: pointer-anchored white 2px line for 0..50%;
+ *   panel folds open after 51% with cubic-bezier(.075,.82,.165,1).
+ * W10M retains its existing compact dark Android command strip.
  */
 @Composable
 internal fun PhoneAppContextMenu(
@@ -49,68 +57,92 @@ internal fun PhoneAppContextMenu(
     val context = LocalContext.current
     val classic = mode == LauncherUiMode.PHONE_8
     val screenWidth = LocalConfiguration.current.screenWidthDp
-    val unfold = remember(packageName, mode) { Animatable(if (classic) 0f else 1f) }
+    val scale = screenWidth / 480f
+    val introduction = remember(packageName, mode) { Animatable(if (classic) 0f else 1f) }
     LaunchedEffect(packageName, mode) {
-        if (classic) {
-            // Disco's context strip reveals its line before the panel expands,
-            // reaching its final pose after about 750ms.
-            kotlinx.coroutines.delay(190)
-            unfold.animateTo(1f, tween(560, easing = CubicBezierEasing(.075f, .82f, .165f, 1f)))
-        } else unfold.snapTo(1f)
+        if (classic) introduction.animateTo(1f, tween(750, easing = LinearEasing))
+        else introduction.snapTo(1f)
     }
     fun launchIntent(intent: Intent) {
         runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
+
+    @Composable
+    fun item(title: String, enabled: Boolean = true, action: () -> Unit) {
+        Text(
+            title,
+            color = if (classic) {
+                if (enabled) Color.Black else Color(0xFF999999)
+            } else Color.White,
+            fontSize = if (classic) (30f * scale).sp else 17.sp,
+            fontWeight = FontWeight.Light,
+            modifier = Modifier
+                .then(if (classic) Modifier.fillMaxWidth().height((65f * scale).dp) else Modifier)
+                .clickable(enabled = enabled && introduction.value >= (if (classic) .9f else 0f)) {
+                    onDismiss()
+                    action()
+                }
+                .padding(horizontal = if (classic) (12f * scale).dp else 20.dp,
+                    vertical = if (classic) (12f * scale).dp else 11.dp)
+                .testTag("phone-app-command-${title.replace(' ', '-')}"),
+        )
+    }
+
     Popup(
         alignment = Alignment.TopStart,
         offset = IntOffset(if (classic) 0 else xPx.coerceAtLeast(0), yPx.coerceAtLeast(0)),
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true),
     ) {
-        Column(
-            Modifier.width(if (classic) screenWidth.dp else 216.dp)
-                .graphicsLayer {
-                    if (classic) {
-                        alpha = unfold.value
-                        scaleY = .04f + .96f * unfold.value
-                        transformOrigin = TransformOrigin(.5f, 0f)
-                    }
-                }
-                .background(if (classic) Color.White else Color(0xFF202020))
-                .then(if (classic) Modifier else Modifier.border(1.dp, Color(0xFF383838)))
-                .testTag("phone-lumia-app-context-menu")
-                .padding(vertical = if (classic) 10.dp else 6.dp),
-        ) {
-            @Composable
-            fun item(title: String, enabled: Boolean = true, action: () -> Unit) {
-                Text(
-                    title,
-                    color = if (classic) {
-                        if (enabled) Color.Black else Color(0xFF949494)
-                    } else Color.White,
-                    fontSize = if (classic) 24.sp else 17.sp,
-                    fontWeight = FontWeight.Light,
-                    modifier = Modifier
-                        .clickable(enabled = enabled && unfold.value >= .96f) {
-                            onDismiss()
-                            action()
+        if (classic) {
+            val phase = introduction.value
+            val fold = if (phase <= .51f) 0f else
+                CubicBezierEasing(.075f, .82f, .165f, 1f)
+                    .transform(((phase - .51f) / .49f).coerceIn(0f, 1f))
+            Box(
+                Modifier.width(screenWidth.dp)
+                    .height((219f * scale).dp)
+                    .testTag("phone-lumia-app-context-menu"),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .height((219f * scale).dp)
+                        .graphicsLayer {
+                            scaleY = fold.coerceAtLeast(.001f)
+                            alpha = if (phase >= .51f) 1f else 0f
+                            transformOrigin = TransformOrigin(.5f, 0f)
                         }
-                        .padding(horizontal = if (classic) 20.dp else 20.dp,
-                            vertical = if (classic) 12.dp else 11.dp)
-                        .testTag("phone-app-command-${title.replace(' ', '-')}"),
+                        .background(Color.White)
+                        .clipToBounds()
+                        .padding((12f * scale).dp),
+                ) {
+                    // Disco disables pin when it is already present; never unpin
+                    // from the All Apps context menu.
+                    item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
+                    if (packageName != "mosaic.launcher.settings") {
+                        item("app info", action = onAppInfo)
+                        item("uninstall") {
+                            launchIntent(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
+                        }
+                    } else item("Mosaic Settings", action = onAppInfo)
+                }
+                Box(
+                    Modifier.fillMaxWidth().height((2f * scale).dp)
+                        .graphicsLayer {
+                            scaleX = (phase / .5f).coerceIn(.001f, 1f)
+                            alpha = if (phase < .55f) 1f else 0f
+                            transformOrigin = TransformOrigin(.5f, 0f)
+                        }
+                        .background(Color.White)
                 )
             }
-            if (classic) {
-                // Disco disables Pin when the app is already on Start. It does
-                // not mix the modern Android Share/Rate commands into this strip.
-                item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
-                if (packageName != "mosaic.launcher.settings") {
-                    item("app info", action = onAppInfo)
-                    item("uninstall") {
-                        launchIntent(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
-                    }
-                } else item("Mosaic Settings", action = onAppInfo)
-            } else {
+        } else {
+            Column(
+                Modifier.width(216.dp).background(Color(0xFF202020))
+                    .border(1.dp, Color(0xFF383838))
+                    .padding(vertical = 6.dp)
+                    .testTag("phone-lumia-app-context-menu"),
+            ) {
                 item(if (alreadyPinned) "unpin from start" else "pin to start", action = onPinChanged)
                 if (packageName != "mosaic.launcher.settings") {
                     item("share") {
