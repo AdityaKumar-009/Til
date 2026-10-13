@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -1853,21 +1852,14 @@ private fun PhoneStartGrid(
                                 // Align a shared-picture coordinate space to the tile.
                                 // This composable is inside PhoneTile's existing graphics
                                 // transform, so tiles and wallpaper depart together.
-                                Box(Modifier.fillMaxSize().clipToBounds()) {
-                                    WindowsWallpaper(
-                                        modifier = Modifier
-                                            .offset(
-                                                x = -(side + (cell + gap) * pos.column),
-                                                y = -((cell + gap) * pos.row),
-                                            )
-                                            .requiredSize(
-                                                width = maxWidth,
-                                                height = (cell + gap) * heightRows,
-                                            ),
-                                        wallpaperStyle = wallpaperStyle,
-                                        enabled = false,
-                                    )
-                                }
+                                com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
+                                    modifier = Modifier.fillMaxSize(),
+                                    wallpaperStyle = wallpaperStyle,
+                                    tileLeftPx = (side + (cell + gap) * pos.column).value * density,
+                                    tileTopPx = ((cell + gap) * pos.row).value * density,
+                                    gridWidthPx = maxWidth.value * density,
+                                    gridHeightPx = ((cell + gap) * heightRows).value * density,
+                                )
                             }
                         } else null,
                         repository = appsRepository,
