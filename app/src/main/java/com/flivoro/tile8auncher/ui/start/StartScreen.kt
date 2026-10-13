@@ -235,6 +235,8 @@ fun StartScreen(
     onTilesChanged: (List<TileModel>) -> Unit = {},
     initialWallpaperScrollPx: Float = 0f,
     onWallpaperScrollOffsetChanged: (Float) -> Unit = {},
+    tilePictureMode: Boolean = false,
+    tileWallpaperStyle: Int = 0,
     modifier: Modifier = Modifier,
     launchingTileId: String? = null,
     entranceRequest: Int = 0,
@@ -1748,6 +1750,21 @@ fun StartScreen(
                                                 WindowsTileView(
                                                     tile = tile,
                                                     appIcon = appIcon,
+                                                    backgroundContent = if (tilePictureMode &&
+                                                        tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) {
+                                                        {
+                                                            com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
+                                                                modifier = Modifier.fillMaxSize(),
+                                                                wallpaperStyle = tileWallpaperStyle,
+                                                                tileLeftPx = with(dragDensity) { targetX.toPx() },
+                                                                tileTopPx = with(dragDensity) { targetY.toPx() },
+                                                                gridWidthPx = with(dragDensity) { metrics.bandWidthDp.dp.toPx() },
+                                                                gridHeightPx = with(dragDensity) {
+                                                                    (metrics.bandHeightDp + groupLabelHeightDp).dp.toPx()
+                                                                },
+                                                            )
+                                                        }
+                                                    } else null,
                                                     modifier = Modifier.fillMaxSize(),
                                                     onClick = { bounds ->
                                                         if (!semanticZoomActive) {
