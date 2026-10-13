@@ -287,7 +287,8 @@ internal object PhoneLayoutStore {
             // Motion-test fixtures (which lack the standard Settings tile)
             // intentionally remain ephemeral.
             if (mode != LauncherUiMode.DESKTOP &&
-                startingIds.contains("tile_settings")) {
+                startingIds.contains("tile_settings") &&
+                defaults.any { it.id.startsWith("app:") }) {
                 saveOrder(context, mode, startingIds)
             }
             return startingIds
@@ -296,6 +297,11 @@ internal object PhoneLayoutStore {
             val json = JSONArray(raw)
             (0 until json.length()).mapNotNull { json.optString(it).takeIf(String::isNotBlank) }.distinct()
         }.getOrElse { defaults.map(TileModel::id) }
+    }
+
+    fun hasSavedOrder(context: Context, mode: LauncherUiMode): Boolean {
+        migrateIfNeeded(context, mode, "order")
+        return prefs(context).contains(key(mode, "order"))
     }
 
     fun saveOrder(context: Context, mode: LauncherUiMode, ids: List<String>) {
@@ -415,8 +421,21 @@ fun PhoneLauncherSurface(
         // IDs; preserve their complete fixture rather than producing an empty Start.
         nativePhoneDefaults.ifEmpty { tiles }
     }
+    // Wait for the actual launcher catalogue before sealing the one-time
+    // default layout. Otherwise Phone/Messages appear on some cold starts
+    // and vanish on others depending on asynchronous package scanning.
+    val appCatalogReady = catalog.any { it.packageName != MOSAIC_SETTINGS_ID }
     var order by remember(mode) {
         mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
+    }
+    LaunchedEffect(mode, appCatalogReady, phoneSeed) {
+        if (appCatalogReady && !PhoneLayoutStore.hasSavedOrder(context, mode)) {
+            val stable = phoneSeed.map(TileModel::id).distinct()
+            if (stable.isNotEmpty()) {
+                order = stable
+                PhoneLayoutStore.saveOrder(context, mode, stable)
+            }
+        }
     }
     var editing by remember(mode) { mutableStateOf<String?>(null) }
     var deletingTileId by remember(mode) { mutableStateOf<String?>(null) }
@@ -2141,6 +2160,14 @@ private fun PhoneStartGrid(
                         ),
                         label = "disco-unpin-delete",
                     )
+                    // When switching the selected tile, fade the previously
+                    // selected tile's noise into the background rather than
+                    // snapping from zero to full wobble in one frame.
+                    val wobbleStrength by animateFloatAsState(
+                        targetValue = if (classicEditing && !isSelectedForEdit &&
+                            !classicEditIntro) 1f else 0f,
+                        animationSpec = tween(440), label = "disco-tile-wobble-ramp",
+                    )
                     val editAlpha by animateFloatAsState(
                         targetValue = when {
                             editingTileId == null || isSelectedForEdit -> 1f
@@ -2219,12 +2246,12 @@ private fun PhoneStartGrid(
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
-                                            density * editProgress
+                                            density * editProgress * wobbleStrength * .35f
                                     else 0f
                                 translationY = if (isSelectedForEdit) tileDragOffset.y
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
-                                            density * editProgress
+                                            density * editProgress * wobbleStrength * .35f
                                     else 0f
                             },
                         onClick = { rect -> onClick(tile, rect) },
@@ -2358,11 +2385,13 @@ private fun PhoneStartGrid(
                                     contentAlignment = Alignment.Center) {
                                     androidx.compose.foundation.Canvas(
                                         Modifier.size((23f * classicUnit).dp).graphicsLayer {
+                                            // Disco labels the action with the NEXT size,
+                                            // not the size the tile already has.
                                             rotationZ = when (tile.size) {
-                                                TileSize.LARGE -> 90f
-                                                TileSize.WIDE -> 0f
-                                                TileSize.MEDIUM -> 45f
-                                                TileSize.SMALL -> 225f
+                                                TileSize.SMALL -> 0f     // next: wide
+                                                TileSize.MEDIUM -> 225f // next: small
+                                                TileSize.WIDE -> 45f    // next: medium
+                                                TileSize.LARGE -> 0f    // next: wide
                                             }
                                         },
                                     ) {
