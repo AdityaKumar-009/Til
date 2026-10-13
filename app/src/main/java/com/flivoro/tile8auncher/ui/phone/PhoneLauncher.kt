@@ -865,7 +865,7 @@ fun PhoneLauncherSurface(
                 ) {
                     Column(Modifier.fillMaxSize().elasticVerticalScroll(
                         classicPhonePhysics = isClassicPhone,
-                        maxOverscroll = if (isClassicPhone) (125f * classicUnit).dp else 96.dp,
+                        maxOverscroll = if (isClassicPhone) (187.5f * classicUnit).dp else 96.dp,
                     )
                         .verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 25.dp))
@@ -1335,7 +1335,14 @@ fun PhoneLauncherSurface(
                             }
                             .elasticVerticalScroll(
                                 classicPhonePhysics = isClassicPhone,
-                                maxOverscroll = if (isClassicPhone) (125f * classicUnit).dp else 96.dp,
+                                maxOverscroll = if (isClassicPhone) (187.5f * classicUnit).dp else 96.dp,
+                                onTopPullRelease = if (isClassicPhone && !phone8SearchVisible) {
+                                    {
+                                        phone8SearchVisible = true
+                                        search = ""
+                                        panoramaScope.launch { appsState.animateScrollToItem(0) }
+                                    }
+                                } else null,
                             ),
                             userScrollEnabled = interactionEnabled && !isLaunching &&
                                 !(isClassicPhone && editing?.startsWith("app:") == true)) {
@@ -1364,6 +1371,11 @@ fun PhoneLauncherSurface(
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
                                     val letterModifier = Modifier.fillMaxWidth()
+                                        .then(if (isClassicPhone) Modifier.graphicsLayer {
+                                            alpha = 1f - .5f * classicAppMenuDepth
+                                            scaleX = 1f - .02f * classicAppMenuDepth
+                                            scaleY = 1f - .02f * classicAppMenuDepth
+                                        } else Modifier)
                                         .then(if (isClassicPhone) Modifier.height((64f * classicUnit).dp)
                                             .padding(bottom = 0.dp) else Modifier)
                                         .then(if (mode == LauncherUiMode.PHONE_8) {
@@ -1684,6 +1696,11 @@ fun PhoneLauncherSurface(
                                 ).fillMaxWidth()
                                     .height((64f * classicUnit).dp)
                                     .background(Color.Black)
+                                    .graphicsLayer {
+                                        alpha = 1f - .5f * classicAppMenuDepth
+                                        scaleX = 1f - .02f * classicAppMenuDepth
+                                        scaleY = 1f - .02f * classicAppMenuDepth
+                                    }
                                     .testTag("classic-sticky-letter")
                                     .clickable(enabled = interactionEnabled) {
                                         alphabetOpen = true
@@ -1979,14 +1996,32 @@ fun PhoneLauncherSurface(
                 onPinChanged = {
                     if (id in order) saveOrder(order.filterNot { it == id })
                     else {
-                        saveOrder(order + id)
+                        val nextOrder = (order + id).distinct()
+                        saveOrder(nextOrder)
                         if (isClassicPhone) {
-                            // Disco navigates to Start, then centres the
-                            // newly pinned tile instead of leaving All Apps up.
-                            showApps = false
                             panoramaScope.launch {
+                                // Source: 300ms pre-pan, then center the newly pinned
+                                // tile over 500ms instead of jumping to Start's bottom.
                                 delay(300)
-                                startScroll.animateScrollTo(startScroll.maxValue)
+                                showApps = false
+                                delay(300)
+                                val selectedTiles = nextOrder.mapNotNull(::tileFor)
+                                val placements = packPhoneTiles(selectedTiles.map(TileModel::size), columns)
+                                val targetIndex = selectedTiles.indexOfFirst { it.id == id }
+                                if (targetIndex >= 0) {
+                                    val pos = placements[targetIndex]
+                                    val viewportWidthDp = paneBounds.width / densityScale
+                                    val edge = if (columns == 6) .025f else 25f / 480f
+                                    val spacing = .025f * viewportWidthDp
+                                    val cellDp = (viewportWidthDp * (1f - edge * 2) -
+                                        spacing * (columns - 1)) / columns
+                                    val rowDp = cellDp + spacing
+                                    val tileCenterDp = (pos.row + pos.rows * .5f) * rowDp
+                                    val viewportHeightDp = paneBounds.height / densityScale
+                                    val target = ((tileCenterDp - viewportHeightDp * .5f) *
+                                        densityScale).toInt().coerceIn(0, startScroll.maxValue)
+                                    startScroll.animateScrollTo(target, animationSpec = tween(500))
+                                }
                             }
                         }
                     }
