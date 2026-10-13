@@ -31,6 +31,12 @@ enum class AppIconStyle {
     WHITE_MONOCHROME,
 }
 
+/** The two Start picture treatments offered by Windows 10 Mobile. */
+enum class PhoneBackgroundStyle(val displayName: String) {
+    FULL_SCREEN("Full screen picture"),
+    TILE_PICTURE("Tile picture"),
+}
+
 /** Process-local signals for feature changes that visible launcher surfaces should re-read. */
 object LauncherFeatureRuntime {
     var launcherModeRevision by mutableIntStateOf(0)
@@ -90,6 +96,7 @@ object LauncherFeatureStore {
     private const val PHONE_LAST_CRASH = "phone_last_crash"
     private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
     private const val PHONE_TILE_OPACITY = "phone_tile_opacity"
+    private const val PHONE_BACKGROUND_STYLE = "phone_background_style"
     private const val PHONE_RECENTLY_INSTALLED_APPS = "phone_recently_installed_apps"
     private const val HIDDEN_PACKAGES = "feature_hidden_packages"
     private const val PRIVATE_PACKAGES = "feature_private_packages"
@@ -246,6 +253,16 @@ object LauncherFeatureStore {
     fun setPhoneSmallColumns(context: Context, mode: LauncherUiMode, columns: Int) {
         require(columns == 4 || columns == 6)
         prefs(context).edit { putInt(PHONE_SMALL_COLUMNS + mode.name, columns) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    fun phoneBackgroundStyle(context: Context): PhoneBackgroundStyle =
+        PhoneBackgroundStyle.entries.firstOrNull {
+            it.name == prefs(context).getString(PHONE_BACKGROUND_STYLE, PhoneBackgroundStyle.FULL_SCREEN.name)
+        } ?: PhoneBackgroundStyle.FULL_SCREEN
+
+    fun setPhoneBackgroundStyle(context: Context, style: PhoneBackgroundStyle) {
+        prefs(context).edit { putString(PHONE_BACKGROUND_STYLE, style.name) }
         LauncherFeatureRuntime.notifyLauncherModeChanged()
     }
 
