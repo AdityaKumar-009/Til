@@ -472,8 +472,8 @@ fun PhoneLauncherSurface(
     var openFolderId by remember(mode) { mutableStateOf<String?>(null) }
     var openFolderBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
-    val mobileTilePictureMode = remember(mode, densityRevision) {
-        isTen && LauncherFeatureStore.phoneBackgroundStyle(context) ==
+    val phoneTilePictureMode = remember(mode, densityRevision) {
+        LauncherFeatureStore.backgroundStyle(context, mode) ==
             PhoneBackgroundStyle.TILE_PICTURE
     }
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
@@ -825,12 +825,12 @@ fun PhoneLauncherSurface(
         .testTag("phone-navigation-state")
         .semantics { stateDescription = motionHomeRequest.toString() }
         .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
-        if (isTen && !mobileTilePictureMode) {
+        if (!phoneTilePictureMode) {
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = mobileWallpaperAlpha()
+                alpha = if (isTen) mobileWallpaperAlpha() else 1f
             }) {
                 WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
+                if (isTen) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
             }
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -893,7 +893,7 @@ fun PhoneLauncherSurface(
                             mode = mode,
                             tileOpacity = tileOpacity,
                             wallpaperStyle = wallpaperStyle,
-                            mobileTilePictureMode = mobileTilePictureMode,
+                            mobileTilePictureMode = phoneTilePictureMode,
                             appsRepository = appsRepository,
                             editingTileId = editing.takeIf { !showApps },
                             deletingTileId = deletingTileId,
@@ -2184,7 +2184,7 @@ private fun PhoneStartGrid(
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         val gridWidthForPhoto = maxWidth
-        val tilePicture = (mode == LauncherUiMode.PHONE_8 || mobileTilePictureMode) &&
+        val tilePicture = mobileTilePictureMode &&
             (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
             .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
