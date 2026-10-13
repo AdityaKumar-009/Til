@@ -65,6 +65,14 @@ class AppsRepository(private val context: Context) {
         }
     }
     private val monochromeIconCacheLock = Any()
+    // Independent adaptive foreground cache, bounded like the normal icons.
+    private val layeredIconCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * BYTES_PER_PIXEL)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+    private val layeredIconCacheLock = Any()
+    private val inFlightLayeredLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
 
     /**
      * All Apps deliberately uses display-sized thumbnails instead of the launch-resolution cache.
@@ -245,6 +253,64 @@ class AppsRepository(private val context: Context) {
         val active = inFlightMonochromeLoads.putIfAbsent(packageName, candidate)
         if (active == null) candidate.start() else candidate.cancel()
         return (active ?: candidate).await()
+    }
+
+    fun getCachedDiscoLayeredAppIcon(packageName: String): ImageBitmap? =
+        synchronized(layeredIconCacheLock) { layeredIconCache.get(packageName) }
+
+    suspend fun loadDiscoLayeredAppIcon(packageName: String): ImageBitmap? {
+        getCachedDiscoLayeredAppIcon(packageName)?.let { return it }
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                iconDecodePermits.withPermit {
+                    val cached = readPersistedVisualBitmap(
+                        packageName, "disco_foreground_$maxCachedIconPx",
+                    )?.asImageBitmap()
+                    val resolved = cached ?: runCatching {
+                        val drawable = packageManager.getApplicationIcon(packageName)
+                        val glyph = drawableToDiscoForeground(drawable)
+                        persistVisualBitmap(
+                            packageName, "disco_foreground_$maxCachedIconPx", glyph,
+                        )
+                        if (drawable is AdaptiveIconDrawable) {
+                            val background = renderDrawableAtResolution(
+                                drawable.background, 64,
+                            )
+                            persistAppAccent(packageName, extractAppAccentColor(background))
+                            background.recycle()
+                        }
+                        glyph.asImageBitmap()
+                    }.getOrNull()
+                    if (resolved != null) synchronized(layeredIconCacheLock) {
+                        layeredIconCache.put(packageName, resolved)
+                    }
+                    resolved
+                }
+            } finally {
+                inFlightLayeredLoads.remove(packageName)
+            }
+        }
+        val active = inFlightLayeredLoads.putIfAbsent(packageName, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
+    /** Render the app foreground separately, rejecting dense white plates. */
+    private fun drawableToDiscoForeground(drawable: Drawable): Bitmap {
+        if (drawable is AdaptiveIconDrawable) {
+            val foreground = renderTintedDrawable(drawable.foreground,
+                Color.WHITE, maxCachedIconPx)
+            val w = foreground.width
+            val h = foreground.height
+            val pixels = IntArray(w * h)
+            foreground.getPixels(pixels, 0, w, 0, 0, w, h)
+            val solid = pixels.count { Color.alpha(it) >= 96 }
+            if (solid in (w * h / 50)..(w * h * 2 / 3)) {
+                return foreground
+            }
+            foreground.recycle()
+        }
+        return drawableToMonochromeBitmap(drawable)
     }
 
     fun getCachedAllAppsIcon(
