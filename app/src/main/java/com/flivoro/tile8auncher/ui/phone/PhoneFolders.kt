@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.ui.phone
 
 import android.content.Context
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,10 +31,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.edit
+import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import org.json.JSONArray
 import org.json.JSONObject
@@ -140,6 +143,7 @@ internal object PhoneFolderStore {
 internal fun PhoneFolderSurface(
     folder: PhoneFolder,
     children: List<TileModel>,
+    repository: AppsRepository,
     onOpenChild: (String) -> Unit,
     onRemoveChild: (String) -> Unit,
     onRename: (String) -> Unit,
@@ -159,7 +163,7 @@ internal fun PhoneFolderSurface(
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                     .background(Color(0xFF161616))
-                    .clickable(enabled = false) {}
+                    .clickable { }
                     .padding(horizontal = 16.dp, vertical = 18.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -182,6 +186,7 @@ internal fun PhoneFolderSurface(
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             row.forEach { child ->
                                 Column(Modifier.weight(1f)) {
+                                    val appIcon = rememberAppIcon(repository, child.packageName)
                                     Box(
                                         Modifier.fillMaxWidth().height(91.dp)
                                             .background(Color(child.colorValue))
@@ -189,10 +194,15 @@ internal fun PhoneFolderSurface(
                                             .testTag("phone-folder-app-${child.id}"),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        MetroIcon(
-                                            glyph = child.iconGlyph.ifEmpty { "app" },
-                                            color = Color.White, size = 35.dp,
-                                        )
+                                        if (child.iconGlyph.isBlank() && appIcon != null) {
+                                            Image(bitmap = appIcon, contentDescription = null,
+                                                modifier = Modifier.size(43.dp))
+                                        } else {
+                                            MetroIcon(
+                                                glyph = child.iconGlyph.ifEmpty { "app" },
+                                                color = Color.White, size = 35.dp,
+                                            )
+                                        }
                                     }
                                     Text(child.title, color = Color.White, fontSize = 12.sp,
                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -218,6 +228,7 @@ internal fun PhoneFolderSurface(
 @Composable
 internal fun PhoneFolderPreview(
     children: List<TileModel>,
+    repository: AppsRepository,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -227,12 +238,19 @@ internal fun PhoneFolderPreview(
         children.take(4).chunked(2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 row.forEach { tile ->
+                    val icon = rememberAppIcon(repository, tile.packageName)
                     Box(
                         Modifier.padding(2.dp).size(27.dp)
                             .background(Color(tile.colorValue)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        MetroIcon(glyph = tile.iconGlyph.ifEmpty { "app" }, color = Color.White, size = 17.dp)
+                        if (tile.iconGlyph.isBlank() && icon != null) {
+                            Image(bitmap = icon, contentDescription = null,
+                                modifier = Modifier.size(18.dp))
+                        } else {
+                            MetroIcon(glyph = tile.iconGlyph.ifEmpty { "app" },
+                                color = Color.White, size = 17.dp)
+                        }
                     }
                 }
             }
