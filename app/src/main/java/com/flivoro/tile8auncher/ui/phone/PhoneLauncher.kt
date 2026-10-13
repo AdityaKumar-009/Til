@@ -465,6 +465,17 @@ fun PhoneLauncherSurface(
     val viewportHeightCssPx = (surfaceBounds.height / densityScale)
         .takeIf { it > 0f } ?: 850f
     val isClassicPhone = mode == LauncherUiMode.PHONE_8
+    val classicAppMenuOpen = isClassicPhone && editing?.startsWith("app:") == true
+    val classicAppMenuDepth by animateFloatAsState(
+        targetValue = if (classicAppMenuOpen) 1f else 0f,
+        animationSpec = tween(
+            if (classicAppMenuOpen) 500 else 350,
+            easing = if (classicAppMenuOpen)
+                androidx.compose.animation.core.CubicBezierEasing(.42f, 0f, 1f, 1f)
+            else androidx.compose.animation.core.CubicBezierEasing(.075f, .82f, .165f, 1f),
+        ),
+        label = "disco-app-menu-background",
+    )
     // W10M All Apps stays settled on an ordinary Start -> Apps swipe. Its rows move
     // only for app launch and the independently measured return on Back.
     // Disco's #search-icon starts hidden and gets the .shown class only when
@@ -1411,12 +1422,17 @@ fun PhoneLauncherSurface(
                                                     cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                                 }
                                             })
-                                            .then(if (isClassicPhone && editing?.startsWith("app:") == true) Modifier.graphicsLayer {
-                                                val menuEditing = editing?.startsWith("app:") == true
+                                            .then(if (isClassicPhone) Modifier.graphicsLayer {
                                                 val isHeld = editing == "app:${app.packageName}"
-                                                alpha = if (menuEditing && !isHeld) .55f else 1f
-                                                scaleX = if (menuEditing && !isHeld) .96f else 1f
-                                                scaleY = if (menuEditing && !isHeld) .96f else 1f
+                                                // Disco's .app-menu-back-intro retreats to -5px
+                                                // over 500ms, then the 20px depth pose settles.
+                                                // The selected row remains a crisp foreground clone.
+                                                val retreat = if (isHeld) 0f else classicAppMenuDepth
+                                                alpha = 1f - .5f * retreat
+                                                val distance = 1000f
+                                                val scale = distance / (distance + 20f * retreat)
+                                                scaleX = scale
+                                                scaleY = scale
                                             } else Modifier)
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
@@ -1610,40 +1626,9 @@ fun PhoneLauncherSurface(
                 }
             }
             }
-            Row(Modifier.fillMaxWidth().height(48.dp).background(Color.Black),
-                horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.testTag("phone-bottom-back")
-                    .clickable(enabled = interactionEnabled && !isLaunching) {
-                        when {
-                            alphabetOpen -> alphabetOpen = false
-                            editing != null -> editing = null
-                            isClassicPhone && phone8SearchVisible -> { phone8SearchVisible = false; search = "" }
-                            showApps -> showApps = false
-                        }
-                    }.padding(horizontal = 26.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center) {
-                    PhoneNavGlyph(PhoneNavKey.BACK, Modifier.size(27.dp))
-                }
-                Box(Modifier.testTag("phone-bottom-home")
-                    .clickable(enabled = interactionEnabled && !isLaunching) {
-                        if (isClassicPhone && showApps) {
-                            classicHomeEntrance = entranceRequest
-                            classicHomeTap++
-                        }
-                        editing = null
-                        showApps = false
-                        actionCenterOpen = false
-                    }.padding(horizontal = 26.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center) {
-                    PhoneNavGlyph(PhoneNavKey.START, Modifier.size(24.dp))
-                }
-                Box(Modifier.testTag("phone-bottom-search")
-                    .clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }
-                    .padding(horizontal = 26.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center) {
-                    PhoneNavGlyph(PhoneNavKey.SEARCH, Modifier.size(25.dp))
-                }
-            }
+            // Android owns the navigation bar. System Back is handled by
+            // BackHandler above; system Home returns to the real launcher.
+
         }
 
         if (!isTen) {
@@ -1814,16 +1799,24 @@ fun PhoneLauncherSurface(
         val pkg = id.removePrefix("app:")
         val app = byPackage[pkg]
         if (app != null) {
-            val menuHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-                265.dp.toPx()
+            val menuHeightPx = with(LocalDensity.current) {
+                (if (isClassicPhone) 219f * classicUnit else 265f).dp.toPx()
             }
+            // Disco places the panel immediately beneath the selected row
+            // unless 219px would collide with the bottom inset.
+            val menuTopPx = if (isClassicPhone) {
+                if (appContextBounds.bottom + menuHeightPx <= surfaceBounds.bottom)
+                    appContextBounds.bottom
+                else appContextBounds.top - menuHeightPx
+            } else appContextBounds.bottom
             PhoneAppContextMenu(
                 mode = mode,
                 packageName = pkg,
                 alreadyPinned = id in order,
-                xPx = appContextBounds.left.toInt().coerceAtLeast(8),
-                yPx = appContextBounds.bottom.toInt().coerceAtMost(
-                    (surfaceBounds.height - menuHeightPx).toInt().coerceAtLeast(0),
+                xPx = if (isClassicPhone) appContextBounds.center.x.toInt()
+                    else appContextBounds.left.toInt().coerceAtLeast(8),
+                yPx = menuTopPx.toInt().coerceIn(
+                    0, (surfaceBounds.bottom - menuHeightPx).toInt().coerceAtLeast(0),
                 ),
                 onPinChanged = {
                     if (id in order) saveOrder(order.filterNot { it == id })
@@ -1869,14 +1862,24 @@ private fun PhoneStartGrid(
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     val classicEditing = mode == LauncherUiMode.PHONE_8 && editingTileId != null
     // A single clock gives the surrounding tiles subtle phase-shifted motion.
+    val editProgress by animateFloatAsState(
+        targetValue = if (classicEditing) 1f else 0f,
+        animationSpec = tween(
+            if (classicEditing) 750 else 500,
+            easing = if (classicEditing)
+                androidx.compose.animation.core.CubicBezierEasing(.075f, .82f, .165f, 1f)
+            else androidx.compose.animation.core.CubicBezierEasing(.25f, 1f, .25f, 1f),
+        ),
+        label = "disco-home-editor-page",
+    )
     val classicWobble = if (classicEditing) {
-        val transition = rememberInfiniteTransition(label = "classic-tile-wobble")
-        val phase by transition.animateFloat(
-            initialValue = 0f, targetValue = 6.283185f,
-            animationSpec = infiniteRepeatable(tween(1350, easing = LinearEasing), RepeatMode.Restart),
-            label = "classic-wobble-phase",
+        val transition = rememberInfiniteTransition(label = "disco-perlin-clock")
+        val milliseconds by transition.animateFloat(
+            initialValue = 0f, targetValue = 30000f,
+            animationSpec = infiniteRepeatable(tween(30000, easing = LinearEasing), RepeatMode.Restart),
+            label = "disco-edit-noise-time",
         )
-        phase
+        milliseconds
     } else 0f
     var tileDragOffset by remember(editingTileId) { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current.density
@@ -1954,7 +1957,11 @@ private fun PhoneStartGrid(
                             isSelectedForEdit -> 1.05f
                             else -> .925f
                         },
-                        animationSpec = tween(250), label = "classic-edit-scale",
+                        animationSpec = tween(
+                            if (isSelectedForEdit) 250 else 500,
+                            easing = androidx.compose.animation.core.CubicBezierEasing(.075f, .82f, .165f, 1f),
+                        ),
+                        label = "disco-edit-tile-scale",
                     )
                     val editAlpha by animateFloatAsState(
                         targetValue = when {
@@ -2029,10 +2036,14 @@ private fun PhoneStartGrid(
                                 scaleX = editScale
                                 scaleY = editScale
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
-                                    else if (classicEditing) sin(classicWobble + index * 1.87f) * 1.2f * density
+                                    else if (classicEditing)
+                                        ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
+                                            density * editProgress
                                     else 0f
                                 translationY = if (isSelectedForEdit) tileDragOffset.y
-                                    else if (classicEditing) sin(classicWobble * .79f + index * 2.31f) * 1.2f * density
+                                    else if (classicEditing)
+                                        ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
+                                            density * editProgress
                                     else 0f
                             },
                         onClick = { rect -> onClick(tile, rect) },
@@ -2073,7 +2084,8 @@ private fun PhoneStartGrid(
                                 translationX = tileDragOffset.x
                                 translationY = tileDragOffset.y
                             }
-                            .border(2.dp, Color.White)
+                            .then(if (mode == LauncherUiMode.PHONE_8) Modifier
+                                else Modifier.border(2.dp, Color.White))
                             .testTag("phone-tile-drag-handle")
                             .pointerInput(editKey, slots, cellStepPx, interactionEnabled) {
                                 if (!interactionEnabled || isLaunching) return@pointerInput
@@ -2120,19 +2132,48 @@ private fun PhoneStartGrid(
                                     onDragCancel = { tileDragOffset = Offset.Zero },
                                 )
                             }) {
-                            Box(Modifier.align(Alignment.TopEnd)
-                                .offset(x = 8.dp, y = (-8).dp)
-                                .size(28.dp).background(Color.White, CircleShape)
-                                .clickable { onUnpinTile(editKey) },
-                                contentAlignment = Alignment.Center) {
-                                Text("×", color = Color.Black, fontSize = 22.sp)
-                            }
-                            Box(Modifier.align(Alignment.BottomEnd)
-                                .offset(x = 8.dp, y = 8.dp)
-                                .size(28.dp).background(Color.White, CircleShape)
-                                .clickable { onResizeTile(editKey) },
-                                contentAlignment = Alignment.Center) {
-                                Text("↘", color = Color.Black, fontSize = 19.sp)
+                            if (mode == LauncherUiMode.PHONE_8) {
+                                // Disco's overlay is two outlined 42px circles at
+                                // (-15,-15) and (right+15,bottom+15), not a full border.
+                                Box(Modifier.align(Alignment.TopEnd)
+                                    .offset(x = (15f * classicUnit).dp, y = (-15f * classicUnit).dp)
+                                    .size((42f * classicUnit).dp)
+                                    .background(Color.Black, CircleShape)
+                                    .border((3f * classicUnit).dp, Color.White, CircleShape)
+                                    .clickable { onUnpinTile(editKey) }
+                                    .testTag("disco-tile-unpin"),
+                                    contentAlignment = Alignment.Center) {
+                                    Text("×", color = Color.White,
+                                        fontSize = (30f * classicUnit).sp,
+                                        fontWeight = FontWeight.Light)
+                                }
+                                Box(Modifier.align(Alignment.BottomEnd)
+                                    .offset(x = (15f * classicUnit).dp, y = (15f * classicUnit).dp)
+                                    .size((42f * classicUnit).dp)
+                                    .background(Color.Black, CircleShape)
+                                    .border((3f * classicUnit).dp, Color.White, CircleShape)
+                                    .clickable { onResizeTile(editKey) }
+                                    .testTag("disco-tile-resize"),
+                                    contentAlignment = Alignment.Center) {
+                                    Text("↘", color = Color.White,
+                                        fontSize = (28f * classicUnit).sp,
+                                        fontWeight = FontWeight.Light)
+                                }
+                            } else {
+                                Box(Modifier.align(Alignment.TopEnd)
+                                    .offset(x = 8.dp, y = (-8).dp)
+                                    .size(28.dp).background(Color.White, CircleShape)
+                                    .clickable { onUnpinTile(editKey) },
+                                    contentAlignment = Alignment.Center) {
+                                    Text("×", color = Color.Black, fontSize = 22.sp)
+                                }
+                                Box(Modifier.align(Alignment.BottomEnd)
+                                    .offset(x = 8.dp, y = 8.dp)
+                                    .size(28.dp).background(Color.White, CircleShape)
+                                    .clickable { onResizeTile(editKey) },
+                                    contentAlignment = Alignment.Center) {
+                                    Text("↘", color = Color.Black, fontSize = 19.sp)
+                                }
                             }
                         }
                     }
