@@ -267,6 +267,27 @@ object LauncherFeatureStore {
         LauncherFeatureRuntime.notifyLauncherModeChanged()
     }
 
+    /** Appearance only: three modes keep their own tile-picture choice while
+     *  WP8.1 and W10M still share a single pinned-tile workspace. */
+    fun backgroundStyle(context: Context, mode: LauncherUiMode): PhoneBackgroundStyle =
+        if (mode == LauncherUiMode.MOBILE_10) phoneBackgroundStyle(context)
+        else {
+            val fallback = if (mode == LauncherUiMode.PHONE_8)
+                PhoneBackgroundStyle.TILE_PICTURE else PhoneBackgroundStyle.FULL_SCREEN
+            val stored = prefs(context).getString("mode_background_${mode.name}", fallback.name)
+            PhoneBackgroundStyle.entries.firstOrNull { it.name == stored } ?: fallback
+        }
+
+    fun setBackgroundStyle(
+        context: Context, mode: LauncherUiMode, style: PhoneBackgroundStyle,
+    ) {
+        if (mode == LauncherUiMode.MOBILE_10) setPhoneBackgroundStyle(context, style)
+        else {
+            prefs(context).edit { putString("mode_background_${mode.name}", style.name) }
+            LauncherFeatureRuntime.notifyLauncherModeChanged()
+        }
+    }
+
     fun phoneTileOpacity(context: Context): Float =
         prefs(context).getInt(PHONE_TILE_OPACITY, 82).coerceIn(0, 100) / 100f
 
