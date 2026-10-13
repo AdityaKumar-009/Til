@@ -68,6 +68,7 @@ fun WindowsTileView(
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
     dragEnabled: Boolean = false,
+    backgroundContent: (@Composable () -> Unit)? = null,
     onDragStart: (bounds: Rect) -> Unit = {},
     onDrag: (delta: Offset) -> Unit = {},
     onDragLayoutShift: (delta: Offset) -> Unit = {},
@@ -77,6 +78,7 @@ fun WindowsTileView(
     WindowsTileFace(
         tile = tile,
         appIcon = appIcon,
+        backgroundContent = backgroundContent,
         modifier = modifier
             .metroTilePress(
                 tileSize = tile.size,
