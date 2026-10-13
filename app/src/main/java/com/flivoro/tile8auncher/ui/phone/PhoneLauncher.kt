@@ -2268,10 +2268,7 @@ private fun PhoneStartGrid(
                             tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) 0f else tileOpacity,
                         tilePictureContent = if (tilePicture &&
                             tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) {
-                            {
-                                // Align a shared-picture coordinate space to the tile.
-                                // This composable is inside PhoneTile's existing graphics
-                                // transform, so tiles and wallpaper depart together.
+                            { inverseTileProjection ->
                                 com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
                                     modifier = Modifier.fillMaxSize(),
                                     wallpaperStyle = wallpaperStyle,
@@ -2279,6 +2276,7 @@ private fun PhoneStartGrid(
                                     tileTopPx = ((cell + gap) * pos.row).value * density,
                                     gridWidthPx = gridWidthForPhoto.value * density,
                                     gridHeightPx = ((cell + gap) * heightRows).value * density,
+                                    inverseTileProjection = inverseTileProjection,
                                 )
                             }
                         } else null,
@@ -2502,7 +2500,7 @@ private fun PhoneTile(
     elapsedMillis: () -> Int,
     selectedTile: Boolean,
     tileOpacity: Float,
-    tilePictureContent: (@Composable () -> Unit)? = null,
+    tilePictureContent: (@Composable (inverseTileProjection: () -> PlatformMatrix?) -> Unit)? = null,
     repository: AppsRepository,
     modifier: Modifier,
     onClick: (Rect) -> Unit,
@@ -2599,7 +2597,31 @@ private fun PhoneTile(
         tile = resolvedTile,
         appIcon = icon,
         backgroundAlpha = tileOpacity,
-        backgroundContent = tilePictureContent,
+        backgroundContent = if (tilePictureContent != null) {
+            {
+                tilePictureContent {
+                    // Counter-transform wallpaper pixels ONLY, after the moving
+                    // tile's clip. Icons, text and outer tile keep their
+                    // existing launch/return choreography completely unchanged.
+                    val motion = currentMotion()
+                    val forward = if (mode == LauncherUiMode.PHONE_8) {
+                        tileProjectionMatrix(
+                            bounds.width.coerceAtLeast(1f),
+                            bounds.height.coerceAtLeast(1f),
+                            motion,
+                        )
+                    } else {
+                        PlatformMatrix().apply {
+                            val px = bounds.width * motion.pivotX
+                            val py = bounds.height * .5f
+                            setScale(motion.scale, motion.scale, px, py)
+                            postTranslate(motion.translationXPx, motion.translationYPx)
+                        }
+                    }
+                    PlatformMatrix().takeIf { forward.invert(it) }
+                }
+            }
+        } else null,
         // Native glyphs and labels remain attached to the tile face throughout its turn.
         innerModifier = Modifier,
         modifier = modifier
