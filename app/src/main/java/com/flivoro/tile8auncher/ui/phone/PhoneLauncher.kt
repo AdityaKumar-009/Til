@@ -1535,11 +1535,9 @@ fun PhoneLauncherSurface(
                 mode = mode,
                 onClose = { phoneSettingsOpen = false },
                 onLauncherSettings = {
-                    // Change the parent launch destination before removing this
-                    // phone Settings composable. Removing the child first can lose
-                    // the click's destination during the same recomposition.
+                    // The parent changes activeInAppTile and owns the screen swap.
+                    // Keep this surface mounted until the parent has changed screens.
                     onOpenSettings()
-                    phoneSettingsOpen = false
                 },
             )
         }
