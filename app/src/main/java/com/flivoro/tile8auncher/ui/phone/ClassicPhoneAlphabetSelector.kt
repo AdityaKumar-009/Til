@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.ui.phone
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,10 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,10 +33,74 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
+import java.util.Locale
+
+// Direct port of DiscoLauncher src/script.js and styles/pages/appList.scss:
+// # + a..z + the symbols tile, laid out in seven 4-letter flex rows.
+// Each row starts at +90 degrees, enters in 75ms with 20ms successive delays,
+// and exits to -90 degrees with a 60ms lead-in and the same feather.
+private val discoAlphabet = "#abcdefghijklmnopqrstuvwxyz".toList().chunked(4)
+private val discoLetterEnter = CubicBezierEasing(0f, 0f, .58f, 1f)
+private val discoLetterExit = CubicBezierEasing(.42f, 0f, 1f, 1f)
+
+@Composable
+private fun DiscoLetterRow(
+    row: List<Char>,
+    rowIndex: Int,
+    visible: Boolean,
+    availableLetters: Set<String>,
+    accent: Color,
+    onSelect: (String) -> Unit,
+) {
+    val rotation = remember { Animatable(90f) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            delay(rowIndex * 20L)
+            rotation.animateTo(0f, tween(75, easing = discoLetterEnter))
+        } else {
+            delay(60L + rowIndex * 20L)
+            rotation.animateTo(-90f, tween(75, easing = discoLetterExit))
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().fillMaxHeight()
+            .graphicsLayer {
+                rotationX = rotation.value
+                cameraDistance = 1000f * density
+                transformOrigin = TransformOrigin(.5f, .5f)
+            }
+            .testTag("classic-letter-row-$rowIndex"),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        row.forEach { char ->
+            val raw = char.toString()
+            val category = if (char == '') "#" else raw.uppercase(Locale.ROOT)
+            val available = category in availableLetters
+            Box(
+                Modifier.weight(1f).fillMaxHeight()
+                    .padding(6.dp)
+                    .background(if (available) accent else Color(0xFF272727))
+                    .clickable(enabled = visible && available) { onSelect(category) }
+                    .testTag("classic-letter-$raw")
+                    .padding(start = 8.dp, bottom = 5.dp),
+                contentAlignment = Alignment.BottomStart,
+            ) {
+                Text(
+                    raw,
+                    color = if (available) Color.White else Color(0xFF656565),
+                    fontSize = 45.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
 
 /**
- * DiscoLauncher-style alphabet jump overlay, scoped to the classic phone skin.
- * Seven 3-D rows feather into place and out; the dialog remains mounted for exit.
+ * The overlay is kept mounted for the source's 500ms outgoing state so
+ * Back and an alphabet selection both play the actual 7-row exit.
  */
 @Composable
 internal fun ClassicPhoneAlphabetSelector(
@@ -45,70 +111,44 @@ internal fun ClassicPhoneAlphabetSelector(
     onDismiss: () -> Unit,
 ) {
     var mounted by remember { mutableStateOf(visible) }
-    val reveal = remember { Animatable(0f) }
     LaunchedEffect(visible) {
-        if (visible) {
-            mounted = true
-            reveal.animateTo(1f, tween(250, easing = CubicBezierEasing(.25f, 0f, .25f, 1f)))
-        } else if (mounted) {
-            reveal.animateTo(0f, tween(230, easing = CubicBezierEasing(.75f, 0f, 1f, 1f)))
+        if (visible) mounted = true
+        else {
+            delay(500)
             mounted = false
         }
     }
-    if (!mounted) return
-
-    val letters = listOf(
-        "#", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L",
-        "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    val scrim by animateFloatAsState(
+        targetValue = if (visible) .5f else 0f,
+        animationSpec = tween(200),
+        label = "disco-letter-selector-scrim",
     )
+    if (!mounted) return
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Box(
             Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = .58f * reveal.value))
-                .testTag("classic-phone-letter-selector")
-                .clickable(onClick = onDismiss),
+                .background(Color.Black.copy(alpha = scrim))
+                .clickable(enabled = visible, onClick = onDismiss)
+                .testTag("classic-phone-letter-selector"),
             contentAlignment = Alignment.Center,
         ) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.widthIn(max = 500.dp).fillMaxWidth().fillMaxHeight()
+                    .padding(18.dp),
             ) {
-                letters.chunked(4).forEachIndexed { rowIndex, rowLetters ->
-                    val fraction = ((reveal.value - rowIndex * .095f) /
-                        (1f - rowIndex * .095f)).coerceIn(0f, 1f)
-                    Row(
-                        Modifier.fillMaxWidth().graphicsLayer {
-                            rotationX = 90f * (1f - fraction)
-                            alpha = fraction
-                            cameraDistance = 1200f
-                            transformOrigin = TransformOrigin(.5f, .5f)
-                        },
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        rowLetters.forEach { letter ->
-                            val enabled = letter in availableLetters
-                            Box(
-                                Modifier.weight(1f).height(58.dp)
-                                    .background(if (enabled) accent else Color(0xFF292929))
-                                    .clickable(enabled = visible && enabled) { onSelect(letter) }
-                                    .testTag("classic-letter-$letter")
-                                    .padding(start = 7.dp, bottom = 4.dp),
-                                contentAlignment = Alignment.BottomStart,
-                            ) {
-                                Text(
-                                    text = letter.lowercase(),
-                                    color = if (enabled) Color.White else Color(0xFF646464),
-                                    fontSize = 32.sp,
-                                    fontWeight = FontWeight.Light,
-                                )
-                            }
-                        }
-                        repeat(4 - rowLetters.size) {
-                            Box(Modifier.weight(1f).height(58.dp))
-                        }
+                discoAlphabet.forEachIndexed { index, row ->
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        DiscoLetterRow(
+                            row = row,
+                            rowIndex = index,
+                            visible = visible,
+                            availableLetters = availableLetters,
+                            accent = accent,
+                            onSelect = onSelect,
+                        )
                     }
                 }
             }
