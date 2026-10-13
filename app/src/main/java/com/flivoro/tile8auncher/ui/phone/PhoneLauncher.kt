@@ -456,6 +456,11 @@ fun PhoneLauncherSurface(
         if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
     }
     val appsState = rememberLazyListState()
+    // The sticky overlay is a sibling of the scroll pane. The latest
+    // alphabet item offsets are published from the inner list composition.
+    var classicStickyPositions by remember(mode) {
+        mutableStateOf<Map<String, Int>>(emptyMap())
+    }
     val startScroll = rememberScrollState()
     var surfaceBounds by remember(mode) { mutableStateOf(Rect.Zero) }
     var paneBounds by remember(mode) { mutableStateOf(Rect.Zero) }
@@ -1254,6 +1259,9 @@ fun PhoneLauncherSurface(
                                 }
                             }
                         }
+                        LaunchedEffect(positions) {
+                            classicStickyPositions = positions
+                        }
                         val visibleListIndices = appsState.layoutInfo.visibleItemsInfo.map { it.index }
                         val visibleListTops = appsState.layoutInfo.visibleItemsInfo.map { it.offset.toFloat() }
                         val firstVisibleListTop = visibleListTops.minOrNull() ?: 0f
@@ -1630,14 +1638,14 @@ fun PhoneLauncherSurface(
                         !alphabetOpen && !isLaunching &&
                         (!motionUsesBack || sourceMotionMillis() >= duration)) {
                         val visibleIndex = appsState.firstVisibleItemIndex
-                        val crossed = positions.entries.lastOrNull { entry ->
+                        val crossed = classicStickyPositions.entries.lastOrNull { entry ->
                             entry.key.length == 1 &&
                                 (entry.value < visibleIndex ||
                                     (entry.value == visibleIndex &&
                                         appsState.firstVisibleItemScrollOffset > 0))
                         }
                         crossed?.let { section ->
-                            val following = positions.entries.firstOrNull {
+                            val following = classicStickyPositions.entries.firstOrNull {
                                 it.key.length == 1 && it.value > section.value
                             }
                             val headerHeightPx = with(LocalDensity.current) {
