@@ -1182,7 +1182,13 @@ fun PhoneLauncherSurface(
                             isClassicPhone,
                         ) {
                             val alphabetical = filtered.groupBy {
-                                it.label.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
+                                val initial = it.label.firstOrNull()
+                                when {
+                                    initial == null -> "&"
+                                    initial.isLetter() -> initial.uppercaseChar().toString()
+                                    initial.isDigit() -> "#"
+                                    else -> "&"
+                                }
                             }.toSortedMap()
                             if (isClassicPhone && phone8SearchVisible) {
                                 // Search results are one continuous list, without A-Z anchors.
@@ -1561,6 +1567,66 @@ fun PhoneLauncherSurface(
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                    // Disco keeps #sticky-letter outside the scrollable list.
+                    // The following header pushes the sticky letter off-screen.
+                    if (isClassicPhone && showApps && !phone8SearchVisible &&
+                        !alphabetOpen && !isLaunching &&
+                        (!motionUsesBack || sourceMotionMillis() >= duration)) {
+                        val visibleIndex = appsState.firstVisibleItemIndex
+                        val crossed = positions.entries.lastOrNull { entry ->
+                            entry.key.length == 1 &&
+                                (entry.value < visibleIndex ||
+                                    (entry.value == visibleIndex &&
+                                        appsState.firstVisibleItemScrollOffset > 0))
+                        }
+                        crossed?.let { section ->
+                            val following = positions.entries.firstOrNull {
+                                it.key.length == 1 && it.value > section.value
+                            }
+                            val headerHeightPx = with(LocalDensity.current) {
+                                (64f * classicUnit).dp.toPx()
+                            }
+                            val followingOffset = following?.let { next ->
+                                appsState.layoutInfo.visibleItemsInfo
+                                    .firstOrNull { it.index == next.value }?.offset?.toFloat()
+                            }
+                            val upwardPushPx = if (followingOffset == null) 0f
+                                else (followingOffset - headerHeightPx).coerceAtMost(0f)
+                            Row(
+                                Modifier.offset(
+                                    x = appListContentLeftCssPx.dp,
+                                    y = (24f * classicUnit).dp +
+                                        with(LocalDensity.current) { upwardPushPx.toDp() },
+                                ).fillMaxWidth()
+                                    .height((64f * classicUnit).dp)
+                                    .background(Color.Black)
+                                    .testTag("classic-sticky-letter")
+                                    .clickable(enabled = interactionEnabled) {
+                                        alphabetOpen = true
+                                    },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier.padding((5f * classicUnit).dp)
+                                        .size((52f * classicUnit).dp)
+                                        .border((3f * classicUnit).dp, accent)
+                                        .testTag("classic-sticky-letter-tile")
+                                        .padding(
+                                            start = (8f * classicUnit).dp,
+                                            top = (5f * classicUnit).dp,
+                                        ),
+                                    contentAlignment = Alignment.TopStart,
+                                ) {
+                                    Text(
+                                        section.key.lowercase(),
+                                        color = accent,
+                                        fontSize = (30f * classicUnit).sp,
+                                        fontWeight = FontWeight.Light,
+                                    )
                                 }
                             }
                         }
