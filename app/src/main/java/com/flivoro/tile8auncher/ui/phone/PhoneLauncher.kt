@@ -7,6 +7,11 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.LinearEasing
@@ -116,6 +121,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /** Phone Start coordinates are independent from Desktop's horizontal tile-group coordinates. */
 internal data class PhoneTileSlot(val column: Int, val row: Int, val columns: Int, val rows: Int)
@@ -680,11 +686,12 @@ fun PhoneLauncherSurface(
     }
 
     BackHandler(interactionEnabled && (showApps || alphabetOpen || actionCenterOpen ||
-        editing != null || openFolderId != null)) {
+        editing != null || openFolderId != null || (isClassicPhone && phone8SearchVisible))) {
         when {
             openFolderId != null -> openFolderId = null
             editing != null -> editing = null
             alphabetOpen -> alphabetOpen = false
+            isClassicPhone && phone8SearchVisible -> { phone8SearchVisible = false; search = "" }
             actionCenterOpen -> actionCenterOpen = false
             else -> showApps = false
         }
@@ -795,7 +802,10 @@ fun PhoneLauncherSurface(
                         clip = isTen
                     },
                 ) {
-                    Column(Modifier.fillMaxSize().elasticVerticalScroll()
+                    Column(Modifier.fillMaxSize().elasticVerticalScroll(
+                        classicPhonePhysics = isClassicPhone,
+                        maxOverscroll = (125f * classicUnit).dp,
+                    )
                         .verticalScroll(startScroll, enabled = interactionEnabled && !isLaunching)) {
                         Spacer(Modifier.height(if (isTen) 8.dp else 25.dp))
                         PhoneStartGrid(
@@ -1207,8 +1217,12 @@ fun PhoneLauncherSurface(
                                     Size(it.size.width.toFloat(), it.size.height.toFloat()),
                                 )
                             }
-                            .elasticVerticalScroll(),
-                            userScrollEnabled = interactionEnabled && !isLaunching) {
+                            .elasticVerticalScroll(
+                                classicPhonePhysics = isClassicPhone,
+                                maxOverscroll = (125f * classicUnit).dp,
+                            ),
+                            userScrollEnabled = interactionEnabled && !isLaunching &&
+                                !(isClassicPhone && editing?.startsWith("app:") == true)) {
                             groups.forEach { (letter, groupApps) ->
                                 item(key = "letter_$letter") {
                                     var headerBounds by remember(letter) { mutableStateOf(Rect.Zero) }
@@ -1364,6 +1378,13 @@ fun PhoneLauncherSurface(
                                                     cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
                                                 }
                                             })
+                                            .then(if (isClassicPhone) Modifier.graphicsLayer {
+                                                val menuEditing = editing?.startsWith("app:") == true
+                                                val isHeld = editing == "app:${app.packageName}"
+                                                alpha = if (menuEditing && !isHeld) .55f else 1f
+                                                scaleX = if (menuEditing && !isHeld) .96f else 1f
+                                                scaleY = if (menuEditing && !isHeld) .96f else 1f
+                                            } else Modifier)
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
                                                 onClick = {
@@ -1408,7 +1429,21 @@ fun PhoneLauncherSurface(
                                 }
                             }
                         }
-                        if (alphabetOpen) {
+                        if (isClassicPhone) {
+                            ClassicPhoneAlphabetSelector(
+                                visible = alphabetOpen,
+                                availableLetters = positions.keys,
+                                accent = accent,
+                                onSelect = { letter ->
+                                    alphabetOpen = false
+                                    positions[letter]?.let { destination ->
+                                        scope.launch { appsState.scrollToItem(destination) }
+                                    }
+                                },
+                                onDismiss = { alphabetOpen = false },
+                            )
+                        }
+                        if (alphabetOpen && isTen) {
                             Dialog(
                                 onDismissRequest = { alphabetOpen = false },
                                 properties = androidx.compose.ui.window.DialogProperties(
@@ -1517,6 +1552,7 @@ fun PhoneLauncherSurface(
                         when {
                             alphabetOpen -> alphabetOpen = false
                             editing != null -> editing = null
+                            isClassicPhone && phone8SearchVisible -> { phone8SearchVisible = false; search = "" }
                             showApps -> showApps = false
                         }
                     }.padding(horizontal = 26.dp, vertical = 10.dp),
@@ -1766,6 +1802,17 @@ private fun PhoneStartGrid(
     onLongClick: (String) -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
+    val classicEditing = mode == LauncherUiMode.PHONE_8 && editingTileId != null
+    // A single clock gives the surrounding tiles subtle phase-shifted motion.
+    val classicWobble = if (classicEditing) {
+        val transition = rememberInfiniteTransition(label = "classic-tile-wobble")
+        val phase by transition.animateFloat(
+            initialValue = 0f, targetValue = 6.283185f,
+            animationSpec = infiniteRepeatable(tween(1350, easing = LinearEasing), RepeatMode.Restart),
+            label = "classic-wobble-phase",
+        )
+        phase
+    } else 0f
     var tileDragOffset by remember(editingTileId) { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current.density
     // Keep clipping/visibility tied to the pane height, but use the full
@@ -1835,6 +1882,23 @@ private fun PhoneStartGrid(
                         "app:" + tile.id.removePrefix("phone_app_")
                     } else tile.id
                     val isSelectedForEdit = editingTileId == editKey
+                    val editScale by animateFloatAsState(
+                        targetValue = when {
+                            editingTileId == null -> 1f
+                            !classicEditing -> if (isSelectedForEdit) .975f else 1f
+                            isSelectedForEdit -> 1.05f
+                            else -> .925f
+                        },
+                        animationSpec = tween(250), label = "classic-edit-scale",
+                    )
+                    val editAlpha by animateFloatAsState(
+                        targetValue = when {
+                            editingTileId == null || isSelectedForEdit -> 1f
+                            classicEditing -> .60f
+                            else -> .68f
+                        },
+                        animationSpec = tween(250), label = "classic-edit-opacity",
+                    )
                     // Animated reflow is only activated when editing reorders tiles;
                     // app launch/return interpolation is not modified.
                     val tileLeft by animateDpAsState(
@@ -1896,15 +1960,15 @@ private fun PhoneStartGrid(
                                   height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(if (isSelectedForEdit) 4f else 0f)
                             .graphicsLayer {
-                                if (isSelectedForEdit) {
-                                    translationX = tileDragOffset.x
-                                    translationY = tileDragOffset.y
-                                }
-                                if (editingTileId != null) {
-                                    alpha = if (isSelectedForEdit) 1f else .68f
-                                    scaleX = if (isSelectedForEdit) .975f else 1f
-                                    scaleY = if (isSelectedForEdit) .975f else 1f
-                                }
+                                alpha = editAlpha
+                                scaleX = editScale
+                                scaleY = editScale
+                                translationX = if (isSelectedForEdit) tileDragOffset.x
+                                    else if (classicEditing) sin(classicWobble + index * 1.87f) * 1.2f * density
+                                    else 0f
+                                translationY = if (isSelectedForEdit) tileDragOffset.y
+                                    else if (classicEditing) sin(classicWobble * .79f + index * 2.31f) * 1.2f * density
+                                    else 0f
                             },
                         onClick = { rect -> onClick(tile, rect) },
                         onLongClick = {
