@@ -1974,8 +1974,17 @@ fun PhoneLauncherSurface(
         val pkg = id.removePrefix("app:")
         val app = byPackage[pkg]
         if (app != null) {
+            val uninstallable = remember(pkg) {
+                runCatching {
+                    val info = context.packageManager.getApplicationInfo(pkg, 0)
+                    info.flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or
+                        android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
+                }.getOrDefault(false) && pkg != MOSAIC_SETTINGS_ID
+            }
+            val classicMenuRows = if (pkg == MOSAIC_SETTINGS_ID) 2
+                else if (uninstallable) 3 else 2
             val menuHeightPx = with(LocalDensity.current) {
-                (if (isClassicPhone) 219f else 265f).dp.toPx()
+                (if (isClassicPhone) (24 + 65 * classicMenuRows).dp else 265.dp).toPx()
             }
             // Disco places the panel immediately beneath the selected row
             // unless 219px would collide with the bottom inset.
@@ -1988,6 +1997,7 @@ fun PhoneLauncherSurface(
                 mode = mode,
                 packageName = pkg,
                 alreadyPinned = id in order,
+                isUninstallable = uninstallable,
                 xPx = if (isClassicPhone) appContextBounds.center.x.toInt()
                     else appContextBounds.left.toInt().coerceAtLeast(8),
                 yPx = menuTopPx.toInt().coerceIn(
