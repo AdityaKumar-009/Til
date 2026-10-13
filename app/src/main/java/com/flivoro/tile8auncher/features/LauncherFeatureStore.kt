@@ -26,6 +26,7 @@ enum class LauncherUiMode(val title: String, val detail: String) {
 }
 
 enum class AppIconStyle {
+    DISCO_LAYERED,
     DEFAULT,
     ANDROID_ADAPTIVE,
     WHITE_MONOCHROME,
@@ -314,8 +315,8 @@ object LauncherFeatureStore {
         prefs(context).getString(ICON_PACK_PACKAGE, null)?.takeIf(String::isNotBlank)
 
     fun appIconStyle(context: Context): AppIconStyle {
-        val stored = prefs(context).getString(APP_ICON_STYLE, AppIconStyle.DEFAULT.name)
-        return AppIconStyle.entries.firstOrNull { it.name == stored } ?: AppIconStyle.DEFAULT
+        val stored = prefs(context).getString(APP_ICON_STYLE, AppIconStyle.DISCO_LAYERED.name)
+        return AppIconStyle.entries.firstOrNull { it.name == stored } ?: AppIconStyle.DISCO_LAYERED
     }
 
     fun setAppIconStyle(context: Context, style: AppIconStyle) {
