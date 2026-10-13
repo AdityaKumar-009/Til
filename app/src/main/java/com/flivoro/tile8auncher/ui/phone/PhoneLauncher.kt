@@ -247,6 +247,10 @@ internal object PhoneLayoutStore {
         prefs(context).edit { putString(key(mode, "order"), array.toString()) }
     }
 
+    fun resetOrder(context: Context, mode: LauncherUiMode) {
+        prefs(context).edit { remove(key(mode, "order")) }
+    }
+
     fun size(context: Context, mode: LauncherUiMode, tile: TileModel): TileSize {
         val name = prefs(context).getString(key(mode, "size_${tile.id}"), tile.size.name)
         val chosen = TileSize.entries.firstOrNull { it.name == name } ?: tile.size
@@ -300,13 +304,42 @@ fun PhoneLauncherSurface(
     val byPackage = remember(catalog) { catalog.associateBy(AppInfo::packageName) }
     val desktopById = remember(tiles, mode) {
         tiles.associateBy(TileModel::id).mapValues { (id, tile) ->
-            if (id == "tile_settings") tile.copy(title = "Settings") else tile
+            when (id) {
+                "tile_settings" -> tile.copy(title = "Settings")
+                "tile_mail", "tile_calendar" -> tile.copy(size = TileSize.MEDIUM)
+                else -> tile
+            }
         }
     }
-    // The desktop's PC and Reading List shortcuts are not a native phone default.
-    // Preserve any explicitly saved phone order, including a user's custom pins.
-    val phoneSeed = remember(tiles) {
-        tiles.filterNot { it.id in setOf("tile_desktop", "tile_reading_list") }
+    // Fresh phone modes get a phone-oriented default, rather than the desktop's
+    // huge Mail/Calendar columns, Desktop, PC settings, and Reading List.
+    // Saved user orders take precedence: this never migrates or clears existing pins.
+    val phoneSeed = remember(tiles, catalog, mode) {
+        val dialer = catalog.firstOrNull {
+            it.label.equals("Phone", ignoreCase = true) ||
+                it.label.equals("Dialer", ignoreCase = true)
+        }
+        val messages = catalog.firstOrNull {
+            it.label.equals("Messages", ignoreCase = true) ||
+                it.label.equals("Messaging", ignoreCase = true)
+        }
+        val topAppIds = listOfNotNull(dialer, messages).map { "app:" + it.packageName }
+        val stockIds = if (mode == LauncherUiMode.MOBILE_10) listOf(
+            "tile_mail", "tile_people", "tile_calendar", "tile_photos",
+            "tile_camera", "tile_skype", "tile_weather", "tile_settings",
+            "tile_store", "tile_clock", "tile_onedrive", "tile_maps",
+        ) else listOf(
+            "tile_people", "tile_mail", "tile_calendar", "tile_skype",
+            "tile_photos", "tile_camera", "tile_ie", "tile_weather",
+            "tile_settings", "tile_store", "tile_clock", "tile_maps",
+        )
+        (topAppIds + stockIds).distinct().mapNotNull { id ->
+            desktopById[id] ?: if (id.startsWith("app:")) {
+                byPackage[id.removePrefix("app:")]?.let { app ->
+                    TileModel(id = id, title = app.label, packageName = app.packageName)
+                }
+            } else null
+        }
     }
     var order by remember(mode) {
         mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
