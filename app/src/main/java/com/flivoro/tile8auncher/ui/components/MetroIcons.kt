@@ -65,6 +65,55 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
     val strokeW = (w * 0.08f).coerceAtLeast(2f)
 
     when (glyph.lowercase()) {
+        "wp81_phone" -> {
+            // Original vector handset silhouette in the clean WP8.1 Metro style.
+            // Its shape, unlike a device OEM's dialer app icon, never changes.
+            val p = Path().apply {
+                moveTo(w * .25f, h * .085f)
+                cubicTo(w * .18f, h * .085f, w * .12f, h * .14f, w * .12f, h * .235f)
+                cubicTo(w * .12f, h * .51f, w * .47f, h * .88f, w * .755f, h * .90f)
+                cubicTo(w * .835f, h * .91f, w * .90f, h * .83f, w * .90f, h * .755f)
+                lineTo(w * .90f, h * .69f)
+                cubicTo(w * .90f, h * .665f, w * .885f, h * .646f, w * .86f, h * .632f)
+                lineTo(w * .686f, h * .535f)
+                cubicTo(w * .653f, h * .515f, w * .617f, h * .522f, w * .593f, h * .55f)
+                lineTo(w * .508f, h * .647f)
+                cubicTo(w * .395f, h * .588f, w * .317f, h * .504f, w * .266f, h * .39f)
+                lineTo(w * .356f, h * .307f)
+                cubicTo(w * .388f, h * .274f, w * .397f, h * .239f, w * .372f, h * .204f)
+                lineTo(w * .282f, h * .108f)
+                cubicTo(w * .271f, h * .094f, w * .26f, h * .085f, w * .25f, h * .085f)
+                close()
+            }
+            drawPath(p, color)
+        }
+
+        "wp81_messages" -> {
+            // WP8.1 outlined speech tile glyph; separate from Android Messages.
+            val bubble = Path().apply {
+                moveTo(w * .20f, h * .17f)
+                lineTo(w * .78f, h * .17f)
+                quadraticBezierTo(w * .87f, h * .17f, w * .87f, h * .27f)
+                lineTo(w * .87f, h * .67f)
+                quadraticBezierTo(w * .87f, h * .76f, w * .78f, h * .76f)
+                lineTo(w * .46f, h * .76f)
+                lineTo(w * .26f, h * .90f)
+                lineTo(w * .29f, h * .76f)
+                lineTo(w * .20f, h * .76f)
+                quadraticBezierTo(w * .12f, h * .76f, w * .12f, h * .67f)
+                lineTo(w * .12f, h * .27f)
+                quadraticBezierTo(w * .12f, h * .17f, w * .20f, h * .17f)
+                close()
+            }
+            drawPath(bubble, color, style = Stroke(
+                width = w * .09f, cap = StrokeCap.Round, join = StrokeJoin.Round,
+            ))
+            drawLine(color, Offset(w * .275f, h * .39f),
+                Offset(w * .715f, h * .39f), w * .065f, cap = StrokeCap.Round)
+            drawLine(color, Offset(w * .275f, h * .54f),
+                Offset(w * .59f, h * .54f), w * .065f, cap = StrokeCap.Round)
+        }
+
         "mail" -> {
             // Windows 8 Envelope
             val left = w * 0.12f
