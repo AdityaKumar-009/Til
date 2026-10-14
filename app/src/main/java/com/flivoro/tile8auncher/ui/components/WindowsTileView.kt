@@ -277,7 +277,9 @@ private fun SmallTileContent(
                     builtInGlyph != null -> MetroIcon(
                         glyph = builtInGlyph,
                         color = contentColor,
-                        size = 28.dp,
+                        // Phone is painted at final size instead of upscaling
+                        // a small rasterized graphics layer.
+                        size = if (builtInGlyph == "wp81_phone") 28.dp * 1.555f else 28.dp,
                         modifier = logoModifier,
                     )
                     appIcon != null -> Image(
@@ -746,7 +748,9 @@ private fun LiveTileAppIcon(
         MetroIcon(
             glyph = tile.iconGlyph,
             color = contentColor,
-            size = size,
+            // Draw the vector at final density: never enlarge a 44dp
+            // rasterized layer with graphicsLayer on high-resolution phones.
+            size = if (tile.iconGlyph == "wp81_phone") size * 1.555f else size,
             modifier = modifier,
         )
     } else if (appIcon != null) {
