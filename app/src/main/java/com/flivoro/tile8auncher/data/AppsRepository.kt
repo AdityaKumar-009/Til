@@ -15,6 +15,7 @@ import android.os.Build
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.core.content.edit
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +74,19 @@ class AppsRepository(private val context: Context) {
     }
     private val layeredIconCacheLock = Any()
     private val inFlightLayeredLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val wp81NormalizedCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * BYTES_PER_PIXEL)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+    private val wp81IconLock = Any()
+    private val inFlightWp81Icons = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val richBackgroundCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * BYTES_PER_PIXEL)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+    private val richBackgroundLock = Any()
 
     /**
      * All Apps deliberately uses display-sized thumbnails instead of the launch-resolution cache.
@@ -258,6 +272,49 @@ class AppsRepository(private val context: Context) {
     fun getCachedDiscoLayeredAppIcon(packageName: String): ImageBitmap? =
         synchronized(layeredIconCacheLock) { layeredIconCache.get(packageName) }
 
+    fun getCachedWp81NormalizedIcon(packageName: String): ImageBitmap? =
+        synchronized(wp81IconLock) { wp81NormalizedCache.get(packageName) }
+
+    fun getCachedRichDiscoBackground(packageName: String): ImageBitmap? =
+        synchronized(richBackgroundLock) { richBackgroundCache.get(packageName) }
+
+    suspend fun loadRichDiscoBackground(packageName: String): ImageBitmap? {
+        getCachedRichDiscoBackground(packageName)?.let { return it }
+        if (!visualPrefs.getBoolean("disco_background_rich_v1:$packageName", false)) return null
+        val bitmap = readPersistedVisualBitmap(
+            packageName, "disco_background_rich_v1_$maxCachedIconPx",
+        ) ?: return null
+        return bitmap.asImageBitmap().also { image ->
+            synchronized(richBackgroundLock) { richBackgroundCache.put(packageName, image) }
+        }
+    }
+
+    suspend fun loadWp81NormalizedIcon(packageName: String): ImageBitmap? {
+        getCachedWp81NormalizedIcon(packageName)?.let { return it }
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                // Resolve and cache all three visual inputs together:
+                // transparent foreground, app accent and optional rich background.
+                val source = loadDiscoLayeredAppIcon(packageName) ?: return@async null
+                val fitted = readPersistedVisualBitmap(
+                    packageName, "wp81_fitted_art_v1_$maxCachedIconPx",
+                ) ?: Wp81IconArtwork.normalize(source.asAndroidBitmap()).also {
+                    persistVisualBitmap(packageName,
+                        "wp81_fitted_art_v1_$maxCachedIconPx", it)
+                }
+                loadRichDiscoBackground(packageName)
+                fitted.asImageBitmap().also { result ->
+                    synchronized(wp81IconLock) { wp81NormalizedCache.put(packageName, result) }
+                }
+            } finally {
+                inFlightWp81Icons.remove(packageName)
+            }
+        }
+        val active = inFlightWp81Icons.putIfAbsent(packageName, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
     /**
      * Only a genuinely separable adaptive foreground should get WP8.1's
      * 2x glyph enlargement. Legacy/full-plate icons keep their normal size.
@@ -272,7 +329,7 @@ class AppsRepository(private val context: Context) {
             try {
                 iconDecodePermits.withPermit {
                     val cached = readPersistedVisualBitmap(
-                        packageName, "disco_foreground_color_v6_$maxCachedIconPx",
+                        packageName, "disco_foreground_color_v7_$maxCachedIconPx",
                     )?.asImageBitmap()
                     val resolved = cached ?: runCatching {
                         val drawable = packageManager.getApplicationIcon(packageName)
@@ -283,12 +340,24 @@ class AppsRepository(private val context: Context) {
                             putBoolean("disco_layer_usable_v6:$packageName", hasSeparateForeground)
                         }
                         persistVisualBitmap(
-                            packageName, "disco_foreground_color_v6_$maxCachedIconPx", glyph,
+                            packageName, "disco_foreground_color_v7_$maxCachedIconPx", glyph,
                         )
                         if (drawable is AdaptiveIconDrawable) {
-                            val background = renderDrawableAtResolution(drawable.background, 64)
+                            val background = renderDrawableAtResolution(
+                                drawable.background, maxCachedIconPx,
+                            )
                             val backgroundColor = extractAppAccentColor(background)
-                            background.recycle()
+                            val rich = Wp81IconArtwork.isRichBackground(background)
+                            visualPrefs.edit {
+                                putBoolean("disco_background_rich_v1:$packageName", rich)
+                            }
+                            if (rich) {
+                                persistVisualBitmap(packageName,
+                                    "disco_background_rich_v1_$maxCachedIconPx", background)
+                                synchronized(richBackgroundLock) {
+                                    richBackgroundCache.put(packageName, background.asImageBitmap())
+                                }
+                            } else background.recycle()
                             // An app's neutral background is intentional if its
                             // foreground carries colored artwork (YouTube etc).
                             val proposed = if (colorfulForeground) backgroundColor
@@ -296,6 +365,9 @@ class AppsRepository(private val context: Context) {
                                     ?: usableDiscoTileAccent(extractAppAccentColor(glyph))
                             proposed?.let { persistAppAccent(packageName, it) }
                         } else {
+                            visualPrefs.edit {
+                                putBoolean("disco_background_rich_v1:$packageName", false)
+                            }
                             // Legacy icons still have a meaningful primary color.
                             // Persist it for BOTH All Apps and newly pinned tiles.
                             usableDiscoTileAccent(extractAppAccentColor(glyph))
