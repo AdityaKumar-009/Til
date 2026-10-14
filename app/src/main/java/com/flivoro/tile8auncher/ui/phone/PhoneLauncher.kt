@@ -2722,14 +2722,14 @@ private fun PhoneTile(
         // icon-face compositor from silently painting white on top of it.
         allowAppDerivedBackground = mode != LauncherUiMode.PHONE_8,
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
-            // Pixel-mask artwork has correct aspect ratio already; don't
-            // stretch it to imitate a hand-drawn glyph.
-            scaleX = classicIconScale
+            // The mask retains the original Lumia outline and proportion.
+            // Match its final sampled pixel coverage on the reference tile;
+            // subpixel offsets compensate Android's raster grid only.
+            scaleX = if (wp81NativeGlyph == "wp81_phone")
+                classicIconScale * 1.002f else classicIconScale
             scaleY = classicIconScale
-            // Align the receiver center to the WP8.1 screenshot within a
-            // sub-dp margin after normalizing emulator and Lumia tile bounds.
-            translationX = if (wp81NativeGlyph == "wp81_phone") -0.35f * density else 0f
-            translationY = if (wp81NativeGlyph == "wp81_phone") 5.35f * density else 0f
+            translationX = if (wp81NativeGlyph == "wp81_phone") -0.19f * density else 0f
+            translationY = if (wp81NativeGlyph == "wp81_phone") 5.41f * density else 0f
         } else Modifier,
         backgroundAlpha = tileOpacity,
         backgroundContent = if (tilePictureContent != null) {
