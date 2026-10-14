@@ -48,8 +48,10 @@ import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.LiveTileNotification
 import com.flivoro.tile8auncher.features.LiveTileNotificationStore
 import com.flivoro.tile8auncher.ui.animation.metroTilePress
@@ -94,6 +96,14 @@ fun WindowsTileView(
     )
 }
 
+/**
+ * Desktop's original Windows 8.1 Start tiles retain the fixed Metro palette, even when their
+ * shortcuts resolve to real Android apps. Other pinned apps still use the WP8.1/Disco layered
+ * foreground and adaptive-background color policy. Phone-mode policy is unaffected.
+ */
+internal fun shouldDeriveAppTileBackground(tileId: String, launcherMode: LauncherUiMode): Boolean =
+    launcherMode != LauncherUiMode.DESKTOP || !isStockDefaultTileId(tileId)
+
 @Composable
 internal fun WindowsTileFace(
     tile: TileModel,
@@ -104,8 +114,7 @@ internal fun WindowsTileFace(
     backgroundAlpha: Float = 1f,
     /** The tile picture is drawn within the transformed tile, not behind the grid. */
     backgroundContent: (@Composable () -> Unit)? = null,
-    /** WP8.1 stock Lumia tiles keep their original/personalized color even
-     * when an Android app is bound to the tile. Other modes are unchanged. */
+    /** Phone mode callers can retain their existing per-mode stock tile color policy. */
     allowAppDerivedBackground: Boolean = true,
 ) {
     val context = LocalContext.current
@@ -116,9 +125,12 @@ internal fun WindowsTileFace(
     val iconStyleForBackground = remember(iconRevisionForBackground) {
         LauncherFeatureStore.appIconStyle(context)
     }
+    val useAppBackground = allowAppDerivedBackground && shouldDeriveAppTileBackground(
+        tile.id, LauncherFeatureStore.launcherUiMode(context),
+    )
     val tileBackgroundArgb = remember(tile.packageName, tile.colorValue, appIcon,
-        iconRevisionForBackground, iconStyleForBackground, allowAppDerivedBackground) {
-        if (allowAppDerivedBackground &&
+        iconRevisionForBackground, iconStyleForBackground, useAppBackground) {
+        if (useAppBackground &&
             iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
             !tile.packageName.isNullOrBlank()) {
             com.flivoro.tile8auncher.data.discoLayeredAccentOrNull(
