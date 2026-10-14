@@ -2624,7 +2624,7 @@ private fun PhoneTile(
         // The stock Lumia Phone art occupies ~24% of a medium tile's width
         // and ~39% of its height. Only this handset needs a larger footprint.
         classicPrimaryAppTile && (tile.title.equals("Phone", true) ||
-            tile.title.equals("Dialer", true)) -> 1.93f
+            tile.title.equals("Dialer", true)) -> 1.62f
         classicStockTile -> 1.5f
         else -> 1.22f
     }
@@ -2721,11 +2721,14 @@ private fun PhoneTile(
         // icon-face compositor from silently painting white on top of it.
         allowAppDerivedBackground = mode != LauncherUiMode.PHONE_8,
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
-            scaleX = classicIconScale
+            // A 4% optical widening restores the original receiver proportions
+            // without affecting Messaging, third-party apps or existing Start tiles.
+            scaleX = if (wp81NativeGlyph == "wp81_phone")
+                classicIconScale * 1.04f else classicIconScale
             scaleY = classicIconScale
-            // The generic WindowsTileFace reserves 12dp above its label.
-            // Lumia's stock Phone mark is visually centered in the full tile,
-            // independent of the label area.
+            // The common tile compositor reserves space for a label. WP8.1's
+            // Phone icon is visually centered in the tile, not in that label area.
+            translationX = if (wp81NativeGlyph == "wp81_phone") -3f * density else 0f
             translationY = if (wp81NativeGlyph == "wp81_phone") 6f * density else 0f
         } else Modifier,
         backgroundAlpha = tileOpacity,
