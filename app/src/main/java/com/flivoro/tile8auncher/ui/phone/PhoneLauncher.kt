@@ -673,19 +673,14 @@ fun PhoneLauncherSurface(
         title = app.label,
         packageName = app.packageName,
         activityName = app.activityName,
-        // Phone/Messages are accent-colored Metro defaults. Third-party apps
-        // can use their own chromatic adaptive background; neutral/white plates
-        // fall back to the current theme accent.
+        // Match All Apps' resolved icon background for pinned apps, whether
+        // the package is user-installed or a system app. Only the default
+        // Phone/Messages Metro launchers intentionally follow the theme accent.
         colorValue = when {
             mode == LauncherUiMode.PHONE_8 &&
                 (app.label.equals("Phone", true) || app.label.equals("Dialer", true) ||
-                    app.label.equals("Messages", true) || app.label.equals("Messaging", true) ||
-                    isPlatformApp(app.packageName)) ->
+                    app.label.equals("Messages", true) || app.label.equals("Messaging", true)) ->
                 StartPersonalization.accentArgb
-            mode == LauncherUiMode.PHONE_8 ->
-                com.flivoro.tile8auncher.data.usableDiscoTileAccent(
-                    appsRepository.getDiscoTileAccentColor(app.packageName),
-                ) ?: StartPersonalization.accentArgb
             else -> appsRepository.getDiscoTileAccentColor(app.packageName)
                 ?: StartPersonalization.accentArgb
         },
@@ -713,14 +708,14 @@ fun PhoneLauncherSurface(
             size = PhoneLayoutStore.size(context, mode, source),
             colorValue = if (mode == LauncherUiMode.PHONE_8 &&
                 !PhoneLayoutStore.hasCustomColor(context, mode, source.id) &&
-                // System/stock Lumia tiles inherit the chosen accent. Users can
-                // still set any specific tile to a custom color in the editor.
+                // Actual stock tiles follow the accent, not every Android
+                // system package: All Apps may have a genuine brand color for
+                // Maps, Store, or another preinstalled app.
                 (source.id.startsWith("tile_") ||
                     source.title.equals("Phone", true) ||
                     source.title.equals("Dialer", true) ||
                     source.title.equals("Messages", true) ||
-                    source.title.equals("Messaging", true) ||
-                    (source.packageName != null && isPlatformApp(source.packageName)))
+                    source.title.equals("Messaging", true))
             ) StartPersonalization.accentArgb
             else PhoneLayoutStore.color(context, mode, source),
         )
@@ -2600,13 +2595,14 @@ private fun PhoneTile(
     // its vivid brand color may appear, but never override the default accent
     // used by system tiles or any explicit manual tile-color choice.
     val allowClassicBrandColor = mode == LauncherUiMode.PHONE_8 &&
-        !classicStockTile && !classicPrimaryAppTile && !platformApp &&
+        !classicStockTile && !classicPrimaryAppTile &&
         !userChoseColor && layered
     val resolvedTile = when {
         allowClassicBrandColor && !tile.packageName.isNullOrBlank() ->
-            com.flivoro.tile8auncher.data.usableDiscoTileAccent(
-                repository.getDiscoTileAccentColor(tile.packageName),
-            )?.let { tile.copy(colorValue = it) } ?: tile
+            // Use the identical background chosen in All Apps, including
+            // valid neutral backgrounds paired with colorful foregrounds.
+            repository.getDiscoTileAccentColor(tile.packageName)
+                ?.let { tile.copy(colorValue = it) } ?: tile
         mode != LauncherUiMode.PHONE_8 && layered &&
             !tile.packageName.isNullOrBlank() ->
             repository.getDiscoTileAccentColor(tile.packageName)
@@ -2618,7 +2614,10 @@ private fun PhoneTile(
     val classicIconScale = when {
         mode != LauncherUiMode.PHONE_8 -> 1f
         classicStockTile -> 1.5f
-        !tile.packageName.isNullOrBlank() -> 2f
+        !tile.packageName.isNullOrBlank() && layered &&
+            repository.hasDiscoForegroundLayer(tile.packageName) -> 2f
+        // Full legacy icons already occupy their intended image bounds.
+        // Applying a second 2x transform makes circular/opaque icons huge.
         else -> 1f
     }
 
