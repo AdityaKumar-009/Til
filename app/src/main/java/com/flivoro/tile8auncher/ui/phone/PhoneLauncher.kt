@@ -2532,10 +2532,24 @@ private fun PhoneTile(
     val icon = rememberAppIcon(repository, tile.packageName)
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
         AppIconStyle.DISCO_LAYERED
-    val resolvedTile = if (layered && !tile.packageName.isNullOrBlank()) {
+    // Built-in WP8.1 tiles have curated Lumia colors. Their linked
+    // Android apps provide launch targets/icons, not replacement colors.
+    // Respect PhoneLayoutStore's saved tile color if customized.
+    val classicStockTile = mode == LauncherUiMode.PHONE_8 &&
+        tile.id.startsWith("tile_")
+    val resolvedTile = if (!classicStockTile && layered &&
+        !tile.packageName.isNullOrBlank()) {
         repository.getDiscoTileAccentColor(tile.packageName)
             ?.let { tile.copy(colorValue = it) } ?: tile
     } else tile
+    // Scale artwork only: keep the tile face, live data, label, touch
+    // bounds and all launch/return motion exactly their existing sizes.
+    val classicIconScale = when {
+        mode != LauncherUiMode.PHONE_8 -> 1f
+        classicStockTile -> 1.5f
+        !tile.packageName.isNullOrBlank() -> 2f
+        else -> 1f
+    }
 
     fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
         val mobile = MobileStartMotion.sample(
@@ -2615,6 +2629,11 @@ private fun PhoneTile(
     WindowsTileFace(
         tile = resolvedTile,
         appIcon = icon,
+        allowAppDerivedBackground = !classicStockTile,
+        logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
+            scaleX = classicIconScale
+            scaleY = classicIconScale
+        } else Modifier,
         backgroundAlpha = tileOpacity,
         backgroundContent = if (tilePictureContent != null) {
             {
