@@ -2621,6 +2621,10 @@ private fun PhoneTile(
     // scale heuristics. Stock tiles retain their requested 1.5x glyphs.
     val classicIconScale = when {
         mode != LauncherUiMode.PHONE_8 -> 1f
+        // The stock Lumia Phone art occupies ~24% of a medium tile's width
+        // and ~39% of its height. Only this handset needs a larger footprint.
+        classicPrimaryAppTile && (tile.title.equals("Phone", true) ||
+            tile.title.equals("Dialer", true)) -> 1.93f
         classicStockTile -> 1.5f
         else -> 1.22f
     }
@@ -2719,6 +2723,10 @@ private fun PhoneTile(
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
             scaleX = classicIconScale
             scaleY = classicIconScale
+            // The generic WindowsTileFace reserves 12dp above its label.
+            // Lumia's stock Phone mark is visually centered in the full tile,
+            // independent of the label area.
+            translationY = if (wp81NativeGlyph == "wp81_phone") 6f * density else 0f
         } else Modifier,
         backgroundAlpha = tileOpacity,
         backgroundContent = if (tilePictureContent != null) {
