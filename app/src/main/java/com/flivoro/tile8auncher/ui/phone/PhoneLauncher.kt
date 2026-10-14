@@ -2576,24 +2576,43 @@ private fun PhoneTile(
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current.density
     val icon = rememberAppIcon(repository, tile.packageName)
-    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+    val context = LocalContext.current
+    val layered = LauncherFeatureStore.appIconStyle(context) ==
         AppIconStyle.DISCO_LAYERED
-    // Built-in WP8.1 tiles have curated Lumia colors. Their linked
-    // Android apps provide launch targets/icons, not replacement colors.
-    // Respect PhoneLayoutStore's saved tile color if customized.
     val classicStockTile = mode == LauncherUiMode.PHONE_8 &&
         tile.id.startsWith("tile_")
     val classicPrimaryAppTile = mode == LauncherUiMode.PHONE_8 &&
         tile.id.startsWith("phone_app_") &&
         (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true) ||
             tile.title.equals("Messages", true) || tile.title.equals("Messaging", true))
-    // Never replace a user-selected tile color with an extracted icon plate.
-    // WP8.1 already resolved its stock/installed-app color in tileFor().
-    val resolvedTile = if (mode != LauncherUiMode.PHONE_8 && layered &&
-        !tile.packageName.isNullOrBlank()) {
-        repository.getDiscoTileAccentColor(tile.packageName)
-            ?.let { tile.copy(colorValue = it) } ?: tile
-    } else tile
+    val platformApp = remember(tile.packageName) {
+        tile.packageName?.let { packageName ->
+            runCatching {
+                val flags = context.packageManager.getApplicationInfo(packageName, 0).flags
+                flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or
+                    android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            }.getOrDefault(false)
+        } ?: false
+    }
+    val userChoseColor = mode == LauncherUiMode.PHONE_8 &&
+        PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
+    // Icons decode asynchronously. Once a third-party adaptive layer is ready,
+    // its vivid brand color may appear, but never override the default accent
+    // used by system tiles or any explicit manual tile-color choice.
+    val allowClassicBrandColor = mode == LauncherUiMode.PHONE_8 &&
+        !classicStockTile && !classicPrimaryAppTile && !platformApp &&
+        !userChoseColor && layered
+    val resolvedTile = when {
+        allowClassicBrandColor && !tile.packageName.isNullOrBlank() ->
+            com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+                repository.getDiscoTileAccentColor(tile.packageName),
+            )?.let { tile.copy(colorValue = it) } ?: tile
+        mode != LauncherUiMode.PHONE_8 && layered &&
+            !tile.packageName.isNullOrBlank() ->
+            repository.getDiscoTileAccentColor(tile.packageName)
+                ?.let { tile.copy(colorValue = it) } ?: tile
+        else -> tile
+    }
     // Scale artwork only: keep the tile face, live data, label, touch
     // bounds and all launch/return motion exactly their existing sizes.
     val classicIconScale = when {
