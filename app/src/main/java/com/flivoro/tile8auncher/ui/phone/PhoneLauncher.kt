@@ -333,6 +333,11 @@ internal object PhoneLayoutStore {
         return prefs(context).getLong(key(mode, "color_${tile.id}"), tile.colorValue)
     }
 
+    fun hasCustomColor(context: Context, mode: LauncherUiMode, tileId: String): Boolean {
+        migrateIfNeeded(context, mode, "color_$tileId")
+        return prefs(context).contains(key(mode, "color_$tileId"))
+    }
+
     fun saveColor(context: Context, mode: LauncherUiMode, tileId: String, color: Long) {
         prefs(context).edit { putLong(key(mode, "color_$tileId"), color) }
     }
@@ -658,16 +663,18 @@ fun PhoneLauncherSurface(
         title = app.label,
         packageName = app.packageName,
         activityName = app.activityName,
-        // The first-run WP8.1 Phone/Messages tiles have Metro accent colors,
-        // not whatever white adaptive background their Android icons supply.
-        // Saved user tile colors still take precedence through PhoneLayoutStore.
+        // Phone/Messages are accent-colored Metro defaults. Third-party apps
+        // can use their own chromatic adaptive background; neutral/white plates
+        // fall back to the current theme accent.
         colorValue = when {
             mode == LauncherUiMode.PHONE_8 &&
-                (app.label.equals("Phone", true) || app.label.equals("Dialer", true)) ->
-                    WindowsColors.SportsPurple
-            mode == LauncherUiMode.PHONE_8 &&
-                (app.label.equals("Messages", true) || app.label.equals("Messaging", true)) ->
-                    0xFF256EDDL
+                (app.label.equals("Phone", true) || app.label.equals("Dialer", true) ||
+                    app.label.equals("Messages", true) || app.label.equals("Messaging", true)) ->
+                StartPersonalization.accentArgb
+            mode == LauncherUiMode.PHONE_8 ->
+                com.flivoro.tile8auncher.data.usableDiscoTileAccent(
+                    appsRepository.getDiscoTileAccentColor(app.packageName),
+                ) ?: StartPersonalization.accentArgb
             else -> appsRepository.getDiscoTileAccentColor(app.packageName)
                 ?: StartPersonalization.accentArgb
         },
@@ -693,14 +700,29 @@ fun PhoneLauncherSurface(
         }
         return source?.copy(
             size = PhoneLayoutStore.size(context, mode, source),
-            colorValue = PhoneLayoutStore.color(context, mode, source),
+            colorValue = if (mode == LauncherUiMode.PHONE_8 &&
+                !PhoneLayoutStore.hasCustomColor(context, mode, source.id) &&
+                // System/stock Lumia tiles inherit the chosen accent. Users can
+                // still set any specific tile to a custom color in the editor.
+                (source.id.startsWith("tile_") ||
+                    source.title.equals("Phone", true) ||
+                    source.title.equals("Dialer", true) ||
+                    source.title.equals("Messages", true) ||
+                    source.title.equals("Messaging", true))
+            ) StartPersonalization.accentArgb
+            else PhoneLayoutStore.color(context, mode, source),
         )
     }
 
-    val phoneTiles = remember(order, tiles, catalog, phoneRevision, folderRevision) {
+    // Accent is snapshot-backed: include it in memoization so changing the
+    // selected theme recolors the Start tiles immediately without relaunch.
+    val currentAccentArgb = StartPersonalization.accentArgb
+    val phoneTiles = remember(order, tiles, catalog, phoneRevision, folderRevision,
+        currentAccentArgb) {
         order.mapNotNull { id -> tileFor(id) }
     }
-    val folderPreviews = remember(phoneFolders, catalog, tiles, phoneRevision) {
+    val folderPreviews = remember(phoneFolders, catalog, tiles, phoneRevision,
+        currentAccentArgb) {
         phoneFolders.associate { folder ->
             folder.id to folder.children.mapNotNull { id -> tileFor(id) }
         }
@@ -2553,8 +2575,9 @@ private fun PhoneTile(
         tile.id.startsWith("phone_app_") &&
         (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true) ||
             tile.title.equals("Messages", true) || tile.title.equals("Messaging", true))
-    val preserveClassicTilePalette = classicStockTile || classicPrimaryAppTile
-    val resolvedTile = if (!preserveClassicTilePalette && layered &&
+    // Never replace a user-selected tile color with an extracted icon plate.
+    // WP8.1 already resolved its stock/installed-app color in tileFor().
+    val resolvedTile = if (mode != LauncherUiMode.PHONE_8 && layered &&
         !tile.packageName.isNullOrBlank()) {
         repository.getDiscoTileAccentColor(tile.packageName)
             ?.let { tile.copy(colorValue = it) } ?: tile
@@ -2646,7 +2669,9 @@ private fun PhoneTile(
     WindowsTileFace(
         tile = resolvedTile,
         appIcon = icon,
-        allowAppDerivedBackground = !preserveClassicTilePalette,
+        // The complete WP8.1 color policy is resolved above. Prevent the
+        // icon-face compositor from silently painting white on top of it.
+        allowAppDerivedBackground = mode != LauncherUiMode.PHONE_8,
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
             scaleX = classicIconScale
             scaleY = classicIconScale
