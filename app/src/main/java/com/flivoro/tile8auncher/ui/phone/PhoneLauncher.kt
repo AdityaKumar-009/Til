@@ -2621,10 +2621,11 @@ private fun PhoneTile(
     // scale heuristics. Stock tiles retain their requested 1.5x glyphs.
     val classicIconScale = when {
         mode != LauncherUiMode.PHONE_8 -> 1f
-        // The stock Lumia Phone art occupies ~24% of a medium tile's width
-        // and ~39% of its height. Only this handset needs a larger footprint.
+        // Calibrated against the provided 415x739 Lumia Start screenshot.
+        // The source mask is reference-exact; this factor compensates only
+        // for differences in Android tile size and display density.
         classicPrimaryAppTile && (tile.title.equals("Phone", true) ||
-            tile.title.equals("Dialer", true)) -> 1.62f
+            tile.title.equals("Dialer", true)) -> 1.555f
         classicStockTile -> 1.5f
         else -> 1.22f
     }
@@ -2721,15 +2722,14 @@ private fun PhoneTile(
         // icon-face compositor from silently painting white on top of it.
         allowAppDerivedBackground = mode != LauncherUiMode.PHONE_8,
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
-            // The reference-traced handset is centered in its own viewport.
-            // Its observed bounds need just 2% optical width compensation.
-            scaleX = if (wp81NativeGlyph == "wp81_phone")
-                classicIconScale * 1.02f else classicIconScale
+            // Pixel-mask artwork has correct aspect ratio already; don't
+            // stretch it to imitate a hand-drawn glyph.
+            scaleX = classicIconScale
             scaleY = classicIconScale
-            // The tile face offsets its logo for the bottom label by 12dp.
-            // Compensate by half that offset so the receiver stays centered
-            // within the tile exactly as in the supplied Lumia screenshot.
-            translationY = if (wp81NativeGlyph == "wp81_phone") 6f * density else 0f
+            // Align the receiver center to the WP8.1 screenshot within a
+            // sub-dp margin after normalizing emulator and Lumia tile bounds.
+            translationX = if (wp81NativeGlyph == "wp81_phone") -0.35f * density else 0f
+            translationY = if (wp81NativeGlyph == "wp81_phone") 5.35f * density else 0f
         } else Modifier,
         backgroundAlpha = tileOpacity,
         backgroundContent = if (tilePictureContent != null) {
