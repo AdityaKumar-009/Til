@@ -119,6 +119,7 @@ import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.elasticVerticalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
+import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -657,8 +658,19 @@ fun PhoneLauncherSurface(
         title = app.label,
         packageName = app.packageName,
         activityName = app.activityName,
-        colorValue = appsRepository.getDiscoTileAccentColor(app.packageName)
-            ?: StartPersonalization.accentArgb,
+        // The first-run WP8.1 Phone/Messages tiles have Metro accent colors,
+        // not whatever white adaptive background their Android icons supply.
+        // Saved user tile colors still take precedence through PhoneLayoutStore.
+        colorValue = when {
+            mode == LauncherUiMode.PHONE_8 &&
+                (app.label.equals("Phone", true) || app.label.equals("Dialer", true)) ->
+                    WindowsColors.SportsPurple
+            mode == LauncherUiMode.PHONE_8 &&
+                (app.label.equals("Messages", true) || app.label.equals("Messaging", true)) ->
+                    0xFF256EDDL
+            else -> appsRepository.getDiscoTileAccentColor(app.packageName)
+                ?: StartPersonalization.accentArgb
+        },
         tileType = if (app.packageName == MOSAIC_SETTINGS_ID)
             com.flivoro.tile8auncher.data.TileType.SETTINGS
         else com.flivoro.tile8auncher.data.TileType.APP,
@@ -2537,7 +2549,12 @@ private fun PhoneTile(
     // Respect PhoneLayoutStore's saved tile color if customized.
     val classicStockTile = mode == LauncherUiMode.PHONE_8 &&
         tile.id.startsWith("tile_")
-    val resolvedTile = if (!classicStockTile && layered &&
+    val classicPrimaryAppTile = mode == LauncherUiMode.PHONE_8 &&
+        tile.id.startsWith("phone_app_") &&
+        (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true) ||
+            tile.title.equals("Messages", true) || tile.title.equals("Messaging", true))
+    val preserveClassicTilePalette = classicStockTile || classicPrimaryAppTile
+    val resolvedTile = if (!preserveClassicTilePalette && layered &&
         !tile.packageName.isNullOrBlank()) {
         repository.getDiscoTileAccentColor(tile.packageName)
             ?.let { tile.copy(colorValue = it) } ?: tile
@@ -2629,7 +2646,7 @@ private fun PhoneTile(
     WindowsTileFace(
         tile = resolvedTile,
         appIcon = icon,
-        allowAppDerivedBackground = !classicStockTile,
+        allowAppDerivedBackground = !preserveClassicTilePalette,
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
             scaleX = classicIconScale
             scaleY = classicIconScale
