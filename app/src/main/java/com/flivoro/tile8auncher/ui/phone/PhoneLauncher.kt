@@ -658,6 +658,16 @@ fun PhoneLauncherSurface(
         } else emptyList()
     }
 
+    val systemAppCache = remember { mutableMapOf<String, Boolean>() }
+    fun isPlatformApp(packageName: String): Boolean =
+        systemAppCache.getOrPut(packageName) {
+            runCatching {
+                val flags = context.packageManager.getApplicationInfo(packageName, 0).flags
+                flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or
+                    android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            }.getOrDefault(false)
+        }
+
     fun appTile(app: AppInfo): TileModel = TileModel(
         id = "phone_app_${app.packageName}",
         title = app.label,
@@ -669,7 +679,8 @@ fun PhoneLauncherSurface(
         colorValue = when {
             mode == LauncherUiMode.PHONE_8 &&
                 (app.label.equals("Phone", true) || app.label.equals("Dialer", true) ||
-                    app.label.equals("Messages", true) || app.label.equals("Messaging", true)) ->
+                    app.label.equals("Messages", true) || app.label.equals("Messaging", true) ||
+                    isPlatformApp(app.packageName)) ->
                 StartPersonalization.accentArgb
             mode == LauncherUiMode.PHONE_8 ->
                 com.flivoro.tile8auncher.data.usableDiscoTileAccent(
@@ -708,7 +719,8 @@ fun PhoneLauncherSurface(
                     source.title.equals("Phone", true) ||
                     source.title.equals("Dialer", true) ||
                     source.title.equals("Messages", true) ||
-                    source.title.equals("Messaging", true))
+                    source.title.equals("Messaging", true) ||
+                    (source.packageName != null && isPlatformApp(source.packageName)))
             ) StartPersonalization.accentArgb
             else PhoneLayoutStore.color(context, mode, source),
         )
