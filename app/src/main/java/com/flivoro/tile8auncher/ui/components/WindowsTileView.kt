@@ -104,6 +104,9 @@ internal fun WindowsTileFace(
     backgroundAlpha: Float = 1f,
     /** The tile picture is drawn within the transformed tile, not behind the grid. */
     backgroundContent: (@Composable () -> Unit)? = null,
+    /** WP8.1 stock Lumia tiles keep their original/personalized color even
+     * when an Android app is bound to the tile. Other modes are unchanged. */
+    allowAppDerivedBackground: Boolean = true,
 ) {
     val context = LocalContext.current
     // The default Disco style paints every app tile with the extracted
@@ -114,8 +117,9 @@ internal fun WindowsTileFace(
         LauncherFeatureStore.appIconStyle(context)
     }
     val tileBackgroundArgb = remember(tile.packageName, tile.colorValue, appIcon,
-        iconRevisionForBackground, iconStyleForBackground) {
-        if (iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
+        iconRevisionForBackground, iconStyleForBackground, allowAppDerivedBackground) {
+        if (allowAppDerivedBackground &&
+            iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
             !tile.packageName.isNullOrBlank()) {
             com.flivoro.tile8auncher.data.discoLayeredAccentOrNull(
                 context, tile.packageName,
