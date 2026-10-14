@@ -1625,15 +1625,18 @@ fun PhoneLauncherSurface(
                                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                                 )
                                             }
+                                            // WP8.1 app-list plates are 52 units wide; keep an
+                                            // 11-unit clear inset around the displayed 30-unit
+                                            // artwork. Start tile logos retain their own sizing.
                                             if (app.packageName == MOSAIC_SETTINGS_ID) {
                                                 com.flivoro.tile8auncher.ui.components.MetroIcon(
                                                     glyph = "settings", size = 27.dp)
                                             } else if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
-                                                modifier = Modifier.size(if (isClassicPhone) (52f * classicUnit).dp else 28.dp),
+                                                modifier = Modifier.size(if (isClassicPhone) (30f * classicUnit).dp else 28.dp),
                                                 colorFilter = null)
                                             else Text(app.label.take(1), color = Color.White,
-                                                fontSize = if (isClassicPhone) (34f * classicUnit).sp else 22.sp)
+                                                fontSize = if (isClassicPhone) (22f * classicUnit).sp else 22.sp)
                                         }
                                         val displayTitle = remember(app.label, search, phone8SearchVisible, isClassicPhone, accent) {
                                             if (!isClassicPhone || !phone8SearchVisible || search.isBlank()) {
