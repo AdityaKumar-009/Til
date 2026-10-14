@@ -258,23 +258,32 @@ class AppsRepository(private val context: Context) {
     fun getCachedDiscoLayeredAppIcon(packageName: String): ImageBitmap? =
         synchronized(layeredIconCacheLock) { layeredIconCache.get(packageName) }
 
+    /**
+     * Only a genuinely separable adaptive foreground should get WP8.1's
+     * 2x glyph enlargement. Legacy/full-plate icons keep their normal size.
+     * This metadata is persisted alongside the decoded layer bitmap.
+     */
+    fun hasDiscoForegroundLayer(packageName: String): Boolean =
+        visualPrefs.getBoolean("disco_layer_usable_v5:$packageName", false)
+
     suspend fun loadDiscoLayeredAppIcon(packageName: String): ImageBitmap? {
         getCachedDiscoLayeredAppIcon(packageName)?.let { return it }
         val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
             try {
                 iconDecodePermits.withPermit {
                     val cached = readPersistedVisualBitmap(
-                        packageName, "disco_foreground_color_v4_$maxCachedIconPx",
+                        packageName, "disco_foreground_color_v5_$maxCachedIconPx",
                     )?.asImageBitmap()
                     val resolved = cached ?: runCatching {
                         val drawable = packageManager.getApplicationIcon(packageName)
-                        val glyph = drawableToDiscoForeground(drawable)
+                        val (glyph, hasSeparateForeground) = drawableToDiscoForeground(drawable)
                         val colorfulForeground = hasColoredArtwork(glyph)
                         visualPrefs.edit {
                             putBoolean("disco_layer_color_v3:$packageName", colorfulForeground)
+                            putBoolean("disco_layer_usable_v5:$packageName", hasSeparateForeground)
                         }
                         persistVisualBitmap(
-                            packageName, "disco_foreground_color_v4_$maxCachedIconPx", glyph,
+                            packageName, "disco_foreground_color_v5_$maxCachedIconPx", glyph,
                         )
                         if (drawable is AdaptiveIconDrawable) {
                             val background = renderDrawableAtResolution(drawable.background, 64)
@@ -286,6 +295,11 @@ class AppsRepository(private val context: Context) {
                                 else usableDiscoTileAccent(backgroundColor)
                                     ?: usableDiscoTileAccent(extractAppAccentColor(glyph))
                             proposed?.let { persistAppAccent(packageName, it) }
+                        } else {
+                            // Legacy icons still have a meaningful primary color.
+                            // Persist it for BOTH All Apps and newly pinned tiles.
+                            usableDiscoTileAccent(extractAppAccentColor(glyph))
+                                ?.let { persistAppAccent(packageName, it) }
                         }
                         glyph.asImageBitmap()
                     }.getOrNull()
@@ -304,7 +318,7 @@ class AppsRepository(private val context: Context) {
     }
 
     /** Preserve native colored adaptive foregrounds, not a forced white mask. */
-    private fun drawableToDiscoForeground(drawable: Drawable): Bitmap {
+    private fun drawableToDiscoForeground(drawable: Drawable): Pair<Bitmap, Boolean> {
         if (drawable is AdaptiveIconDrawable) {
             val foreground = renderDrawableAtResolution(
                 drawable.foreground, maxCachedIconPx,
@@ -317,20 +331,20 @@ class AppsRepository(private val context: Context) {
             // Keep color detail where the app actually provides a transparent
             // foreground. Dense opaque plates are not suitable glyphs.
             if (solid in (w * h / 75)..(w * h * 2 / 3)) {
-                if (hasColoredArtwork(foreground)) return foreground
+                if (hasColoredArtwork(foreground)) return foreground to true
                 // Monochrome foregrounds need white glyphs when the plain
                 // native plate gets replaced by the Metro tile accent.
                 foreground.recycle()
                 return renderTintedDrawable(
                     drawable.foreground, Color.WHITE, maxCachedIconPx,
-                )
+                ) to true
             }
             foreground.recycle()
         }
         // Disco uses the source icon when Android cannot provide a
         // separate foreground. Never silently replace colorful legacy
         // logos with a black/white silhouette.
-        return drawableToBitmap(drawable, maxCachedIconPx)
+        return drawableToBitmap(drawable, maxCachedIconPx) to false
     }
 
     /** Neutral backgrounds are allowed only when an app has vivid
