@@ -66,32 +66,29 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
     when (glyph.lowercase()) {
         "wp81_phone" -> {
-            // WP8/8.1 Lumia Phone tile silhouette. The receiver is a tall,
-            // softly curved 2D shape (not a modern, diagonally swept Material
-            // phone pictogram). Traced against contemporaneous Lumia Start
-            // screenshots: matching rounded endcaps, an inward-facing notch
-            // on both ends, and a tapered, unbroken curved spine.
+            // Traced directly from the supplied 415x739 Lumia WP8.1 screenshot
+            // (Phone tile receiver near x=89..132, y=112..182). Unlike a generic
+            // modern handset icon, this has a full bowed left spine, a sharp
+            // inward-facing notch and matching thick rounded receiver ends.
             //
-            // Keep path centered within the icon viewport: the Start-specific
-            // size/vertical placement is handled by PhoneTile, so the glyph
-            // remains resolution-independent and crisp at every tile size.
+            // Map the source-space trace into a centered 80-unit glyph canvas.
+            // This keeps the source silhouette's characteristic 44:71 aspect
+            // ratio while retaining crisp anti-aliased vector edges at any DPI.
+            fun rx(px: Float) = w * (.5f + (px - 110.6f) / 80f)
+            fun ry(py: Float) = h * (.5f + (py - 147.35f) / 80f)
             val receiver = Path().apply {
-                // Outer edge: top endcap, down the left-hand bowed spine.
-                moveTo(w * .477f, h * .073f)
-                cubicTo(w * .424f, h * .052f, w * .362f, h * .086f, w * .322f, h * .147f)
-                cubicTo(w * .259f, h * .248f, w * .260f, h * .376f, w * .308f, h * .499f)
-                cubicTo(w * .387f, h * .697f, w * .541f, h * .875f, w * .684f, h * .927f)
-                // The lower receiver cap is plump and smoothly closed.
-                cubicTo(w * .738f, h * .951f, w * .807f, h * .910f, w * .794f, h * .849f)
-                lineTo(w * .754f, h * .729f)
-                cubicTo(w * .744f, h * .699f, w * .722f, h * .685f, w * .691f, h * .692f)
-                lineTo(w * .615f, h * .729f)
-                // Inner call-facing edge and the upper receiver notch.
-                cubicTo(w * .516f, h * .656f, w * .430f, h * .539f, w * .393f, h * .409f)
-                lineTo(w * .479f, h * .356f)
-                cubicTo(w * .510f, h * .337f, w * .522f, h * .316f, w * .512f, h * .286f)
-                lineTo(w * .488f, h * .105f)
-                cubicTo(w * .486f, h * .092f, w * .482f, h * .082f, w * .477f, h * .073f)
+                moveTo(rx(103.3f), ry(111.6f))
+                cubicTo(rx(94.2f), ry(112.1f), rx(88.5f), ry(120.4f), rx(88.7f), ry(131.4f))
+                cubicTo(rx(88.4f), ry(148.0f), rx(98.8f), ry(166.8f), rx(110.3f), ry(177.3f))
+                cubicTo(rx(116.4f), ry(183.5f), rx(123.3f), ry(184.5f), rx(132.5f), ry(177.4f))
+                cubicTo(rx(132.6f), ry(175.4f), rx(128.7f), ry(166.4f), rx(126.3f), ry(162.5f))
+                cubicTo(rx(123.8f), ry(159.2f), rx(121.6f), ry(160.0f), rx(118.6f), ry(162.1f))
+                lineTo(rx(114.2f), ry(164.5f))
+                cubicTo(rx(108.6f), ry(158.1f), rx(104.2f), ry(147.5f), rx(101.5f), ry(139.0f))
+                cubicTo(rx(100.6f), ry(135.8f), rx(102.4f), ry(134.0f), rx(105.1f), ry(132.7f))
+                lineTo(rx(111.1f), ry(130.2f))
+                cubicTo(rx(112.8f), ry(127.2f), rx(108.9f), ry(117.8f), rx(105.1f), ry(112.1f))
+                cubicTo(rx(104.4f), ry(111.6f), rx(103.8f), ry(111.5f), rx(103.3f), ry(111.6f))
                 close()
             }
             drawPath(receiver, color = color, style = Fill)
