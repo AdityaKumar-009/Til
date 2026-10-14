@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
@@ -67,34 +66,27 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
     when (glyph.lowercase()) {
         "wp81_phone" -> {
-            // Lumia-era solid receiver, built as a single silhouette.
-            // The upper and lower halves are exact reflections about y = .5
-            // BEFORE rotation: matching ear caps, neck taper and corner radii.
-            // A slight tilt yields the tall classic Phone-tile handset, rather
-            // than the diagonally stretched, uneven Android dialer silhouette.
+            // Trace the slender, upright Lumia 8.1 receiver rather than a
+            // generic diagonal Android dialer. Both outer ear caps use
+            // the same control points reflected 180 degrees about center.
+            // The shared 0.24 horizontal shear makes the handset more upright
+            // while preserving the matched upper/lower cap geometry.
             val receiver = Path().apply {
-                moveTo(w * .50f, h * .105f)
-                lineTo(w * .345f, h * .105f)
-                cubicTo(w * .240f, h * .105f, w * .183f, h * .180f, w * .183f, h * .270f)
-                cubicTo(w * .183f, h * .360f, w * .212f, h * .442f, w * .275f, h * .500f)
-                cubicTo(w * .212f, h * .558f, w * .183f, h * .640f, w * .183f, h * .730f)
-                cubicTo(w * .183f, h * .820f, w * .240f, h * .895f, w * .345f, h * .895f)
-                lineTo(w * .50f, h * .895f)
-                cubicTo(w * .555f, h * .895f, w * .588f, h * .858f, w * .588f, h * .805f)
-                lineTo(w * .588f, h * .747f)
-                cubicTo(w * .588f, h * .720f, w * .576f, h * .700f, w * .555f, h * .687f)
-                lineTo(w * .417f, h * .602f)
-                cubicTo(w * .386f, h * .583f, w * .368f, h * .550f, w * .368f, h * .500f)
-                cubicTo(w * .368f, h * .450f, w * .386f, h * .417f, w * .417f, h * .398f)
-                lineTo(w * .555f, h * .313f)
-                cubicTo(w * .576f, h * .300f, w * .588f, h * .280f, w * .588f, h * .253f)
-                lineTo(w * .588f, h * .195f)
-                cubicTo(w * .588f, h * .142f, w * .555f, h * .105f, w * .50f, h * .105f)
+                moveTo(w * 0.4340f, h * 0.1500f)
+                cubicTo(w * 0.3812f, h * 0.1200f, w * 0.3340f, h * 0.1500f, w * 0.2920f, h * 0.2000f)
+                cubicTo(w * 0.2376f, h * 0.2600f, w * 0.2280f, h * 0.3000f, w * 0.2410f, h * 0.3500f)
+                cubicTo(w * 0.2428f, h * 0.5300f, w * 0.3780f, h * 0.8000f, w * 0.5660f, h * 0.8500f)
+                cubicTo(w * 0.6088f, h * 0.8800f, w * 0.6660f, h * 0.8500f, w * 0.7080f, h * 0.8000f)
+                cubicTo(w * 0.7624f, h * 0.7400f, w * 0.7720f, h * 0.7000f, w * 0.7590f, h * 0.6500f)
+                lineTo(w * 0.6784f, h * 0.5900f)
+                cubicTo(w * 0.6556f, h * 0.5600f, w * 0.6332f, h * 0.5700f, w * 0.5960f, h * 0.6000f)
+                lineTo(w * 0.5292f, h * 0.6700f)
+                cubicTo(w * 0.4432f, h * 0.5700f, w * 0.3872f, h * 0.4700f, w * 0.3536f, h * 0.3600f)
+                lineTo(w * 0.4480f, h * 0.3000f)
+                cubicTo(w * 0.4828f, h * 0.2800f, w * 0.4900f, h * 0.2500f, w * 0.4672f, h * 0.2200f)
                 close()
             }
-            rotate(degrees = -23f, pivot = Offset(w * .5f, h * .5f)) {
-                drawPath(receiver, color = color, style = Fill)
-            }
+            drawPath(receiver, color = color, style = Fill)
         }
 
         "wp81_messages" -> {
