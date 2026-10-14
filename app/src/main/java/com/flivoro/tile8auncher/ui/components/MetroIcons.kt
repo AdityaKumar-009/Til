@@ -66,24 +66,32 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
     when (glyph.lowercase()) {
         "wp81_phone" -> {
-            // Trace the slender, upright Lumia 8.1 receiver rather than a
-            // generic diagonal Android dialer. Both outer ear caps use
-            // the same control points reflected 180 degrees about center.
-            // The shared 0.24 horizontal shear makes the handset more upright
-            // while preserving the matched upper/lower cap geometry.
+            // WP8/8.1 Lumia Phone tile silhouette. The receiver is a tall,
+            // softly curved 2D shape (not a modern, diagonally swept Material
+            // phone pictogram). Traced against contemporaneous Lumia Start
+            // screenshots: matching rounded endcaps, an inward-facing notch
+            // on both ends, and a tapered, unbroken curved spine.
+            //
+            // Keep path centered within the icon viewport: the Start-specific
+            // size/vertical placement is handled by PhoneTile, so the glyph
+            // remains resolution-independent and crisp at every tile size.
             val receiver = Path().apply {
-                moveTo(w * 0.4340f, h * 0.1500f)
-                cubicTo(w * 0.3812f, h * 0.1200f, w * 0.3340f, h * 0.1500f, w * 0.2920f, h * 0.2000f)
-                cubicTo(w * 0.2376f, h * 0.2600f, w * 0.2280f, h * 0.3000f, w * 0.2410f, h * 0.3500f)
-                cubicTo(w * 0.2428f, h * 0.5300f, w * 0.3780f, h * 0.8000f, w * 0.5660f, h * 0.8500f)
-                cubicTo(w * 0.6088f, h * 0.8800f, w * 0.6660f, h * 0.8500f, w * 0.7080f, h * 0.8000f)
-                cubicTo(w * 0.7624f, h * 0.7400f, w * 0.7720f, h * 0.7000f, w * 0.7590f, h * 0.6500f)
-                lineTo(w * 0.6784f, h * 0.5900f)
-                cubicTo(w * 0.6556f, h * 0.5600f, w * 0.6332f, h * 0.5700f, w * 0.5960f, h * 0.6000f)
-                lineTo(w * 0.5292f, h * 0.6700f)
-                cubicTo(w * 0.4432f, h * 0.5700f, w * 0.3872f, h * 0.4700f, w * 0.3536f, h * 0.3600f)
-                lineTo(w * 0.4480f, h * 0.3000f)
-                cubicTo(w * 0.4828f, h * 0.2800f, w * 0.4900f, h * 0.2500f, w * 0.4672f, h * 0.2200f)
+                // Outer edge: top endcap, down the left-hand bowed spine.
+                moveTo(w * .477f, h * .073f)
+                cubicTo(w * .424f, h * .052f, w * .362f, h * .086f, w * .322f, h * .147f)
+                cubicTo(w * .259f, h * .248f, w * .260f, h * .376f, w * .308f, h * .499f)
+                cubicTo(w * .387f, h * .697f, w * .541f, h * .875f, w * .684f, h * .927f)
+                // The lower receiver cap is plump and smoothly closed.
+                cubicTo(w * .738f, h * .951f, w * .807f, h * .910f, w * .794f, h * .849f)
+                lineTo(w * .754f, h * .729f)
+                cubicTo(w * .744f, h * .699f, w * .722f, h * .685f, w * .691f, h * .692f)
+                lineTo(w * .615f, h * .729f)
+                // Inner call-facing edge and the upper receiver notch.
+                cubicTo(w * .516f, h * .656f, w * .430f, h * .539f, w * .393f, h * .409f)
+                lineTo(w * .479f, h * .356f)
+                cubicTo(w * .510f, h * .337f, w * .522f, h * .316f, w * .512f, h * .286f)
+                lineTo(w * .488f, h * .105f)
+                cubicTo(w * .486f, h * .092f, w * .482f, h * .082f, w * .477f, h * .073f)
                 close()
             }
             drawPath(receiver, color = color, style = Fill)
