@@ -331,13 +331,17 @@ class AppsRepository(private val context: Context) {
             // Keep color detail where the app actually provides a transparent
             // foreground. Dense opaque plates are not suitable glyphs.
             if (solid in (w * h / 75)..(w * h * 2 / 3)) {
-                if (hasColoredArtwork(foreground)) return foreground to true
+                // An adaptive foreground can itself be a fully drawn round
+                // app icon. Treat that like a whole icon, not a tiny Metro glyph:
+                // multiplying the full disk by 2 makes it fill the tile.
+                val safeToEnlarge = !isDiscoFullIconPlate(pixels, w, h, solid)
+                if (hasColoredArtwork(foreground)) return foreground to safeToEnlarge
                 // Monochrome foregrounds need white glyphs when the plain
                 // native plate gets replaced by the Metro tile accent.
                 foreground.recycle()
                 return renderTintedDrawable(
                     drawable.foreground, Color.WHITE, maxCachedIconPx,
-                ) to true
+                ) to safeToEnlarge
             }
             foreground.recycle()
         }
@@ -345,6 +349,23 @@ class AppsRepository(private val context: Context) {
         // separate foreground. Never silently replace colorful legacy
         // logos with a black/white silhouette.
         return drawableToBitmap(drawable, maxCachedIconPx) to false
+    }
+
+    /** A big opaque disk/plate inside an adaptive "foreground" is already a
+     * full-sized logo. Only sparse glyph artwork benefits from 2x scaling. */
+    private fun isDiscoFullIconPlate(
+        pixels: IntArray, width: Int, height: Int, solidCount: Int,
+    ): Boolean {
+        if (solidCount < pixels.size * .19f) return false
+        val midRow = height / 2
+        val midCol = width / 2
+        val rowFill = (0 until width).count { x ->
+            Color.alpha(pixels[midRow * width + x]) >= 192
+        }
+        val colFill = (0 until height).count { y ->
+            Color.alpha(pixels[y * width + midCol]) >= 192
+        }
+        return rowFill >= width * .48f && colFill >= height * .48f
     }
 
     /** Neutral backgrounds are allowed only when an app has vivid
