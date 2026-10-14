@@ -1,10 +1,10 @@
 package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -13,9 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
-import android.graphics.BitmapFactory
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -28,11 +25,10 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
-import kotlin.math.roundToInt
 import com.flivoro.tile8auncher.R
+import androidx.compose.ui.res.painterResource
 import kotlin.math.sin
 
 @Composable
@@ -42,14 +38,18 @@ fun MetroIcon(
     color: Color = Color.White,
     size: Dp = 32.dp,
 ) {
-    // Only Phone loads the native artwork; the other Metro glyphs remain fast.
-    val wp81PhoneMask = if (glyph.equals("wp81_phone", ignoreCase = true)) {
-        val resources = LocalContext.current.resources
-        remember(resources) {
-            requireNotNull(BitmapFactory.decodeResource(resources, R.drawable.wp81_lumia_phone_mask))
-                .asImageBitmap()
-        }
-    } else null
+    // VectorDrawable is rasterized at the target device density, so Phone
+    // remains sharp on high-DPI screens. All other Metro icons use the existing
+    // bitmap drawing/cache path without changes.
+    if (glyph.equals("wp81_phone", ignoreCase = true)) {
+        Image(
+            painter = painterResource(R.drawable.wp81_lumia_phone_vector),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(color),
+            modifier = modifier.size(size),
+        )
+        return
+    }
     Box(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
@@ -60,7 +60,7 @@ fun MetroIcon(
             val key = "${glyph.lowercase()}:${color.value}:$width:$height"
             val bitmap = metroIconCache.get(key) ?: ImageBitmap(width, height).also { image ->
                 CanvasDrawScope().draw(this, layoutDirection, Canvas(image), this.size) {
-                    drawMetroGlyph(glyph, color, wp81PhoneMask)
+                    drawMetroGlyph(glyph, color)
                 }
                 metroIconCache.put(key, image)
             }
@@ -74,27 +74,13 @@ private val metroIconCache = object : LruCache<String, ImageBitmap>(4 * 1024 * 1
     override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
 }
 
-private fun DrawScope.drawMetroGlyph(glyph: String, color: Color, wp81PhoneMask: ImageBitmap?) {
+private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
     val w = this.size.width
     val h = this.size.height
     val strokeW = (w * 0.08f).coerceAtLeast(2f)
 
     when (glyph.lowercase()) {
-        "wp81_phone" -> {
-            // Screenshot-derived white alpha mask: retains the actual Lumia
-            // receiver contour and edge coverage instead of approximating it
-            // with hand-edited Bezier control points.
-            wp81PhoneMask?.let { mask ->
-                drawImage(
-                    image = mask,
-                    dstSize = IntSize(w.roundToInt().coerceAtLeast(1),
-                        h.roundToInt().coerceAtLeast(1)),
-                    colorFilter = ColorFilter.tint(color),
-                )
-            }
-        }
-
         "wp81_messages" -> {
             // WP8.1 outlined speech tile glyph; separate from Android Messages.
             val bubble = Path().apply {
