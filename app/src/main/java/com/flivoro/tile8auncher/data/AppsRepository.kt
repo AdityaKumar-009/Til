@@ -264,7 +264,7 @@ class AppsRepository(private val context: Context) {
      * This metadata is persisted alongside the decoded layer bitmap.
      */
     fun hasDiscoForegroundLayer(packageName: String): Boolean =
-        visualPrefs.getBoolean("disco_layer_usable_v5:$packageName", false)
+        visualPrefs.getBoolean("disco_layer_usable_v6:$packageName", false)
 
     suspend fun loadDiscoLayeredAppIcon(packageName: String): ImageBitmap? {
         getCachedDiscoLayeredAppIcon(packageName)?.let { return it }
@@ -272,7 +272,7 @@ class AppsRepository(private val context: Context) {
             try {
                 iconDecodePermits.withPermit {
                     val cached = readPersistedVisualBitmap(
-                        packageName, "disco_foreground_color_v5_$maxCachedIconPx",
+                        packageName, "disco_foreground_color_v6_$maxCachedIconPx",
                     )?.asImageBitmap()
                     val resolved = cached ?: runCatching {
                         val drawable = packageManager.getApplicationIcon(packageName)
@@ -280,10 +280,10 @@ class AppsRepository(private val context: Context) {
                         val colorfulForeground = hasColoredArtwork(glyph)
                         visualPrefs.edit {
                             putBoolean("disco_layer_color_v3:$packageName", colorfulForeground)
-                            putBoolean("disco_layer_usable_v5:$packageName", hasSeparateForeground)
+                            putBoolean("disco_layer_usable_v6:$packageName", hasSeparateForeground)
                         }
                         persistVisualBitmap(
-                            packageName, "disco_foreground_color_v5_$maxCachedIconPx", glyph,
+                            packageName, "disco_foreground_color_v6_$maxCachedIconPx", glyph,
                         )
                         if (drawable is AdaptiveIconDrawable) {
                             val background = renderDrawableAtResolution(drawable.background, 64)
