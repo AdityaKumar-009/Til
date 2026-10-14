@@ -2721,14 +2721,14 @@ private fun PhoneTile(
         // icon-face compositor from silently painting white on top of it.
         allowAppDerivedBackground = mode != LauncherUiMode.PHONE_8,
         logoModifier = if (classicIconScale != 1f) Modifier.graphicsLayer {
-            // A 4% optical widening restores the original receiver proportions
-            // without affecting Messaging, third-party apps or existing Start tiles.
+            // The reference-traced handset is centered in its own viewport.
+            // Its observed bounds need just 2% optical width compensation.
             scaleX = if (wp81NativeGlyph == "wp81_phone")
-                classicIconScale * 1.04f else classicIconScale
+                classicIconScale * 1.02f else classicIconScale
             scaleY = classicIconScale
-            // The common tile compositor reserves space for a label. WP8.1's
-            // Phone icon is visually centered in the tile, not in that label area.
-            translationX = if (wp81NativeGlyph == "wp81_phone") -3f * density else 0f
+            // The tile face offsets its logo for the bottom label by 12dp.
+            // Compensate by half that offset so the receiver stays centered
+            // within the tile exactly as in the supplied Lumia screenshot.
             translationY = if (wp81NativeGlyph == "wp81_phone") 6f * density else 0f
         } else Modifier,
         backgroundAlpha = tileOpacity,
