@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
@@ -66,26 +67,34 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
     when (glyph.lowercase()) {
         "wp81_phone" -> {
-            // Original vector handset silhouette in the clean WP8.1 Metro style.
-            // Its shape, unlike a device OEM's dialer app icon, never changes.
-            val p = Path().apply {
-                moveTo(w * .25f, h * .085f)
-                cubicTo(w * .18f, h * .085f, w * .12f, h * .14f, w * .12f, h * .235f)
-                cubicTo(w * .12f, h * .51f, w * .47f, h * .88f, w * .755f, h * .90f)
-                cubicTo(w * .835f, h * .91f, w * .90f, h * .83f, w * .90f, h * .755f)
-                lineTo(w * .90f, h * .69f)
-                cubicTo(w * .90f, h * .665f, w * .885f, h * .646f, w * .86f, h * .632f)
-                lineTo(w * .686f, h * .535f)
-                cubicTo(w * .653f, h * .515f, w * .617f, h * .522f, w * .593f, h * .55f)
-                lineTo(w * .508f, h * .647f)
-                cubicTo(w * .395f, h * .588f, w * .317f, h * .504f, w * .266f, h * .39f)
-                lineTo(w * .356f, h * .307f)
-                cubicTo(w * .388f, h * .274f, w * .397f, h * .239f, w * .372f, h * .204f)
-                lineTo(w * .282f, h * .108f)
-                cubicTo(w * .271f, h * .094f, w * .26f, h * .085f, w * .25f, h * .085f)
+            // Lumia-era solid receiver, built as a single silhouette.
+            // The upper and lower halves are exact reflections about y = .5
+            // BEFORE rotation: matching ear caps, neck taper and corner radii.
+            // A slight tilt yields the tall classic Phone-tile handset, rather
+            // than the diagonally stretched, uneven Android dialer silhouette.
+            val receiver = Path().apply {
+                moveTo(w * .50f, h * .105f)
+                lineTo(w * .345f, h * .105f)
+                cubicTo(w * .240f, h * .105f, w * .183f, h * .180f, w * .183f, h * .270f)
+                cubicTo(w * .183f, h * .360f, w * .212f, h * .442f, w * .275f, h * .500f)
+                cubicTo(w * .212f, h * .558f, w * .183f, h * .640f, w * .183f, h * .730f)
+                cubicTo(w * .183f, h * .820f, w * .240f, h * .895f, w * .345f, h * .895f)
+                lineTo(w * .50f, h * .895f)
+                cubicTo(w * .555f, h * .895f, w * .588f, h * .858f, w * .588f, h * .805f)
+                lineTo(w * .588f, h * .747f)
+                cubicTo(w * .588f, h * .720f, w * .576f, h * .700f, w * .555f, h * .687f)
+                lineTo(w * .417f, h * .602f)
+                cubicTo(w * .386f, h * .583f, w * .368f, h * .550f, w * .368f, h * .500f)
+                cubicTo(w * .368f, h * .450f, w * .386f, h * .417f, w * .417f, h * .398f)
+                lineTo(w * .555f, h * .313f)
+                cubicTo(w * .576f, h * .300f, w * .588f, h * .280f, w * .588f, h * .253f)
+                lineTo(w * .588f, h * .195f)
+                cubicTo(w * .588f, h * .142f, w * .555f, h * .105f, w * .50f, h * .105f)
                 close()
             }
-            drawPath(p, color)
+            rotate(degrees = -23f, pivot = Offset(w * .5f, h * .5f)) {
+                drawPath(receiver, color = color, style = Fill)
+            }
         }
 
         "wp81_messages" -> {
