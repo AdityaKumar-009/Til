@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import android.util.LruCache
@@ -11,6 +13,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import android.graphics.BitmapFactory
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -23,8 +28,11 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
+import kotlin.math.roundToInt
+import com.flivoro.tile8auncher.R
 import kotlin.math.sin
 
 @Composable
@@ -34,6 +42,14 @@ fun MetroIcon(
     color: Color = Color.White,
     size: Dp = 32.dp,
 ) {
+    // Only Phone loads the native artwork; the other Metro glyphs remain fast.
+    val wp81PhoneMask = if (glyph.equals("wp81_phone", ignoreCase = true)) {
+        val resources = LocalContext.current.resources
+        remember(resources) {
+            requireNotNull(BitmapFactory.decodeResource(resources, R.drawable.wp81_lumia_phone_mask))
+                .asImageBitmap()
+        }
+    } else null
     Box(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
@@ -44,7 +60,7 @@ fun MetroIcon(
             val key = "${glyph.lowercase()}:${color.value}:$width:$height"
             val bitmap = metroIconCache.get(key) ?: ImageBitmap(width, height).also { image ->
                 CanvasDrawScope().draw(this, layoutDirection, Canvas(image), this.size) {
-                    drawMetroGlyph(glyph, color)
+                    drawMetroGlyph(glyph, color, wp81PhoneMask)
                 }
                 metroIconCache.put(key, image)
             }
@@ -58,7 +74,7 @@ private val metroIconCache = object : LruCache<String, ImageBitmap>(4 * 1024 * 1
     override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
 }
 
-private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
+private fun DrawScope.drawMetroGlyph(glyph: String, color: Color, wp81PhoneMask: ImageBitmap?) {
 
     val w = this.size.width
     val h = this.size.height
@@ -66,32 +82,17 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
 
     when (glyph.lowercase()) {
         "wp81_phone" -> {
-            // Traced directly from the supplied 415x739 Lumia WP8.1 screenshot
-            // (Phone tile receiver near x=89..132, y=112..182). Unlike a generic
-            // modern handset icon, this has a full bowed left spine, a sharp
-            // inward-facing notch and matching thick rounded receiver ends.
-            //
-            // Map the source-space trace into a centered 80-unit glyph canvas.
-            // This keeps the source silhouette's characteristic 44:71 aspect
-            // ratio while retaining crisp anti-aliased vector edges at any DPI.
-            fun rx(px: Float) = w * (.5f + (px - 110.6f) / 80f)
-            fun ry(py: Float) = h * (.5f + (py - 147.35f) / 80f)
-            val receiver = Path().apply {
-                moveTo(rx(103.3f), ry(111.6f))
-                cubicTo(rx(94.2f), ry(112.1f), rx(88.5f), ry(120.4f), rx(88.7f), ry(131.4f))
-                cubicTo(rx(88.4f), ry(148.0f), rx(98.8f), ry(166.8f), rx(110.3f), ry(177.3f))
-                cubicTo(rx(116.4f), ry(183.5f), rx(123.3f), ry(184.5f), rx(132.5f), ry(177.4f))
-                cubicTo(rx(132.6f), ry(175.4f), rx(128.7f), ry(166.4f), rx(126.3f), ry(162.5f))
-                cubicTo(rx(123.8f), ry(159.2f), rx(121.6f), ry(160.0f), rx(118.6f), ry(162.1f))
-                lineTo(rx(114.2f), ry(164.5f))
-                cubicTo(rx(108.6f), ry(158.1f), rx(104.2f), ry(147.5f), rx(101.5f), ry(139.0f))
-                cubicTo(rx(100.6f), ry(135.8f), rx(102.4f), ry(134.0f), rx(105.1f), ry(132.7f))
-                lineTo(rx(111.1f), ry(130.2f))
-                cubicTo(rx(112.8f), ry(127.2f), rx(108.9f), ry(117.8f), rx(105.1f), ry(112.1f))
-                cubicTo(rx(104.4f), ry(111.6f), rx(103.8f), ry(111.5f), rx(103.3f), ry(111.6f))
-                close()
+            // Screenshot-derived white alpha mask: retains the actual Lumia
+            // receiver contour and edge coverage instead of approximating it
+            // with hand-edited Bezier control points.
+            wp81PhoneMask?.let { mask ->
+                drawImage(
+                    image = mask,
+                    dstSize = IntSize(w.roundToInt().coerceAtLeast(1),
+                        h.roundToInt().coerceAtLeast(1)),
+                    colorFilter = ColorFilter.tint(color),
+                )
             }
-            drawPath(receiver, color = color, style = Fill)
         }
 
         "wp81_messages" -> {
