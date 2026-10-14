@@ -1498,9 +1498,13 @@ fun PhoneLauncherSurface(
                                     }
                                 }
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
-                                    val icon = rememberAppIcon(appsRepository, app.packageName)
                                     val discoLayered = LauncherFeatureStore.appIconStyle(context) ==
                                         AppIconStyle.DISCO_LAYERED
+                                    val visual = rememberWp81TileVisual(
+                                        appsRepository, app.packageName,
+                                        isClassicPhone && discoLayered,
+                                    )
+                                    val icon = visual.icon
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
                                     val listIndex = (positions[letter] ?: 0) + appIndex +
@@ -1609,9 +1613,18 @@ fun PhoneLauncherSurface(
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
                                             .size(if (isClassicPhone) (52f * classicUnit).dp else 45.dp)
                                             .background(
-                                                if (isTen || discoLayered) appsRepository.getDiscoTileAccentColor(app.packageName)
+                                                if (isTen || discoLayered) visual.accent
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
+                                            if (isClassicPhone && discoLayered &&
+                                                visual.richBackground != null) {
+                                                androidx.compose.foundation.Image(
+                                                    bitmap = visual.richBackground,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                )
+                                            }
                                             if (app.packageName == MOSAIC_SETTINGS_ID) {
                                                 com.flivoro.tile8auncher.ui.components.MetroIcon(
                                                     glyph = "settings", size = 27.dp)
@@ -2570,25 +2583,19 @@ private fun PhoneTile(
     // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current.density
-    val icon = rememberAppIcon(repository, tile.packageName)
     val context = LocalContext.current
     val layered = LauncherFeatureStore.appIconStyle(context) ==
         AppIconStyle.DISCO_LAYERED
+    val visual = rememberWp81TileVisual(
+        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+    )
+    val icon = visual.icon
     val classicStockTile = mode == LauncherUiMode.PHONE_8 &&
         tile.id.startsWith("tile_")
     val classicPrimaryAppTile = mode == LauncherUiMode.PHONE_8 &&
         tile.id.startsWith("phone_app_") &&
         (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true) ||
             tile.title.equals("Messages", true) || tile.title.equals("Messaging", true))
-    val platformApp = remember(tile.packageName) {
-        tile.packageName?.let { packageName ->
-            runCatching {
-                val flags = context.packageManager.getApplicationInfo(packageName, 0).flags
-                flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or
-                    android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-            }.getOrDefault(false)
-        } ?: false
-    }
     val userChoseColor = mode == LauncherUiMode.PHONE_8 &&
         PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
     // Icons decode asynchronously. Once a third-party adaptive layer is ready,
@@ -2601,25 +2608,29 @@ private fun PhoneTile(
         allowClassicBrandColor && !tile.packageName.isNullOrBlank() ->
             // Use the identical background chosen in All Apps, including
             // valid neutral backgrounds paired with colorful foregrounds.
-            repository.getDiscoTileAccentColor(tile.packageName)
-                ?.let { tile.copy(colorValue = it) } ?: tile
+            visual.accent?.let { tile.copy(colorValue = it) } ?: tile
         mode != LauncherUiMode.PHONE_8 && layered &&
             !tile.packageName.isNullOrBlank() ->
-            repository.getDiscoTileAccentColor(tile.packageName)
-                ?.let { tile.copy(colorValue = it) } ?: tile
+            visual.accent?.let { tile.copy(colorValue = it) } ?: tile
         else -> tile
     }
-    // Scale artwork only: keep the tile face, live data, label, touch
-    // bounds and all launch/return motion exactly their existing sizes.
+    // WP8.1 app icons are normalized by visible content bounds, not per-app
+    // scale heuristics. Stock tiles retain their requested 1.5x glyphs.
     val classicIconScale = when {
         mode != LauncherUiMode.PHONE_8 -> 1f
         classicStockTile -> 1.5f
-        !tile.packageName.isNullOrBlank() && layered &&
-            repository.hasDiscoForegroundLayer(tile.packageName) -> 2f
-        // Full legacy icons already occupy their intended image bounds.
-        // Applying a second 2x transform makes circular/opaque icons huge.
-        else -> 1f
+        else -> 1.22f
     }
+    val wp81NativeGlyph = if (mode == LauncherUiMode.PHONE_8 &&
+        classicPrimaryAppTile) {
+        if (tile.title.equals("Phone", true) ||
+            tile.title.equals("Dialer", true)) "wp81_phone" else "wp81_messages"
+    } else null
+    val faceTile = if (wp81NativeGlyph != null)
+        resolvedTile.copy(iconGlyph = wp81NativeGlyph) else resolvedTile
+    val brandedBackground = if (allowClassicBrandColor &&
+        !userChoseColor && tilePictureContent == null && layered)
+        visual.richBackground else null
 
     fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
         val mobile = MobileStartMotion.sample(
@@ -2697,7 +2708,7 @@ private fun PhoneTile(
     }
 
     WindowsTileFace(
-        tile = resolvedTile,
+        tile = faceTile,
         appIcon = icon,
         // The complete WP8.1 color policy is resolved above. Prevent the
         // icon-face compositor from silently painting white on top of it.
@@ -2730,6 +2741,22 @@ private fun PhoneTile(
                     }
                     PlatformMatrix().takeIf { forward.invert(it) }
                 }
+            }
+        } else if (brandedBackground != null) {
+            {
+                androidx.compose.foundation.Image(
+                    bitmap = brandedBackground,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = .18f)),
+                        ),
+                    ),
+                )
             }
         } else null,
         // Native glyphs and labels remain attached to the tile face throughout its turn.
