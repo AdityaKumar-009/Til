@@ -69,9 +69,12 @@ internal fun Modifier.phoneToolkitTilePress(
     enabled: Boolean = true,
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
+    onPressStart: (() -> Unit)? = null,
+    tiltEnabled: Boolean = true,
 ): Modifier = composed {
     val latestOnClick by rememberUpdatedState(onClick)
     val latestOnLongClick by rememberUpdatedState(onLongClick)
+    val latestOnPressStart by rememberUpdatedState(onPressStart)
     val density = LocalDensity.current.density
     var bounds by remember { mutableStateOf(Rect.Zero) }
     var target by remember { mutableStateOf(PhoneTiltFrame(0f, 0f, 0f)) }
@@ -80,8 +83,12 @@ internal fun Modifier.phoneToolkitTilePress(
     val rotX = remember { Animatable(0f) }
     val rotY = remember { Animatable(0f) }
     val depth = remember { Animatable(0f) }
-    LaunchedEffect(pressed, target) {
-        if (pressed) {
+    LaunchedEffect(pressed, target, tiltEnabled) {
+        if (!tiltEnabled) {
+            rotX.snapTo(0f)
+            rotY.snapTo(0f)
+            depth.snapTo(0f)
+        } else if (pressed) {
             rotX.snapTo(target.rotationX)
             rotY.snapTo(target.rotationY)
             depth.snapTo(target.depth * density)
@@ -100,11 +107,17 @@ internal fun Modifier.phoneToolkitTilePress(
             if (!enabled) return@pointerInput
             detectTapGestures(
                 onPress = { point ->
-                    target = PhoneToolkitTilt.at(
-                        point.x, point.y, size.width.toFloat(), size.height.toFloat(),
-                    )
-                    wasPressed = true
-                    pressed = true
+                    // Disco changes the edited tile on pointer-down, before release.
+                    // Keep this in the existing recognizer so recomposition does not
+                    // cancel a second competing pointerInput handler.
+                    latestOnPressStart?.invoke()
+                    if (tiltEnabled) {
+                        target = PhoneToolkitTilt.at(
+                            point.x, point.y, size.width.toFloat(), size.height.toFloat(),
+                        )
+                        wasPressed = true
+                        pressed = true
+                    }
                     try {
                         tryAwaitRelease()
                     } finally {
@@ -116,12 +129,13 @@ internal fun Modifier.phoneToolkitTilePress(
             )
         }
         .graphicsLayer {
-            rotationX = if (enabled) rotX.value else 0f
-            rotationY = if (enabled) rotY.value else 0f
+            rotationX = if (enabled && tiltEnabled) rotX.value else 0f
+            rotationY = if (enabled && tiltEnabled) rotY.value else 0f
             val camera = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
             // Compose's GraphicsLayerScope exposes cameraDistance but not translationZ.
             // Projecting a depressed plane backward shrinks it by d/(d+depression).
-            val perspectiveScale = if (enabled) camera / (camera + depth.value) else 1f
+            val perspectiveScale = if (enabled && tiltEnabled)
+                camera / (camera + depth.value) else 1f
             scaleX = perspectiveScale
             scaleY = perspectiveScale
             cameraDistance = camera
