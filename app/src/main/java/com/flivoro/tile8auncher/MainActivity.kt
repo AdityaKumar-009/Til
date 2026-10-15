@@ -927,12 +927,15 @@ fun Tile8LauncherApp(
             }
         }
         val pinned = withContext(Dispatchers.IO) {
-            runCatching {
-                val saved = appsRepository.loadPinnedTiles()
-                appsRepository.refreshAutomaticAppAccentTiles(saved)
-            }.getOrElse {
+            val saved = runCatching { appsRepository.loadPinnedTiles() }.getOrElse {
                 Log.w("MosaicStartup", "Failed to restore saved tiles", it)
                 runCatching { appsRepository.getDefaultTiles() }.getOrDefault(emptyList())
+            }
+            // Accent refresh is best-effort. Never replace the user's pinned layout
+            // with defaults merely because one third-party app has broken artwork.
+            runCatching { appsRepository.refreshAutomaticAppAccentTiles(saved) }.getOrElse {
+                Log.w("MosaicStartup", "Failed to refresh a tile accent", it)
+                saved
             }
         }
         val installedPackages = sections.flatMap(AppSection::apps)
