@@ -11,6 +11,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -68,6 +70,7 @@ import com.flivoro.tile8auncher.data.defaultTilePickerBaseIntent
 import com.flivoro.tile8auncher.data.defaultTileSemanticIntent
 import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.data.resolveDefaultTileApp
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
@@ -87,6 +90,8 @@ import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.preloadStartIcons
+import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
+import com.flivoro.tile8auncher.ui.components.LauncherStartupSplash
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
 import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
@@ -887,32 +892,85 @@ fun Tile8LauncherApp(
         if (flipState.isRunning) showCharms = false
     }
 
-    LaunchedEffect(Unit) {
-        val iconStyle = LauncherFeatureStore.appIconStyle(context)
-        val iconsRevision = LauncherFeatureRuntime.iconsRevision
-        val pinned = withContext(Dispatchers.IO) {
-            val loaded = appsRepository.loadPinnedTiles()
-            appsRepository.refreshAutomaticAppAccentTiles(loaded)
+    // Keep the selected mode invisible until Start, the installed-app catalog and
+    // the style-matched All Apps thumbnails are all ready. This is not a fixed delay.
+    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val launcherMode = remember(launcherModeRevision) {
+        LauncherFeatureStore.launcherUiMode(context)
+    }
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val packageRevision = PackageCatalogUpdates.revision
+    var preparedMode by remember { mutableStateOf<LauncherUiMode?>(null) }
+    var preparedIconsRevision by remember { mutableIntStateOf(-1) }
+    var preparedPackageRevision by remember { mutableIntStateOf(-1) }
+    var lastCatalogRevision by remember { mutableIntStateOf(packageRevision) }
+    var loadingMessage by remember { mutableStateOf("Preparing Start") }
+    var categorizedApps by remember { mutableStateOf<List<AppSection>>(emptyList()) }
+    val launcherPrepared = tilesLoaded && preparedMode == launcherMode &&
+        preparedIconsRevision == iconsRevision && preparedPackageRevision == packageRevision
+
+    LaunchedEffect(launcherMode, iconsRevision, packageRevision) {
+        val startedAt = SystemClock.elapsedRealtime()
+        val style = LauncherFeatureStore.appIconStyle(context)
+        if (lastCatalogRevision != packageRevision) {
+            withContext(Dispatchers.IO) { appsRepository.invalidateAppCatalog() }
+            lastCatalogRevision = packageRevision
         }
+        loadingMessage = "Loading installed apps"
+        val sections = withContext(Dispatchers.IO) {
+            runCatching { appsRepository.getCategorizedApps() }.getOrElse {
+                Log.w("MosaicStartup", "Failed to enumerate installed apps", it)
+                emptyList()
+            }
+        }
+        val pinned = withContext(Dispatchers.IO) {
+            runCatching {
+                val saved = appsRepository.loadPinnedTiles()
+                appsRepository.refreshAutomaticAppAccentTiles(saved)
+            }.getOrElse {
+                Log.w("MosaicStartup", "Failed to restore saved tiles", it)
+                runCatching { appsRepository.getDefaultTiles() }.getOrDefault(emptyList())
+            }
+        }
+        val installedPackages = sections.flatMap(AppSection::apps)
+            .map(AppInfo::packageName).distinct()
+        val initialPhonePackages = if (launcherMode == LauncherUiMode.DESKTOP) emptyList()
+            else installedPackages.take(20)
 
-        // Start stays hidden while persisted colors and the exact selected icon style are restored.
-        // After the first successful resolution, later launcher restarts normally hit Tile8's
-        // on-disk visual cache instead of flashing fallback glyphs/colors before async decoding.
+        loadingMessage = "Preparing Start tiles"
         preloadStartIcons(
-            context = context.applicationContext,
-            repository = appsRepository,
-            packageNames = pinned.mapNotNull(TileModel::packageName),
-            style = iconStyle,
-            iconsRevision = iconsRevision,
+            context = context.applicationContext, repository = appsRepository,
+            packageNames = pinned.mapNotNull(TileModel::packageName) + initialPhonePackages,
+            style = style, iconsRevision = iconsRevision,
         )
-
+        loadingMessage = "Preparing All Apps"
+        // Always load the complete alphabetical catalog and all compact list thumbnails.
+        // Large phone-only art, edit tools and Settings are decoded when actually needed.
+        preloadAllAppsIcons(
+            context = context.applicationContext, repository = appsRepository,
+            packageNames = installedPackages, style = style, iconsRevision = iconsRevision,
+        )
+        if (launcherMode == LauncherUiMode.PHONE_8 && style == AppIconStyle.DISCO_LAYERED) {
+            (pinned.mapNotNull(TileModel::packageName) + initialPhonePackages)
+                .distinct().forEach { name ->
+                    try {
+                        withContext(Dispatchers.IO) { appsRepository.loadWp81NormalizedIcon(name) }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("MosaicStartup", "Optional phone artwork: $name", e)
+                    }
+                }
+        }
+        categorizedApps = sections
         tiles.clear()
         tiles.addAll(pinned)
         tilesLoaded = true
-    }
-
-    val categorizedApps by produceState<List<AppSection>>(emptyList(), appsRepository) {
-        value = withContext(Dispatchers.IO) { appsRepository.getCategorizedApps() }
+        preparedMode = launcherMode
+        preparedIconsRevision = iconsRevision
+        preparedPackageRevision = packageRevision
+        Log.i("MosaicStartup", "Ready $launcherMode, ${installedPackages.size} apps, " +
+            "${SystemClock.elapsedRealtime() - startedAt}ms")
     }
 
     val activeContentRetreat by animateFloatAsState(
@@ -935,12 +993,7 @@ fun Tile8LauncherApp(
     val charmsAvailable = entranceReady && !flipState.isRunning && !showPowerDialog &&
         !showPinAppsDialog && selectedTileForCustomization == null
 
-    // Dedicated phone surfaces do not touch Desktop's horizontal Start layout or its animations.
-    // Switching the setting recomposes immediately; saved desktop tile positions remain intact.
-    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
-    val launcherMode = remember(launcherModeRevision) {
-        LauncherFeatureStore.launcherUiMode(context)
-    }
+    // Desktop and phone modes retain their independent motion implementations.
     // The phone skins are Android launchers, not standalone operating systems:
     // keep the user's real Android gesture/three-button navigation visible.
     // The classic mock navigation row was removed from PhoneLauncherSurface.
@@ -953,8 +1006,8 @@ fun Tile8LauncherApp(
     val phoneSurfaceStates = rememberSaveableStateHolder()
     // Do not consider a phone mode healthy merely because its preference was written.
     // Confirm it after an actual visible, composed phone Start/All Apps frame.
-    LaunchedEffect(launcherMode, tilesLoaded, entranceReady, activeInAppTile) {
-        if (launcherMode != LauncherUiMode.DESKTOP && tilesLoaded && entranceReady) {
+    LaunchedEffect(launcherMode, launcherPrepared, entranceReady, activeInAppTile) {
+        if (launcherMode != LauncherUiMode.DESKTOP && launcherPrepared && entranceReady) {
             withFrameNanos { }
             delay(600)
             if (activeInAppTile == null) {
@@ -971,6 +1024,13 @@ fun Tile8LauncherApp(
             entranceReady && activeInAppTile == null && !flipState.isRunning,
     ) {
         // Already at the root phone Start: intentionally no navigation.
+    }
+    // Do not mount either pane behind the splash: phone/Desktop entrance animations
+    // must start on the first real launcher frame, not elapse invisibly while loading.
+    // An already-open Settings panel stays usable during a mode/style change.
+    if (!launcherPrepared && activeInAppTile == null) {
+        LauncherStartupSplash(message = loadingMessage)
+        return
     }
     if (launcherMode != LauncherUiMode.DESKTOP) {
         // Keep the completed exit drawn while Android asynchronously starts the target app.
