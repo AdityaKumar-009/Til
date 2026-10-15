@@ -1,12 +1,16 @@
 package com.flivoro.tile8auncher.ui.phone
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -29,13 +33,24 @@ internal fun DiscoSourceArrowGlyph(
     classicUnit: Float,
     rotationDegrees: Float = 0f,
 ) {
+    // Disco CSS: .disco-tile-menu-resize-button p {
+    //   transition: transform .25s ease-in-out;
+    // }
+    val rotated by animateFloatAsState(
+        targetValue = rotationDegrees,
+        animationSpec = tween(
+            durationMillis = 250,
+            easing = CubicBezierEasing(.42f, 0f, .58f, 1f),
+        ),
+        label = "disco-source-arrow-rotation",
+    )
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
         Box(
             modifier = Modifier
                 .offset(x = (11f * classicUnit).dp, y = (13f * classicUnit).dp)
                 .size(width = (30f * classicUnit).dp, height = (16f * classicUnit).dp)
                 .graphicsLayer {
-                    rotationZ = rotationDegrees
+                    rotationZ = rotated
                     transformOrigin = TransformOrigin(.35f, .47f)
                 }
                 .clipToBounds(),
