@@ -351,7 +351,6 @@ fun PhoneLauncherSurface(
     tiles: List<TileModel>,
     sections: List<AppSection>,
     appsRepository: AppsRepository,
-    preparedRecentApps: List<AppInfo>? = null,
     homeRequest: Int,
     entranceRequest: Int,
     launchingTileId: String?,
@@ -367,6 +366,7 @@ fun PhoneLauncherSurface(
     resumeUsesBackMotion: Boolean = false,
     screenOffRequest: Int = 0,
     returningTileId: String? = null,
+    preparedRecentApps: List<AppInfo>? = null,
 ) {
     var classicHomeTap by remember(mode) { mutableStateOf(0) }
     var classicHomeEntrance by remember(mode) { mutableStateOf(-1) }
