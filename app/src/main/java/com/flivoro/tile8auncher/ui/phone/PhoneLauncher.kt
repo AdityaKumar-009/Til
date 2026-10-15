@@ -20,8 +20,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -80,7 +78,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.boundsInWindow
@@ -2403,26 +2400,13 @@ private fun PhoneStartGrid(
                                             density * editProgress * .35f
                                     else 0f
                             }
-                            // Disco switches selection on pointer DOWN, before click/up.
-                            // Observe the initial pass without consuming it, preserving
-                            // PhoneTile's press, long-press, and drag recognizers.
-                            .then(
-                                if (mode == LauncherUiMode.PHONE_8 && classicEditing &&
-                                    !isSelectedForEdit) Modifier.pointerInput(
-                                    editKey, interactionEnabled, isLaunching,
-                                ) {
-                                    if (interactionEnabled && !isLaunching) {
-                                        awaitEachGesture {
-                                            awaitFirstDown(
-                                                requireUnconsumed = false,
-                                                pass = PointerEventPass.Initial,
-                                            )
-                                            onClick(tile, Rect.Zero)
-                                        }
-                                    }
-                                } else Modifier,
-                            ),
+                            ,
                         onClick = { rect -> onClick(tile, rect) },
+                        onPressStart = if (mode == LauncherUiMode.PHONE_8 &&
+                            classicEditing && !isSelectedForEdit) {
+                            { onClick(tile, Rect.Zero) }
+                        } else null,
+                        tiltEnabled = !(mode == LauncherUiMode.PHONE_8 && classicEditing),
                         onLongClick = {
                             onLongClick(
                                 if (tile.id.startsWith("phone_app_"))
@@ -2628,6 +2612,8 @@ private fun PhoneTile(
     modifier: Modifier,
     onClick: (Rect) -> Unit,
     onLongClick: () -> Unit,
+    onPressStart: (() -> Unit)? = null,
+    tiltEnabled: Boolean = true,
 ) {
     // Read the master timebase during graphics rendering, not during composition.
     // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
@@ -2859,6 +2845,8 @@ private fun PhoneTile(
                 enabled = interactionEnabled && !exiting,
                 onClick = onClick,
                 onLongClick = onLongClick,
+                onPressStart = onPressStart,
+                tiltEnabled = tiltEnabled,
             ),
     )
 }
