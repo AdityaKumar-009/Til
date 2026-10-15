@@ -20,6 +20,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -78,6 +80,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.boundsInWindow
@@ -2257,23 +2260,52 @@ private fun PhoneStartGrid(
                         "app:" + tile.id.removePrefix("phone_app_")
                     } else tile.id
                     val isSelectedForEdit = editingTileId == editKey
-                    val editScale by animateFloatAsState(
+                    // Disco's edited tile is not animated with one scale tween.
+                    // CSS separately animates `transform: scale(.925 -> 1)` and
+                    // `scale: 1 -> 1.05`, using DIFFERENT overshooting curves.
+                    // Combining them into one 1.05 target flattens the "pop".
+                    val editTransformScale by animateFloatAsState(
                         targetValue = when {
                             editingTileId == null -> 1f
                             !classicEditing -> if (isSelectedForEdit) .975f else 1f
                             isSelectedForEdit && classicEditIntro -> 1.12f
-                            isSelectedForEdit -> 1.05f
-                            classicEditIntro -> 1f
+                            isSelectedForEdit || classicEditIntro -> 1f
                             else -> .925f
                         },
-                        animationSpec = if (mode == LauncherUiMode.PHONE_8) tween(
-                            if (classicEditIntro) 500 else 250,
-                            easing = if (classicEditIntro)
-                                androidx.compose.animation.core.CubicBezierEasing(.0f, .0f, 1f, 1f)
-                            else androidx.compose.animation.core.CubicBezierEasing(.43f, 1.5f, .5f, 1f),
-                        ) else tween(250),
-                        label = "disco-edit-tile-scale",
+                        animationSpec = when {
+                            mode != LauncherUiMode.PHONE_8 -> tween(250)
+                            classicEditIntro -> tween(500, easing = LinearEasing)
+                            isSelectedForEdit -> tween(
+                                250,
+                                easing = androidx.compose.animation.core.CubicBezierEasing(
+                                    .43f, 1.5f, .5f, 1f,
+                                ),
+                            )
+                            classicEditing -> tween(
+                                // Disco gives deselected tiles a 50ms transform,
+                                // not the selected tile's 250ms spring-like curve.
+                                50,
+                                easing = androidx.compose.animation.core.CubicBezierEasing(
+                                    .25f, .1f, .25f, 1f,
+                                ),
+                            )
+                            else -> tween(250)
+                        },
+                        label = "disco-edit-transform-scale",
                     )
+                    val editPopScale by animateFloatAsState(
+                        targetValue = if (classicEditing && isSelectedForEdit &&
+                            !classicEditIntro) 1.05f else 1f,
+                        animationSpec = if (classicEditing && isSelectedForEdit &&
+                            !classicEditIntro) tween(
+                            250,
+                            easing = androidx.compose.animation.core.CubicBezierEasing(
+                                .43f, 2f, .5f, 1f,
+                            ),
+                        ) else tween(0), // CSS removes the extra scale immediately on deselection.
+                        label = "disco-edit-pop-scale",
+                    )
+                    val editScale = editTransformScale * editPopScale
                     val deletion by animateFloatAsState(
                         targetValue = if (deletingTileId == editKey) 1f else 0f,
                         animationSpec = tween(
@@ -2282,14 +2314,8 @@ private fun PhoneStartGrid(
                         ),
                         label = "disco-unpin-delete",
                     )
-                    // When switching the selected tile, fade the previously
-                    // selected tile's noise into the background rather than
-                    // snapping from zero to full wobble in one frame.
-                    val wobbleStrength by animateFloatAsState(
-                        targetValue = if (classicEditing && !isSelectedForEdit &&
-                            !classicEditIntro) 1f else 0f,
-                        animationSpec = tween(440), label = "disco-tile-wobble-ramp",
-                    )
+                    // Disco starts background tile shake immediately when selection
+                    // changes; a 440ms wobble ramp made the old tile feel delayed.
                     val editAlpha by animateFloatAsState(
                         targetValue = when {
                             editingTileId == null || isSelectedForEdit -> 1f
@@ -2298,8 +2324,10 @@ private fun PhoneStartGrid(
                             else -> .68f
                         },
                         animationSpec = tween(
-                            if (mode == LauncherUiMode.PHONE_8) 250 else 250,
-                            easing = androidx.compose.animation.core.CubicBezierEasing(.25f, 0f, .53f, 1f),
+                            250,
+                            easing = if (classicEditing && isSelectedForEdit)
+                                androidx.compose.animation.core.CubicBezierEasing(.43f, 1.5f, .5f, 1f)
+                            else androidx.compose.animation.core.CubicBezierEasing(.25f, .1f, .25f, 1f),
                         ), label = "classic-edit-opacity",
                     )
                     // Animated reflow is only activated when editing reorders tiles;
@@ -2367,14 +2395,33 @@ private fun PhoneStartGrid(
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
-                                            density * editProgress * wobbleStrength * .35f
+                                            density * editProgress * .35f
                                     else 0f
                                 translationY = if (isSelectedForEdit) tileDragOffset.y
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
-                                            density * editProgress * wobbleStrength * .35f
+                                            density * editProgress * .35f
                                     else 0f
-                            },
+                            }
+                            // Disco switches selection on pointer DOWN, before click/up.
+                            // Observe the initial pass without consuming it, preserving
+                            // PhoneTile's press, long-press, and drag recognizers.
+                            .then(
+                                if (mode == LauncherUiMode.PHONE_8 && classicEditing &&
+                                    !isSelectedForEdit) Modifier.pointerInput(
+                                    editKey, interactionEnabled, isLaunching,
+                                ) {
+                                    if (interactionEnabled && !isLaunching) {
+                                        awaitEachGesture {
+                                            awaitFirstDown(
+                                                requireUnconsumed = false,
+                                                pass = PointerEventPass.Initial,
+                                            )
+                                            onClick(tile, Rect.Zero)
+                                        }
+                                    }
+                                } else Modifier,
+                            ),
                         onClick = { rect -> onClick(tile, rect) },
                         onLongClick = {
                             onLongClick(
