@@ -2399,8 +2399,7 @@ private fun PhoneStartGrid(
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
                                             density * editProgress * .35f
                                     else 0f
-                            }
-                            ,
+                            },
                         onClick = { rect -> onClick(tile, rect) },
                         onPressStart = if (mode == LauncherUiMode.PHONE_8 &&
                             classicEditing && !isSelectedForEdit) {
