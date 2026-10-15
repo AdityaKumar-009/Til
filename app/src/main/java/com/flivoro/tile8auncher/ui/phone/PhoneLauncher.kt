@@ -99,6 +99,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.edit
+import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -1046,7 +1047,10 @@ fun PhoneLauncherSurface(
                         }
                         Spacer(Modifier.height(30.dp))
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                            Modifier.fillMaxWidth().padding(
+                                start = 20.dp,
+                                end = if (isClassicPhone) (25f * classicUnit).dp else 20.dp,
+                            )
                                 .onGloballyPositioned { homeBannerBounds = it.boundsInWindow() }
                                 .then(if (mode == LauncherUiMode.PHONE_8) {
                                     Modifier.graphicsLayer {
@@ -1091,8 +1095,29 @@ fun PhoneLauncherSurface(
                                 }),
                             horizontalArrangement = Arrangement.End,
                         ) {
-                            Text("→", color = Color.White, fontSize = 34.sp,
-                                modifier = Modifier.clickable(enabled = interactionEnabled && !isLaunching) { showApps = true }.padding(10.dp))
+                            if (isClassicPhone) {
+                                // Disco's #app-page-icon: 42px outlined circle with its
+                                // actual MDI U+F0054 (arrow-right), not a Unicode arrow.
+                                Box(
+                                    modifier = Modifier
+                                        .size((42f * classicUnit).dp)
+                                        .background(Color.Black, CircleShape)
+                                        .border((3f * classicUnit).dp, Color.White, CircleShape)
+                                        .clickable(enabled = interactionEnabled && !isLaunching) {
+                                            showApps = true
+                                        },
+                                ) {
+                                    DiscoSourceArrowGlyph(
+                                        drawableId = R.drawable.disco_mdi_arrow_right,
+                                        classicUnit = classicUnit,
+                                    )
+                                }
+                            } else {
+                                Text("→", color = Color.White, fontSize = 34.sp,
+                                    modifier = Modifier.clickable(
+                                        enabled = interactionEnabled && !isLaunching,
+                                    ) { showApps = true }.padding(10.dp))
+                            }
                         }
                     }
                 }
@@ -2534,35 +2559,20 @@ private fun PhoneStartGrid(
                                     .clickable { onResizeTile(editKey) }
                                     .testTag("disco-tile-resize"),
                                     contentAlignment = Alignment.Center) {
-                                    androidx.compose.foundation.Canvas(
-                                        Modifier.size((23f * classicUnit).dp).graphicsLayer {
-                                            // DiscoElements.wTileMenu.updateButton:
-                                            // rotate the glyph for current size, animating
-                                            // to the new orientation after a resize click.
-                                            rotationZ = when (tile.size) {
-                                                TileSize.SMALL -> 225f
-                                                TileSize.MEDIUM -> 45f
-                                                TileSize.WIDE -> 0f
-                                                TileSize.LARGE -> 90f
-                                            }
+                                    // DiscoElements.wTileMenu uses the MDI U+F004D
+                                    // glyph, with 30x16 source clipping and a 35%/47%
+                                    // rotation pivot. The former three-line sketch
+                                    // had the wrong arrow proportions and terminals.
+                                    DiscoSourceArrowGlyph(
+                                        drawableId = R.drawable.disco_mdi_arrow_left,
+                                        classicUnit = classicUnit,
+                                        rotationDegrees = when (tile.size) {
+                                            TileSize.SMALL -> 225f
+                                            TileSize.MEDIUM -> 45f
+                                            TileSize.WIDE -> 0f
+                                            TileSize.LARGE -> 90f
                                         },
-                                    ) {
-                                        // Disco glyph is MDI U+F004D ("arrow-left").
-                                        // Previous down-right sketch was a different icon.
-                                        val stroke = (2.8f * classicUnit).dp.toPx()
-                                        drawLine(Color.White,
-                                            Offset(size.width * .15f, size.height * .5f),
-                                            Offset(size.width * .88f, size.height * .5f),
-                                            strokeWidth = stroke)
-                                        drawLine(Color.White,
-                                            Offset(size.width * .15f, size.height * .5f),
-                                            Offset(size.width * .46f, size.height * .19f),
-                                            strokeWidth = stroke)
-                                        drawLine(Color.White,
-                                            Offset(size.width * .15f, size.height * .5f),
-                                            Offset(size.width * .46f, size.height * .81f),
-                                            strokeWidth = stroke)
-                                    }
+                                    )
                                 }
                             } else {
                                 Box(Modifier.align(Alignment.TopEnd)
