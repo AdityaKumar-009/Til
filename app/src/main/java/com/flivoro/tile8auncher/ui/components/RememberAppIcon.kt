@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.ui.components
 
 import android.content.Context
 import android.util.Log
+import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -81,14 +82,22 @@ private object ResolvedStartIconCache {
 private object ResolvedAllAppsIconCache {
     @Volatile
     private var revision: Int = Int.MIN_VALUE
-    private val icons = ConcurrentHashMap<String, ImageBitmap>()
+
+    // Prewarming the whole installed-app list must not pin hundreds of full-size
+    // layered icons indefinitely. The repository keeps a separate disk-backed
+    // thumbnail cache, so recycling distant rows can restore them on demand.
+    private val icons = object : LruCache<String, ImageBitmap>(32 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height.toLong() * 4L)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     @Synchronized
     fun ensureRevision(currentRevision: Int) {
         // iconsRevision only moves forward. A cancelled/old preload may finish after the user has
         // already selected a new icon style; never let that stale generation clear the new cache.
         if (currentRevision <= revision) return
-        icons.clear()
+        icons.evictAll()
         revision = currentRevision
     }
 
