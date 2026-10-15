@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.ui.components
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -14,6 +15,7 @@ import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.IconPackManager
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -318,13 +320,21 @@ suspend fun preloadStartIcons(
         coroutineScope {
             batch.map { packageName ->
                 async(Dispatchers.IO) {
-                    resolveStartAppIcon(
-                        context = context,
-                        repository = repository,
-                        packageName = packageName,
-                        style = style,
-                        iconsRevision = iconsRevision,
-                    )
+                    try {
+                        resolveStartAppIcon(
+                            context = context,
+                            repository = repository,
+                            packageName = packageName,
+                            style = style,
+                            iconsRevision = iconsRevision,
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        // An invalid third-party icon must not strand the HOME activity.
+                        Log.w("MosaicStartup", "Start icon: $packageName", error)
+                        null
+                    }
                 }
             }.awaitAll()
         }
@@ -401,14 +411,21 @@ suspend fun preloadAllAppsIcons(
         coroutineScope {
             batch.map { packageName ->
                 async(Dispatchers.IO) {
-                    resolveAllAppsIcon(
-                        context = context,
-                        repository = repository,
-                        packageName = packageName,
-                        style = style,
-                        maxPx = maxPx,
-                        iconsRevision = iconsRevision,
-                    )
+                    try {
+                        resolveAllAppsIcon(
+                            context = context,
+                            repository = repository,
+                            packageName = packageName,
+                            style = style,
+                            maxPx = maxPx,
+                            iconsRevision = iconsRevision,
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.w("MosaicStartup", "All Apps icon: $packageName", error)
+                        null
+                    }
                 }
             }.awaitAll()
         }
