@@ -438,19 +438,24 @@ fun AllAppsScreen(
                     // position therefore has its visible icons hot before distant columns.
                     LaunchedEffect(columns, iconsRevision, iconStyle) {
                         if (columns.isEmpty()) return@LaunchedEffect
-                        delay(180)
+                        delay(1_200)
                         val origin = listState.firstVisibleItemIndex.coerceIn(0, columns.lastIndex)
                         val priorityPackages = columns.indices
                             .sortedBy { index -> abs(index - origin) }
                             .flatMap { index -> columns[index].apps }
                             .map(AppInfo::packageName)
-                        preloadAllAppsIcons(
-                            context = context.applicationContext,
-                            repository = appsRepository,
-                            packageNames = priorityPackages,
-                            style = iconStyle,
-                            iconsRevision = iconsRevision,
-                        )
+                        priorityPackages.distinct().chunked(2).forEach { batch ->
+                            preloadAllAppsIcons(
+                                context = context.applicationContext,
+                                repository = appsRepository,
+                                packageNames = batch,
+                                style = iconStyle,
+                                iconsRevision = iconsRevision,
+                                parallelism = 2,
+                            )
+                            // Leave decode capacity for foreground rows and input/entrance frames.
+                            delay(24)
+                        }
                     }
 
                     val alphabetSources = remember(columns) {
@@ -1128,6 +1133,7 @@ private fun AppListItem(
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
@@ -1146,7 +1152,8 @@ private fun AppListItem(
         value = if (effectiveColors) {
             withContext(Dispatchers.IO) {
                 if (layered) {
-                    appsRepository.loadDiscoLayeredAppIcon(app.packageName)
+                    appsRepository.loadDiscoAllAppsIcon(app.packageName,
+                        (40f * context.resources.displayMetrics.density).roundToInt().coerceIn(72, 160))
                     appsRepository.getDiscoTileAccentColor(app.packageName)
                         ?.toTileColor() ?: appTileAccent
                 } else appsRepository.loadAppAccentColor(app.packageName).toTileColor()

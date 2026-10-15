@@ -48,14 +48,30 @@ EOF
     adb shell mkdir -p "$(dirname "$pref_path")"
     adb push "$mode_pref_file" "$pref_path"
     adb shell chown "$app_uid:$app_uid" "$pref_path"
+    adb shell chown "$app_uid:$app_uid" "$(dirname "$pref_path")"
     adb shell chmod 600 "$pref_path"
-    adb shell restorecon "$pref_path"
+    adb shell restorecon -R "$(dirname "$pref_path")"
     adb logcat -c
     local launch_output
     launch_output="$(adb shell am start -W -n \
         com.flivoro.tile8auncher/com.flivoro.tile8auncher.MainActivity 2>&1)"
     printf '%s\n' "$launch_output"
-    sleep 4
+    # Process alive is not enough: a regression can leave HOME stuck behind the splash.
+    local ready=false
+    for attempt in $(seq 1 100); do
+        if adb logcat -d -s MosaicStartup:I | grep -q "Ready $mode,"; then
+            ready=true
+            break
+        fi
+        sleep 0.2
+    done
+    adb logcat -d -s MosaicStartup:I
+    if [[ "$ready" != true ]]; then
+        adb logcat -d -s AndroidRuntime:E
+        echo "Optimized launcher did not prepare $mode within 20 seconds."
+        exit 1
+    fi
+    sleep 2
     local crash_log
     crash_log="$(adb logcat -d -s AndroidRuntime:E)"
     if grep -Eq 'FATAL EXCEPTION|VerifyError' <<<"$crash_log"; then

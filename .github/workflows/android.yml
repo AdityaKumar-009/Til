@@ -3,6 +3,11 @@ name: Android build
 on:
   workflow_dispatch:
     inputs:
+      benchmark_startup:
+        description: 'Compare previous/current optimized APK startup on one emulator'
+        required: false
+        type: boolean
+        default: false
       upload_full_motion_evidence:
         description: 'Upload large frame captures for manual animation analysis (1-day retention)'
         required: false
@@ -22,6 +27,48 @@ permissions:
   contents: read
 
 jobs:
+  startup-performance:
+    # Opt in for startup work; ordinary animation/APK builds pay no extra build/storage cost.
+    if: ${{ inputs.benchmark_startup == true || contains(github.event.head_commit.message, '[startup-benchmark]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build previous and current optimized APKs
+        run: |
+          git worktree add --detach /tmp/til-startup-before HEAD^
+          (cd /tmp/til-startup-before && bash gradlew assemblePerformance --stacktrace)
+          cp /tmp/til-startup-before/app/build/outputs/apk/performance/app-performance.apk /tmp/til-startup-before.apk
+          bash gradlew assemblePerformance --stacktrace
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Measure fresh and cached cold starts in all three modes
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk
+      - name: Upload compact startup timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-timings-api34
+          path: app/build/startup-benchmark
+          if-no-files-found: warn
+          retention-days: 1
+
   verify-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30

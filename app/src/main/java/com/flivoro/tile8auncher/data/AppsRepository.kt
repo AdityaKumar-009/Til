@@ -24,6 +24,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
@@ -107,6 +108,9 @@ class AppsRepository(private val context: Context) {
     private val failedAllAppsThumbnailKeys = ConcurrentHashMap.newKeySet<String>()
 
     private val appAccentCache = ConcurrentHashMap<String, Long>()
+    // Several bitmap variants and their accent share one package version. Never repeat the
+    // Binder lookup for every PNG read/write or freshness check during a cold start.
+    private val packageUpdateStamps = ConcurrentHashMap<String, Long>()
     private val visualCachePruneLock = Any()
     @Volatile private var lastVisualCachePruneMillis = 0L
     private val failedIcons = ConcurrentHashMap.newKeySet<String>()
@@ -118,6 +122,7 @@ class AppsRepository(private val context: Context) {
     // icon requests should not fan out into dozens of simultaneous decodes on low-end phones.
     private val iconDecodePermits = Semaphore(ICON_DECODE_CONCURRENCY)
     private val allAppsDecodePermits = Semaphore(ALL_APPS_ICON_DECODE_CONCURRENCY)
+    private val wp81DecodePermits = Semaphore(2)
 
     // The largest app icon currently rendered by the launcher is ~104 dp during the launch
     // overlay. Keeping a small guard above that preserves visual fidelity while preventing a
@@ -146,6 +151,7 @@ class AppsRepository(private val context: Context) {
     fun invalidateAppCatalog() {
         synchronized(categorizedAppsCacheLock) { categorizedAppsCache = null }
         synchronized(installedAppsCacheLock) { installedAppsCache = null }
+        packageUpdateStamps.clear()
     }
 
     fun getInstalledApps(): List<AppInfo> {
@@ -284,13 +290,13 @@ class AppsRepository(private val context: Context) {
     fun getCachedRichDiscoBackground(packageName: String): ImageBitmap? =
         synchronized(richBackgroundLock) { richBackgroundCache.get(packageName) }
 
-    suspend fun loadRichDiscoBackground(packageName: String): ImageBitmap? {
-        getCachedRichDiscoBackground(packageName)?.let { return it }
-        if (!visualPrefs.getBoolean("disco_background_rich_v1:$packageName", false)) return null
+    suspend fun loadRichDiscoBackground(packageName: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        getCachedRichDiscoBackground(packageName)?.let { return@withContext it }
+        if (!visualPrefs.getBoolean("disco_background_rich_v1:$packageName", false)) return@withContext null
         val bitmap = readPersistedVisualBitmap(
             packageName, "disco_background_rich_v1_$maxCachedIconPx",
-        ) ?: return null
-        return bitmap.asImageBitmap().also { image ->
+        ) ?: return@withContext null
+        bitmap.asImageBitmap().also { image ->
             synchronized(richBackgroundLock) { richBackgroundCache.put(packageName, image) }
         }
     }
@@ -302,15 +308,17 @@ class AppsRepository(private val context: Context) {
                 // Resolve and cache all three visual inputs together:
                 // transparent foreground, app accent and optional rich background.
                 val source = loadDiscoLayeredAppIcon(packageName) ?: return@async null
-                val fitted = readPersistedVisualBitmap(
-                    packageName, "wp81_fitted_art_v1_$maxCachedIconPx",
-                ) ?: Wp81IconArtwork.normalize(source.asAndroidBitmap()).also {
-                    persistVisualBitmap(packageName,
-                        "wp81_fitted_art_v1_$maxCachedIconPx", it)
-                }
-                loadRichDiscoBackground(packageName)
-                fitted.asImageBitmap().also { result ->
-                    synchronized(wp81IconLock) { wp81NormalizedCache.put(packageName, result) }
+                wp81DecodePermits.withPermit {
+                    val fitted = readPersistedVisualBitmap(
+                        packageName, "wp81_fitted_art_v1_$maxCachedIconPx",
+                    ) ?: Wp81IconArtwork.normalize(source.asAndroidBitmap()).also {
+                        persistVisualBitmap(packageName,
+                            "wp81_fitted_art_v1_$maxCachedIconPx", it)
+                    }
+                    loadRichDiscoBackground(packageName)
+                    fitted.asImageBitmap().also { result ->
+                        synchronized(wp81IconLock) { wp81NormalizedCache.put(packageName, result) }
+                    }
                 }
             } finally {
                 inFlightWp81Icons.remove(packageName)
@@ -482,6 +490,42 @@ class AppsRepository(private val context: Context) {
         }
     }
 
+    fun getCachedDiscoAllAppsIcon(packageName: String, maxPx: Int): ImageBitmap? =
+        synchronized(allAppsThumbnailCacheLock) {
+            allAppsThumbnailCache.get("disco:$packageName:$maxPx")
+        }
+
+    /** Layer extraction is expensive; subsequent launches read a real list-sized thumbnail. */
+    suspend fun loadDiscoAllAppsIcon(packageName: String, maxPx: Int): ImageBitmap? {
+        val safePx = maxPx.coerceIn(ALL_APPS_ICON_MIN_PX, ALL_APPS_ICON_MAX_PX)
+        getCachedDiscoAllAppsIcon(packageName, safePx)?.let { return it }
+        val key = "disco:$packageName:$safePx"
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                allAppsDecodePermits.withPermit {
+                    val variant = "allapps_disco_color_v7_$safePx"
+                    val bitmap = readPersistedVisualBitmap(packageName, variant) ?: run {
+                        val source = loadDiscoLayeredAppIcon(packageName) ?: return@withPermit null
+                        val original = source.asAndroidBitmap()
+                        val scale = min(1f, safePx.toFloat() / max(original.width, original.height))
+                        Bitmap.createScaledBitmap(original,
+                            (original.width * scale).roundToInt().coerceAtLeast(1),
+                            (original.height * scale).roundToInt().coerceAtLeast(1), true,
+                        ).also { persistVisualBitmap(packageName, variant, it) }
+                    }
+                    bitmap.asImageBitmap().also { image ->
+                        synchronized(allAppsThumbnailCacheLock) { allAppsThumbnailCache.put(key, image) }
+                    }
+                }
+            } finally {
+                inFlightAllAppsThumbnailLoads.remove(key)
+            }
+        }
+        val active = inFlightAllAppsThumbnailLoads.putIfAbsent(key, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
     suspend fun loadAllAppsIcon(
         packageName: String,
         maxPx: Int,
@@ -560,16 +604,18 @@ class AppsRepository(private val context: Context) {
         "allapps_${if (monochrome) "mono" else "color"}_$maxPx"
 
     private fun packageUpdateStamp(packageName: String): Long =
-        runCatching {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).lastUpdateTime
-        }.getOrDefault(0L)
+        packageUpdateStamps.computeIfAbsent(packageName) {
+            runCatching {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+            }.getOrDefault(0L)
+        }
 
     private fun visualCacheFile(packageName: String, variant: String): File {
         val source = "$packageName:$variant:${packageUpdateStamp(packageName)}"
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(source.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
         return File(File(context.filesDir, APP_VISUAL_CACHE_DIR), "$digest.png")
     }
 

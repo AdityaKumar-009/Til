@@ -144,7 +144,8 @@ private fun cachedAllAppsIconForStyle(
 
     val icon = when (style) {
     AppIconStyle.DISCO_LAYERED ->
-        repository.getCachedDiscoLayeredAppIcon(packageName)
+        repository.getCachedDiscoAllAppsIcon(packageName, maxPx)
+            ?: repository.getCachedDiscoLayeredAppIcon(packageName)
             ?: repository.getCachedMonochromeAppIcon(packageName)
     AppIconStyle.DEFAULT ->
         IconPackManager.peekOverride(packageName, maxPx)
@@ -209,7 +210,7 @@ private suspend fun resolveAllAppsIcon(
     )?.let { return it }
 
     val resolved = when (style) {
-        AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(packageName)
+        AppIconStyle.DISCO_LAYERED -> repository.loadDiscoAllAppsIcon(packageName, maxPx)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
                 IconPackManager.loadOverride(context.applicationContext, packageName, maxPx)
@@ -288,6 +289,7 @@ private suspend fun resolveStartAppIcon(
     packageName: String,
     style: AppIconStyle,
     iconsRevision: Int,
+    retainForStart: Boolean = true,
 ): ImageBitmap? {
     ResolvedStartIconCache.ensureRevision(iconsRevision)
     ResolvedStartIconCache.get(packageName, style, iconsRevision)?.let { return it }
@@ -304,7 +306,7 @@ private suspend fun resolveStartAppIcon(
         AppIconStyle.WHITE_MONOCHROME -> repository.loadMonochromeAppIcon(packageName)
     }
 
-    if (resolved != null) {
+    if (resolved != null && retainForStart) {
         ResolvedStartIconCache.ensureRevision(iconsRevision)
         ResolvedStartIconCache.put(packageName, style, iconsRevision, resolved)
     }
@@ -323,9 +325,12 @@ suspend fun preloadStartIcons(
     packageNames: List<String>,
     style: AppIconStyle,
     iconsRevision: Int,
+    normalizeWp81: Boolean = false,
+    parallelism: Int = 4,
+    retainForStart: Boolean = true,
 ) {
     ResolvedStartIconCache.ensureRevision(iconsRevision)
-    packageNames.distinct().chunked(6).forEach { batch ->
+    packageNames.distinct().chunked(parallelism.coerceIn(1, 4)).forEach { batch ->
         coroutineScope {
             batch.map { packageName ->
                 async(Dispatchers.IO) {
@@ -336,7 +341,11 @@ suspend fun preloadStartIcons(
                             packageName = packageName,
                             style = style,
                             iconsRevision = iconsRevision,
+                            retainForStart = retainForStart,
                         )
+                        if (normalizeWp81 && style == AppIconStyle.DISCO_LAYERED) {
+                            repository.loadWp81NormalizedIcon(packageName)
+                        }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -410,13 +419,14 @@ suspend fun preloadAllAppsIcons(
     packageNames: List<String>,
     style: AppIconStyle,
     iconsRevision: Int,
+    parallelism: Int = 4,
 ) {
     val maxPx = allAppsIconTargetPx(context)
     ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
 
     // Work in small batches. The repository has its own four-slot thumbnail semaphore, so this
     // gets the visible/nearby apps ready quickly without creating an unbounded decode storm.
-    packageNames.distinct().chunked(8).forEach { batch ->
+    packageNames.distinct().chunked(parallelism.coerceIn(1, 4)).forEach { batch ->
         coroutineScope {
             batch.map { packageName ->
                 async(Dispatchers.IO) {

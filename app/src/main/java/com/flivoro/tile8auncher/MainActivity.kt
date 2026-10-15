@@ -60,6 +60,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.prepareLauncher
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
@@ -72,8 +73,6 @@ import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileRuntime
-import com.flivoro.tile8auncher.features.loadEnhancedApps
-import com.flivoro.tile8auncher.features.recentlyInstalledApps as selectRecentlyInstalledApps
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
@@ -91,8 +90,6 @@ import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
-import com.flivoro.tile8auncher.ui.components.preloadStartIcons
-import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.components.LauncherStartupSplash
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
@@ -894,8 +891,8 @@ fun Tile8LauncherApp(
         if (flipState.isRunning) showCharms = false
     }
 
-    // Keep the selected mode invisible until Start, the installed-app catalog and
-    // the style-matched All Apps thumbnails are all ready. This is not a fixed delay.
+    // Keep the selected mode invisible until its saved Start layout, complete app catalog and
+    // opening viewport artwork are ready. Distant rows prepare on demand without holding HOME.
     val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
     val launcherMode = remember(launcherModeRevision) {
         LauncherFeatureStore.launcherUiMode(context)
@@ -914,90 +911,31 @@ fun Tile8LauncherApp(
 
     LaunchedEffect(launcherMode, iconsRevision, packageRevision) {
         val startedAt = SystemClock.elapsedRealtime()
-        val style = LauncherFeatureStore.appIconStyle(context)
         if (lastCatalogRevision != packageRevision) {
             withContext(Dispatchers.IO) { appsRepository.invalidateAppCatalog() }
             lastCatalogRevision = packageRevision
         }
-        loadingMessage = "Loading installed apps"
-        val sections = withContext(Dispatchers.IO) {
-            runCatching { appsRepository.getCategorizedApps() }.getOrElse {
-                Log.w("MosaicStartup", "Failed to enumerate installed apps", it)
-                emptyList()
-            }
-        }
-        val pinned = withContext(Dispatchers.IO) {
-            val saved = runCatching { appsRepository.loadPinnedTiles() }.getOrElse {
-                Log.w("MosaicStartup", "Failed to restore saved tiles", it)
-                runCatching { appsRepository.getDefaultTiles() }.getOrDefault(emptyList())
-            }
-            // Accent refresh is best-effort. Never replace the user's pinned layout
-            // with defaults merely because one third-party app has broken artwork.
-            runCatching { appsRepository.refreshAutomaticAppAccentTiles(saved) }.getOrElse {
-                Log.w("MosaicStartup", "Failed to refresh a tile accent", it)
-                saved
-            }
-        }
-        val installedPackages = sections.flatMap(AppSection::apps)
-            .map(AppInfo::packageName).distinct()
-        val initialPhonePackages = if (launcherMode == LauncherUiMode.DESKTOP) emptyList()
-            else installedPackages.take(20)
-
-        loadingMessage = "Preparing Start tiles"
-        preloadStartIcons(
-            context = context.applicationContext, repository = appsRepository,
-            packageNames = pinned.mapNotNull(TileModel::packageName) + initialPhonePackages,
-            style = style, iconsRevision = iconsRevision,
-        )
-        loadingMessage = "Preparing All Apps"
-        // Always load the complete alphabetical catalog and all compact list thumbnails.
-        // Large phone-only art, edit tools and Settings are decoded when actually needed.
-        preloadAllAppsIcons(
-            context = context.applicationContext, repository = appsRepository,
-            packageNames = installedPackages, style = style, iconsRevision = iconsRevision,
-        )
-        if (launcherMode == LauncherUiMode.PHONE_8 && style == AppIconStyle.DISCO_LAYERED) {
-            (pinned.mapNotNull(TileModel::packageName) + initialPhonePackages)
-                .distinct().forEach { name ->
-                    try {
-                        withContext(Dispatchers.IO) { appsRepository.loadWp81NormalizedIcon(name) }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w("MosaicStartup", "Optional phone artwork: $name", e)
-                    }
-                }
-        }
-        // W10M's "Recently installed" heading belongs to All Apps, not to a
-        // secondary popup. Resolve it now so it never pops in after the splash.
-        val recentPhoneApps = if (launcherMode == LauncherUiMode.MOBILE_10 &&
-            LauncherFeatureStore.showRecentlyInstalledPhoneApps(context)
-        ) withContext(Dispatchers.IO) {
-            val excluded = LauncherFeatureStore.hiddenPackages(context) +
-                LauncherFeatureStore.privatePackages(context)
-            runCatching {
-                val visible = sections.flatMap(AppSection::apps)
-                    .filter { it.packageName !in excluded }
-                    .distinctBy(AppInfo::packageName)
-                selectRecentlyInstalledApps(
-                    loadEnhancedApps(context.applicationContext, visible)
-                ).map { it.app }
-            }.getOrElse {
-                Log.w("MosaicStartup", "Unable to load W10M recent apps", it)
-                emptyList()
-            }
-        } else null
-
-        preparedPhoneRecentApps = recentPhoneApps
-        categorizedApps = sections
+        val prepared = prepareLauncher(context.applicationContext, appsRepository,
+            launcherMode, iconsRevision) { loadingMessage = it }
+        preparedPhoneRecentApps = prepared.recentPhoneApps
+        categorizedApps = prepared.sections
         tiles.clear()
-        tiles.addAll(pinned)
+        tiles.addAll(prepared.tiles)
         tilesLoaded = true
         preparedMode = launcherMode
         preparedIconsRevision = iconsRevision
         preparedPackageRevision = packageRevision
-        Log.i("MosaicStartup", "Ready $launcherMode, ${installedPackages.size} apps, " +
+        Log.i("MosaicStartup", "Ready $launcherMode, ${prepared.sections.sumOf { it.apps.size }} apps, " +
             "${SystemClock.elapsedRealtime() - startedAt}ms")
+    }
+
+    LaunchedEffect(launcherPrepared, entranceReady) {
+        if (launcherPrepared && entranceReady) {
+            // Wait for the prepared surface to be composed and submitted, not just the splash.
+            withFrameNanos { }
+            withFrameNanos { }
+            (context as? Activity)?.reportFullyDrawn()
+        }
     }
 
     val activeContentRetreat by animateFloatAsState(

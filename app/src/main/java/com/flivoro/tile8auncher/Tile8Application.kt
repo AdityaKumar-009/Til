@@ -56,6 +56,7 @@ class Tile8Application : Application() {
                     unlockGeneration++
                     UnlockEntranceMotionOverride.arm()
                     WindowsLockScreenRuntime.arm(context)
+                    preloadLockArtwork()
                 }
 
                 Intent.ACTION_SCREEN_ON -> {
@@ -124,20 +125,13 @@ class Tile8Application : Application() {
         // Load the tiny saved Accent preference once for the process. This only updates the
         // All Apps icon-container purple; wallpapers remain the original stock artwork.
         StartPersonalization.ensureLoaded(this)
-        LauncherImageCache.preload(
-            this,
-            WindowsLockScreenPreferences.wallpaperUri(this),
-            maxSide = 2560,
-        )
-        LauncherFeatureStore.lockSlideshowUris(this).forEach { uri ->
-            LauncherImageCache.preload(this, uri, maxSide = 2560)
-        }
 
         // If the process itself is created while the phone is asleep/locked, treat the eventual
         // reveal as an unlock even though this process missed the earlier SCREEN_OFF broadcast.
         if (deviceRequiresUnlockGate()) {
             UnlockEntranceMotionOverride.arm()
             WindowsLockScreenRuntime.arm(this)
+            preloadLockArtwork()
         }
 
         ContextCompat.registerReceiver(
@@ -205,6 +199,13 @@ class Tile8Application : Application() {
                 UnlockEntranceMotionOverride.cancel()
             }
         }, UNLOCK_OVERRIDE_HOLD_MILLIS)
+    }
+
+    private fun preloadLockArtwork() {
+        if (!WindowsLockScreenPreferences.isEnabled(this)) return
+        // The lock UI loads slideshow frames on demand. Decoding every 2560px slide during
+        // Application.onCreate competed with Start and could evict the active wallpaper.
+        LauncherImageCache.preload(this, WindowsLockScreenPreferences.wallpaperUri(this))
     }
 
     /**

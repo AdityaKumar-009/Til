@@ -403,34 +403,7 @@ fun PhoneLauncherSurface(
     // huge Mail/Calendar columns, Desktop, PC settings, and Reading List.
     // Saved user orders take precedence: this never migrates or clears existing pins.
     val phoneSeed = remember(tiles, catalog, mode) {
-        val dialer = catalog.firstOrNull {
-            it.label.equals("Phone", ignoreCase = true) ||
-                it.label.equals("Dialer", ignoreCase = true)
-        }
-        val messages = catalog.firstOrNull {
-            it.label.equals("Messages", ignoreCase = true) ||
-                it.label.equals("Messaging", ignoreCase = true)
-        }
-        val topAppIds = listOfNotNull(dialer, messages).map { "app:" + it.packageName }
-        val stockIds = if (mode == LauncherUiMode.MOBILE_10) listOf(
-            "tile_mail", "tile_people", "tile_calendar", "tile_photos",
-            "tile_camera", "tile_skype", "tile_weather", "tile_settings",
-            "tile_store", "tile_clock", "tile_onedrive", "tile_maps",
-        ) else listOf(
-            "tile_people", "tile_mail", "tile_calendar", "tile_skype",
-            "tile_photos", "tile_camera", "tile_ie", "tile_weather",
-            "tile_settings", "tile_store", "tile_clock", "tile_maps",
-        )
-        val nativePhoneDefaults = (topAppIds + stockIds).distinct().mapNotNull { id ->
-            desktopById[id] ?: if (id.startsWith("app:")) {
-                byPackage[id.removePrefix("app:")]?.let { app ->
-                    TileModel(id = id, title = app.label, packageName = app.packageName)
-                }
-            } else null
-        }
-        // Render callers such as emulator motion fixtures supply non-stock tile
-        // IDs; preserve their complete fixture rather than producing an empty Start.
-        nativePhoneDefaults.ifEmpty { tiles }
+        phoneStartSeed(tiles, catalog, mode)
     }
     // Wait for the actual launcher catalogue before sealing the one-time
     // default layout. Otherwise Phone/Messages appear on some cold starts
@@ -1315,20 +1288,7 @@ fun PhoneLauncherSurface(
                             phone8SearchVisible,
                             isClassicPhone,
                         ) {
-                            val alphabetical = filtered.groupBy {
-                                val initial = it.label.firstOrNull()
-                                val folded = java.text.Normalizer.normalize(
-                                    it.label, java.text.Normalizer.Form.NFD,
-                                ).firstOrNull()?.uppercaseChar()
-                                when {
-                                    initial == null -> "&"
-                                    initial.isDigit() -> "#"
-                                    folded != null && folded in 'A'..'Z' -> folded.toString()
-                                    // Keep international app names visible instead
-                                    // of dropping unmatched headings from A..Z.
-                                    else -> "&"
-                                }
-                            }
+                            val alphabetical = filtered.groupBy { phoneAlphabetGroup(it.label) }
                             // Disco's order is #, A..Z, then the symbols globe.
                             val orderedAlphabetical = buildMap<String, List<AppInfo>> {
                                 alphabetical["#"]?.let { put("#", it) }
@@ -1349,6 +1309,7 @@ fun PhoneLauncherSurface(
                                 }
                             } else orderedAlphabetical
                         }
+                        PhoneDrawerIconPrefetch(appsRepository, appsState, groups, mode)
                         val positions = remember(groups) {
                             var index = 0
                             buildMap {
