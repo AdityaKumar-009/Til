@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
@@ -23,9 +22,12 @@ import androidx.compose.ui.unit.dp
  * Recreates DiscoLauncher src/styles/pages/tileList.scss's icon placement.
  *
  * Both source icons are 42px circular controls containing a font glyph in a
- * 30px-wide, 16px-high clipped <p> positioned at left:11px / top:13px.
- * Unlike a font glyph, these MDI outlines render consistently across devices.
- * Rotate the clipped glyph region at the source's 35%/47% transform origin.
+ * 30px-wide, 16px-high <p> positioned at left:11px / top:13px.
+ * Disco displays a 30px font glyph within this control. The MDI vector must
+ * remain 30px tall even though its parent layout region is 16px tall: clipping
+ * it to the parent height removes most of its visible arrow, especially after
+ * the 45/90/225-degree resize rotations. Compose must allow that overdraw.
+ * Rotate the source-sized parent at the original 35%/47% transform origin.
  */
 @Composable
 internal fun DiscoSourceArrowGlyph(
@@ -53,7 +55,7 @@ internal fun DiscoSourceArrowGlyph(
                     rotationZ = rotated
                     transformOrigin = TransformOrigin(.35f, .47f)
                 }
-                .clipToBounds(),
+                , // Intentionally NOT clipped: the complete 30px vector must render.
             contentAlignment = Alignment.Center,
         ) {
             Image(
