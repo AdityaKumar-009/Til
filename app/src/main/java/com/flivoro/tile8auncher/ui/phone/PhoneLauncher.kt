@@ -351,6 +351,7 @@ fun PhoneLauncherSurface(
     tiles: List<TileModel>,
     sections: List<AppSection>,
     appsRepository: AppsRepository,
+    preparedRecentApps: List<AppInfo>? = null,
     homeRequest: Int,
     entranceRequest: Int,
     launchingTileId: String?,
@@ -648,15 +649,20 @@ fun PhoneLauncherSurface(
             LauncherFeatureStore.showRecentlyInstalledPhoneApps(context)
     }
     val recentlyInstalledApps by produceState(
-        initialValue = emptyList<AppInfo>(),
+        initialValue = preparedRecentApps ?: emptyList<AppInfo>(),
         visibleApps,
         showRecentlyInstalledPhoneApps,
+        preparedRecentApps,
     ) {
-        value = if (showRecentlyInstalledPhoneApps) withContext(Dispatchers.IO) {
+        value = if (!showRecentlyInstalledPhoneApps) emptyList()
+        else if (preparedRecentApps != null) {
+            val allowed = visibleApps.map(AppInfo::packageName).toSet()
+            preparedRecentApps.filter { it.packageName in allowed }
+        } else withContext(Dispatchers.IO) {
             selectRecentlyInstalledApps(
                 loadEnhancedApps(context.applicationContext, visibleApps),
             ).map { it.app }
-        } else emptyList()
+        }
     }
 
     val systemAppCache = remember { mutableMapOf<String, Boolean>() }
