@@ -72,6 +72,8 @@ import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.data.resolveDefaultTileApp
 import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileRuntime
+import com.flivoro.tile8auncher.features.loadEnhancedApps
+import com.flivoro.tile8auncher.features.recentlyInstalledApps as selectRecentlyInstalledApps
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
@@ -906,6 +908,7 @@ fun Tile8LauncherApp(
     var lastCatalogRevision by remember { mutableIntStateOf(packageRevision) }
     var loadingMessage by remember { mutableStateOf("Preparing Start") }
     var categorizedApps by remember { mutableStateOf<List<AppSection>>(emptyList()) }
+    var preparedPhoneRecentApps by remember { mutableStateOf<List<AppInfo>?>(null) }
     val launcherPrepared = tilesLoaded && preparedMode == launcherMode &&
         preparedIconsRevision == iconsRevision && preparedPackageRevision == packageRevision
 
@@ -962,6 +965,27 @@ fun Tile8LauncherApp(
                     }
                 }
         }
+        // W10M's "Recently installed" heading belongs to All Apps, not to a
+        // secondary popup. Resolve it now so it never pops in after the splash.
+        val recentPhoneApps = if (launcherMode == LauncherUiMode.MOBILE_10 &&
+            LauncherFeatureStore.showRecentlyInstalledPhoneApps(context)
+        ) withContext(Dispatchers.IO) {
+            val excluded = LauncherFeatureStore.hiddenPackages(context) +
+                LauncherFeatureStore.privatePackages(context)
+            runCatching {
+                val visible = sections.flatMap(AppSection::apps)
+                    .filter { it.packageName !in excluded }
+                    .distinctBy(AppInfo::packageName)
+                selectRecentlyInstalledApps(
+                    loadEnhancedApps(context.applicationContext, visible)
+                ).map { it.app }
+            }.getOrElse {
+                Log.w("MosaicStartup", "Unable to load W10M recent apps", it)
+                emptyList()
+            }
+        } else null
+
+        preparedPhoneRecentApps = recentPhoneApps
         categorizedApps = sections
         tiles.clear()
         tiles.addAll(pinned)
@@ -1062,6 +1086,7 @@ fun Tile8LauncherApp(
                         tiles = tiles,
                         sections = categorizedApps,
                         appsRepository = appsRepository,
+                        preparedRecentApps = preparedPhoneRecentApps,
                         homeRequest = homeRequest,
                         entranceRequest = startEntranceRequest,
                         launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
