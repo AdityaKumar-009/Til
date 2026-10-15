@@ -142,6 +142,12 @@ class AppsRepository(private val context: Context) {
      * All Apps loading and default-tile creation. On slower devices those Binder/resource calls
      * competed with first-frame work. The immutable result is now shared for this repository.
      */
+    /** Android package broadcasts invalidate metadata, but normal Home/Back does not rescan. */
+    fun invalidateAppCatalog() {
+        synchronized(categorizedAppsCacheLock) { categorizedAppsCache = null }
+        synchronized(installedAppsCacheLock) { installedAppsCache = null }
+    }
+
     fun getInstalledApps(): List<AppInfo> {
         installedAppsCache?.let { return it }
 
