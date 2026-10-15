@@ -119,7 +119,7 @@ private object ResolvedAllAppsIconCache {
         icon: ImageBitmap,
     ) {
         if (currentRevision != revision) return
-        icons[key(packageName, style, maxPx)] = icon
+        icons.put(key(packageName, style, maxPx), icon)
     }
 
     private fun key(packageName: String, style: AppIconStyle, maxPx: Int): String =
