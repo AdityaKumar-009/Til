@@ -47,21 +47,22 @@ internal fun DiscoSourceArrowGlyph(
         label = "disco-source-arrow-rotation",
     )
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
-        Box(
+        // Render the complete MDI 30x30 outline on its own 30x30 layer.
+        // A 30x16 graphics layer loses arrow pixels on Android even if explicit
+        // clipToBounds() is removed. Disco's <p> is 30x16 at (11,13); a 30px
+        // glyph centered inside it starts at y=6. The rotation pivot is the
+        // original CSS origin (35% of 30, 47% of 16), transformed into the
+        // 30x30 vector layer's local coordinates.
+        Image(
+            painter = painterResource(drawableId),
+            contentDescription = null,
             modifier = Modifier
-                .offset(x = (11f * classicUnit).dp, y = (13f * classicUnit).dp)
-                .size(width = (30f * classicUnit).dp, height = (16f * classicUnit).dp)
+                .offset(x = (11f * classicUnit).dp, y = (6f * classicUnit).dp)
+                .size((30f * classicUnit).dp)
                 .graphicsLayer {
                     rotationZ = rotated
-                    transformOrigin = TransformOrigin(.35f, .47f)
-                }, // Intentionally NOT clipped: the complete 30px vector must render.
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                painter = painterResource(drawableId),
-                contentDescription = null,
-                modifier = Modifier.size((30f * classicUnit).dp),
-            )
-        }
+                    transformOrigin = TransformOrigin(.35f, (13f + 16f * .47f - 6f) / 30f)
+                },
+        )
     }
 }
