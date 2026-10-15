@@ -77,6 +77,19 @@ EOF
     sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
     mkdir -p app/build/phone-ui-snapshots
     adb exec-out screencap -p > "app/build/phone-ui-snapshots/${mode}-start-api${sdk}.png"
+    if [[ "$mode" == "PHONE_8" ]]; then
+        # Visual regression snapshots of the ACTUAL optimized APK. A held
+        # first tile exposes the resize arrow; scrolling to the end exposes
+        # the right-arrow banner. Keep these tiny PNGs alongside startup shots.
+        adb shell input swipe 250 330 250 330 900
+        sleep 1
+        adb exec-out screencap -p > "app/build/phone-ui-snapshots/${mode}-tile-edit-api${sdk}.png"
+        adb shell input keyevent 4
+        sleep 1
+        adb shell input swipe 520 1670 520 390 430
+        sleep 1
+        adb exec-out screencap -p > "app/build/phone-ui-snapshots/${mode}-all-apps-arrow-api${sdk}.png"
+    fi
     adb shell input swipe 900 1100 150 1100 390
     sleep 1
     adb exec-out screencap -p > "app/build/phone-ui-snapshots/${mode}-all-apps-api${sdk}.png"
