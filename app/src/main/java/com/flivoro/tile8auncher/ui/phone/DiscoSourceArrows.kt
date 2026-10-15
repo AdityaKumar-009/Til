@@ -54,8 +54,7 @@ internal fun DiscoSourceArrowGlyph(
                 .graphicsLayer {
                     rotationZ = rotated
                     transformOrigin = TransformOrigin(.35f, .47f)
-                }
-                , // Intentionally NOT clipped: the complete 30px vector must render.
+                }, // Intentionally NOT clipped: the complete 30px vector must render.
             contentAlignment = Alignment.Center,
         ) {
             Image(
