@@ -36,7 +36,9 @@ class LauncherModeSwitchTest {
         try {
             compose.runOnUiThread { LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.DESKTOP) }
             compose.waitUntil(timeoutMillis = 20_000) {
-                repository.peekCategorizedApps() != null && repository.cachedPinnedTiles != null
+                repository.peekCategorizedApps() != null && repository.cachedPinnedTiles != null &&
+                    context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, 0)
+                        .getBoolean("shared_start_workspace_v1", false)
             }
             val catalog = repository.refreshCatalogIfNeeded(PackageCatalogUpdates.revision)
             val pins = repository.cachedPinnedTiles

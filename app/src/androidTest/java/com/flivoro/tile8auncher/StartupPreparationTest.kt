@@ -138,4 +138,26 @@ class StartupPreparationTest {
         assertTrue(repository.loadPinnedTiles().isEmpty())
         assertTrue(AppsRepository(context).loadPinnedTiles().isEmpty())
     }
+
+    @Test fun desktopFolderAppsRemainAvailableInPhoneModesWithoutLosingDesktopGrouping() {
+        val repository = AppsRepository(context)
+        prefs.edit().putBoolean("shared_start_workspace_v1", true).commit()
+        val folder = TileModel("folder_saved", "My desktop folder")
+        LauncherFeatureStore.setFolderPackages(context, folder.id, listOf("alpha", "beta"))
+        repository.savePinnedTiles(listOf(folder))
+        val visible = SharedStartWorkspace.phoneTiles(context, listOf(folder), apps)
+        assertEquals(listOf("alpha", "beta"), visible.map { it.packageName })
+        val order = SharedStartWorkspace.projectPhoneOrder(visible, emptyList(), emptyList())
+        val unchanged = SharedStartWorkspace.tilesForPhoneOrder(context, LauncherUiMode.PHONE_8,
+            order, listOf(folder), apps)
+        assertEquals(listOf(folder), unchanged)
+        val removed = SharedStartWorkspace.orderWithoutPackage(context, LauncherUiMode.MOBILE_10,
+            order, visible, "alpha")
+        val updated = SharedStartWorkspace.tilesForPhoneOrder(context, LauncherUiMode.MOBILE_10,
+            removed, listOf(folder), apps)
+        assertEquals(listOf(folder), updated)
+        assertEquals(listOf("beta"), LauncherFeatureStore.folderPackages(context, folder.id))
+        assertEquals(listOf("beta"), SharedStartWorkspace.phoneTiles(context, updated, apps).map { it.packageName })
+        assertTrue(SharedStartWorkspace.tilesWithoutPackage(context, updated, apps, "beta").isEmpty())
+    }
 }

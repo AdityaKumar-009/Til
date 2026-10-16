@@ -943,6 +943,18 @@ fun Tile8LauncherApp(
     }
 
     val pinnedTiles = tiles.toList()
+    var sharedPinsRevision by remember { mutableIntStateOf(0) }
+    val phonePinnedTiles = remember(pinnedTiles, categorizedApps, externalPinnedRevision, sharedPinsRevision) {
+        SharedStartWorkspace.phoneTiles(context, pinnedTiles, categorizedApps.flatMap(AppSection::apps))
+    }
+    fun unpinPackage(packageName: String) {
+        val updated = SharedStartWorkspace.tilesWithoutPackage(context, tiles.toList(),
+            categorizedApps.flatMap(AppSection::apps), packageName)
+        appsRepository.savePinnedTiles(updated)
+        tiles.clear()
+        tiles.addAll(updated)
+        sharedPinsRevision++
+    }
     LaunchedEffect(launcherPrepared, launcherMode, iconsRevision, categorizedApps, pinnedTiles) {
         if (launcherPrepared) {
             withFrameNanos { }
@@ -1064,7 +1076,7 @@ fun Tile8LauncherApp(
                     phoneSurfaceStates.SaveableStateProvider(launcherMode.name) {
                         PhoneLauncherSurface(
                         mode = launcherMode,
-                        tiles = pinnedTiles,
+                        tiles = phonePinnedTiles,
                         sections = categorizedApps,
                         appsRepository = appsRepository,
                         preparedRecentApps = null,
@@ -1106,6 +1118,7 @@ fun Tile8LauncherApp(
                             appsRepository.savePinnedTiles(updated)
                             tiles.clear()
                             tiles.addAll(updated)
+                            sharedPinsRevision++
                         },
                         )
                     }
@@ -1271,17 +1284,14 @@ fun Tile8LauncherApp(
                                 onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
                             }
                         },
-                        isAppPinned = { pkg -> tiles.any { it.packageName == pkg } },
+                        isAppPinned = { pkg -> phonePinnedTiles.any { it.packageName == pkg } },
                         onPinApp = { app ->
                             if (entranceReady) {
                                 pinAppWithAccent(app)
                             }
                         },
                         onUnpinApp = { pkg ->
-                            if (entranceReady) {
-                                tiles.removeAll { it.packageName == pkg }
-                                appsRepository.savePinnedTiles(tiles.toList())
-                            }
+                            if (entranceReady) unpinPackage(pkg)
                         },
                         onOpenAppInfo = { pkg -> if (entranceReady) onOpenAppInfo(pkg) },
                         onUninstallApp = { pkg -> if (entranceReady) onUninstallApp(pkg) },
@@ -1409,13 +1419,12 @@ fun Tile8LauncherApp(
             }
             PinAppsDialog(
                 installedApps = allInstalled,
-                pinnedTiles = tiles,
+                pinnedTiles = phonePinnedTiles,
                 appsRepository = appsRepository,
                 onDismiss = { showPinAppsDialog = false },
                 onTogglePin = { app, isPinned ->
                     if (isPinned) {
-                        tiles.removeAll { it.packageName == app.packageName }
-                        appsRepository.savePinnedTiles(tiles.toList())
+                        unpinPackage(app.packageName)
                     } else {
                         pinAppWithAccent(app)
                     }

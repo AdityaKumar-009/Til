@@ -35,7 +35,9 @@ internal object SharedStartWorkspace {
             "phone_PHONE_8_live_folders", "phone_MOBILE_10_live_folders")).forEach { key ->
             preferences.getString(key, null)?.let { backup.put(key, it) }
         }
-        preferences.edit { putString("shared_start_workspace_backup_v1", backup.toString()) }
+        if (!preferences.contains("shared_start_workspace_backup_v1")) {
+            preferences.edit { putString("shared_start_workspace_backup_v1", backup.toString()) }
+        }
         // Very old installs may still have separate phone folders. Preserve children from both
         // modes before PhoneFolderStore's single-mode migration would choose just one of them.
         if (!preferences.contains("phone_shared_live_folders")) {
@@ -97,29 +99,60 @@ internal object SharedStartWorkspace {
     private fun phoneId(tile: TileModel): String =
         if (!tile.id.startsWith("tile_") && tile.packageName != null) "app:${tile.packageName}" else tile.id
 
+    /** Desktop folders also contain pinned apps. Expose those apps to the phone presentation. */
+    fun phoneTiles(context: Context, tiles: List<TileModel>, apps: List<AppInfo>): List<TileModel> {
+        val byPackage = apps.associateBy(AppInfo::packageName)
+        return tiles.flatMap { tile ->
+            val packages = if (tile.id.startsWith("folder_"))
+                LauncherFeatureStore.folderPackages(context, tile.id) else emptyList()
+            if (packages.isEmpty()) listOf(tile) else packages.map { pkg ->
+                val app = byPackage[pkg]
+                TileModel("app:$pkg", app?.label ?: pkg, pkg, app?.activityName,
+                    colorValue = tile.colorValue, usesAppAccent = true)
+            }
+        }.distinctBy(TileModel::id)
+    }
+
     fun tilesForPhoneOrder(context: Context, mode: LauncherUiMode, order: List<String>,
                           current: List<TileModel>, apps: List<AppInfo>): List<TileModel> {
         val folders = PhoneFolderStore.read(context, mode).associateBy(PhoneFolder::id)
-        val byId = current.associateBy(TileModel::id)
+        val expanded = phoneTiles(context, current, apps)
+        val byId = expanded.associateBy(TileModel::id)
         val byPackage = apps.associateBy(AppInfo::packageName)
-        return order.flatMap { id -> folders[id]?.children ?: listOf(id) }.mapNotNull { id ->
-            canonicalId(id, current)?.let(byId::get) ?: if (id.startsWith("app:")) {
+        val resolved = order.flatMap { id -> folders[id]?.children ?: listOf(id) }.mapNotNull { id ->
+            canonicalId(id, expanded)?.let(byId::get) ?: if (id.startsWith("app:")) {
                 val pkg = id.removePrefix("app:")
                 if (pkg == "mosaic.launcher.settings") TileModel("tile_settings", "Mosaic Settings",
                     tileType = TileType.SETTINGS, iconGlyph = "settings")
                 else byPackage[pkg]?.let { app -> TileModel(id, app.label, app.packageName,
                     app.activityName, usesAppAccent = true) }
             } else null
-        }.distinctBy(TileModel::id).mapIndexed { index, tile -> tile.copy(order = index) }
+        }.distinctBy(TileModel::id).toMutableList()
+        // Editing a phone presentation must not dissolve an existing Desktop folder. Preserve
+        // its identity and layout, updating only the packages that remain pinned.
+        current.filter { it.id.startsWith("folder_") }.forEach { folder ->
+            val packages = LauncherFeatureStore.folderPackages(context, folder.id)
+            if (packages.isEmpty()) return@forEach
+            val children = resolved.filter { it.packageName in packages }
+            if (children.isNotEmpty()) {
+                val index = resolved.indexOf(children.first())
+                val remaining = children.mapNotNull(TileModel::packageName).distinct()
+                if (remaining != packages) LauncherFeatureStore.setFolderPackages(context, folder.id, remaining)
+                resolved.removeAll(children.toSet())
+                resolved.add(index, folder)
+            }
+        }
+        return resolved.mapIndexed { index, tile -> tile.copy(order = index) }
     }
 
     fun reconcileFolders(context: Context, tiles: List<TileModel>) {
         if (!prefs(context).getBoolean(MIGRATED, false)) return
         val mode = LauncherUiMode.PHONE_8
-        val byId = tiles.associateBy(TileModel::id)
+        val expanded = phoneTiles(context, tiles, emptyList())
+        val byId = expanded.associateBy(TileModel::id)
         val old = PhoneFolderStore.read(context, mode)
         val updated = old.mapNotNull { folder ->
-            folder.copy(children = folder.children.mapNotNull { canonicalId(it, tiles)?.let(byId::get)?.let(::phoneId) }.distinct())
+            folder.copy(children = folder.children.mapNotNull { canonicalId(it, expanded)?.let(byId::get)?.let(::phoneId) }.distinct())
                 .takeIf { it.children.isNotEmpty() }
         }
         if (old != updated) PhoneFolderStore.save(context, mode, updated)
@@ -133,5 +166,11 @@ internal object SharedStartWorkspace {
         }
         reconcileFolders(context, remaining)
         return projectPhoneOrder(remaining, order, PhoneFolderStore.read(context, mode))
+    }
+
+    fun tilesWithoutPackage(context: Context, tiles: List<TileModel>, apps: List<AppInfo>,
+                            packageName: String): List<TileModel> {
+        val remaining = phoneTiles(context, tiles, apps).filterNot { it.packageName == packageName }
+        return tilesForPhoneOrder(context, LauncherUiMode.PHONE_8, remaining.map(::phoneId), tiles, apps)
     }
 }
