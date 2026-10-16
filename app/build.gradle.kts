@@ -33,6 +33,16 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
         }
+        create("profileGeneration") {
+            initWith(getByName("release"))
+            // ART records original class/method names; R8 rewrites the captured rules when
+            // building performance/release. This capture APK is never the distributed build.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -64,6 +74,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // Install the bundled profile for APK sideloads as well as store installations.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     testImplementation(libs.junit)
     androidTestImplementation(composeBom)

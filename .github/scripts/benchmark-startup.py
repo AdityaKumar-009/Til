@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Compare old/new optimized APKs, first drawn launcher surface, and warm reopen behavior."""
 import json
+import argparse
 import os
 from pathlib import Path
 import re
 import statistics
 import subprocess
-import sys
 import tempfile
 import time
 
@@ -74,46 +74,78 @@ def reopen(require_reuse):
     return {"reused": reused, "am_start": output, "log": log}
 
 
-def measure(apk, label):
+def set_mode(mode):
+    """Select a mode on an isolated rooted emulator, preserving normal production entry points."""
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "pm", "clear", PACKAGE)
+    uid = re.search(r"uid:(\d+)", adb("shell", "pm", "list", "packages", "-U", PACKAGE))[1]
+    pref = f"/data/user/0/{PACKAGE}/shared_prefs/tile8_launcher_prefs_v2.xml"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml") as file:
+        file.write(f'<map><string name="launcher_ui_mode">{mode}</string></map>')
+        file.flush()
+        adb("shell", "mkdir", "-p", str(Path(pref).parent))
+        adb("push", file.name, pref)
+    adb("shell", "chown", f"{uid}:{uid}", pref)
+    adb("shell", "chown", f"{uid}:{uid}", str(Path(pref).parent))
+    adb("shell", "chmod", "600", pref)
+    adb("shell", "restorecon", "-R", str(Path(pref).parent))
+
+
+def install_and_compile_profile():
+    # Test the profile shipped in each APK, without training either version with extra launches.
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "pm", "art", "clear-app-profiles", PACKAGE)
+    installed = adb("shell", "am", "broadcast", "-a", "androidx.profileinstaller.action.INSTALL_PROFILE",
+                    "-n", f"{PACKAGE}/androidx.profileinstaller.ProfileInstallReceiver")
+    if not re.search(r"result=1\b", installed):
+        raise RuntimeError(f"Bundled profile was not installed:\n{installed}")
+    adb("shell", "am", "force-stop", PACKAGE)
+    compiled = adb("shell", "cmd", "package", "compile", "-f", "-m", "speed-profile", PACKAGE)
+    if "Success" not in compiled:
+        raise RuntimeError(compiled)
+    return {"install": installed, "compile": compiled}
+
+
+def measure(apk, label, iterations=3, compile_profile=False):
     adb("install", "-r", apk)
     results = {}
     for mode in ("DESKTOP", "PHONE_8", "MOBILE_10"):
-        adb("shell", "am", "force-stop", PACKAGE)
-        adb("shell", "pm", "clear", PACKAGE)
-        uid = re.search(r"uid:(\d+)", adb("shell", "pm", "list", "packages", "-U", PACKAGE))[1]
-        pref = f"/data/user/0/{PACKAGE}/shared_prefs/tile8_launcher_prefs_v2.xml"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml") as file:
-            file.write(f'<map><string name="launcher_ui_mode">{mode}</string></map>')
-            file.flush()
-            adb("shell", "mkdir", "-p", str(Path(pref).parent))
-            adb("push", file.name, pref)
-        adb("shell", "chown", f"{uid}:{uid}", pref)
-        adb("shell", "chown", f"{uid}:{uid}", str(Path(pref).parent))
-        adb("shell", "chmod", "600", pref)
-        adb("shell", "restorecon", "-R", str(Path(pref).parent))
+        set_mode(mode)
+        # Keep ART compilation conditions equal across APKs and modes.
+        adb("shell", "cmd", "package", "compile", "-f", "-m", "verify", PACKAGE)
+        adb("shell", "pm", "art", "clear-app-profiles", PACKAGE)
         first = launch(mode)
-        cached = [launch(mode) for _ in range(3)]
+        compilation = install_and_compile_profile() if compile_profile else None
+        cached = [launch(mode) for _ in range(iterations)]
         drawn = [item["fully_drawn_ms"] for item in cached if item["fully_drawn_ms"] is not None]
         results[mode] = {"first": first, "cached": cached,
                          "cached_median_ms": statistics.median(item["ready_ms"] for item in cached),
                          "cached_drawn_median_ms": statistics.median(drawn) if drawn else None,
+                         "compilation": compilation,
                          "reopen": [reopen(label == "after") for _ in range(3)]}
         print(f"{label} {mode}: first={first['ready_ms']}ms, cached median={results[mode]['cached_median_ms']}ms", flush=True)
     return results
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("before")
+    parser.add_argument("after")
+    parser.add_argument("--iterations", type=int, default=3)
+    parser.add_argument("--compile-profile", action="store_true")
+    args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     adb("root")
     adb("wait-for-device")
     adb("shell", "wm", "size", "1080x2160")
     adb("shell", "wm", "density", "480")
     results = {}
-    for label, apk in zip(("before", "after"), sys.argv[1:], strict=True):
-        results[label] = measure(apk, label)
+    for label, apk in zip(("before", "after"), (args.before, args.after), strict=True):
+        results[label] = measure(apk, label, args.iterations, args.compile_profile)
         (OUT / "timings.json").write_text(json.dumps(results, indent=2))
     lines = ["### Launcher startup on the same API 34 emulator", "",
-             "Fresh data once; saved cold starts three times. Fully drawn includes process and initial UI rendering, before the entrance animation finishes. Preparation timings exclude process/Compose initialization; the new build loads artwork after showing Start. Emulator timings are not device guarantees.", "",
+             f"Fresh data once; saved cold starts {args.iterations} times. Fully drawn includes process and initial UI rendering, before the entrance animation finishes. Preparation timings exclude process/Compose initialization. Emulator timings are not device guarantees.",
+             "Both APKs use their bundled Baseline Profile, installed and AOT-compiled before cached measurements." if args.compile_profile else "Both APKs start with ART compilation reset; no forced ahead-of-time compilation.", "",
              "| Mode | Apps | Fresh prep before / after | Cached prep median before / after | Cached fully drawn before / after | Warm reuse after |", "|---|---:|---:|---:|---:|---:|"]
     for mode, after in results["after"].items():
         before = results["before"][mode]
