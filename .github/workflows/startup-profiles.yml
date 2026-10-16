@@ -53,8 +53,7 @@ jobs:
         with:
           name: launcher-startup-profiles
           path: |
-            app/src/main/baseline-prof.txt
-            app/src/main/startup-prof.txt
+            app/src/main/baselineProfiles
             app/build/startup-profiles
             app/build/profile-benchmark
           if-no-files-found: warn

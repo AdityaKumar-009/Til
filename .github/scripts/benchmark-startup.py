@@ -52,6 +52,7 @@ def launch(mode):
             if "FATAL EXCEPTION" in log:
                 raise RuntimeError(log)
             return {"apps": int(ready[1]), "ready_ms": int(ready[2]),
+                    "initial_drawn_ms": int(re.search(r"TotalTime: (\d+)", output)[1]),
                     "fully_drawn_ms": fully_drawn_ms(log), "am_start": output, "log": log}
         time.sleep(.2)
     raise RuntimeError(f"{mode} never became ready:\n{log}")
@@ -120,10 +121,13 @@ def measure(apk, label, iterations=3, compile_profile=False):
         drawn = [item["fully_drawn_ms"] for item in cached if item["fully_drawn_ms"] is not None]
         results[mode] = {"first": first, "cached": cached,
                          "cached_median_ms": statistics.median(item["ready_ms"] for item in cached),
+                         "cached_initial_drawn_median_ms": statistics.median(item["initial_drawn_ms"] for item in cached),
                          "cached_drawn_median_ms": statistics.median(drawn) if drawn else None,
                          "compilation": compilation,
                          "reopen": [reopen(label == "after") for _ in range(3)]}
-        print(f"{label} {mode}: first={first['ready_ms']}ms, cached median={results[mode]['cached_median_ms']}ms", flush=True)
+        print(f"{label} {mode}: cached preparation={results[mode]['cached_median_ms']}ms, "
+              f"first frame={results[mode]['cached_initial_drawn_median_ms']}ms, "
+              f"fully drawn={results[mode]['cached_drawn_median_ms']}ms", flush=True)
     return results
 
 
@@ -146,10 +150,10 @@ def main():
     lines = ["### Launcher startup on the same API 34 emulator", "",
              f"Fresh data once; saved cold starts {args.iterations} times. Fully drawn includes process and initial UI rendering, before the entrance animation finishes. Preparation timings exclude process/Compose initialization. Emulator timings are not device guarantees.",
              "Both APKs use their bundled Baseline Profile, installed and AOT-compiled before cached measurements." if args.compile_profile else "Both APKs start with ART compilation reset; no forced ahead-of-time compilation.", "",
-             "| Mode | Apps | Fresh prep before / after | Cached prep median before / after | Cached fully drawn before / after | Warm reuse after |", "|---|---:|---:|---:|---:|---:|"]
+             "| Mode | Apps | Fresh prep before / after | Cached prep median before / after | Cached first frame before / after | Cached fully drawn before / after | Warm reuse after |", "|---|---:|---:|---:|---:|---:|---:|"]
     for mode, after in results["after"].items():
         before = results["before"][mode]
-        lines.append(f"| {mode} | {after['first']['apps']} | {before['first']['ready_ms']} / {after['first']['ready_ms']} ms | {before['cached_median_ms']} / {after['cached_median_ms']} ms | {before['cached_drawn_median_ms']} / {after['cached_drawn_median_ms']} ms | {sum(item['reused'] for item in after['reopen'])}/3 |")
+        lines.append(f"| {mode} | {after['first']['apps']} | {before['first']['ready_ms']} / {after['first']['ready_ms']} ms | {before['cached_median_ms']} / {after['cached_median_ms']} ms | {before['cached_initial_drawn_median_ms']} / {after['cached_initial_drawn_median_ms']} ms | {before['cached_drawn_median_ms']} / {after['cached_drawn_median_ms']} ms | {sum(item['reused'] for item in after['reopen'])}/3 |")
     report = "\n".join(lines) + "\n"
     (OUT / "summary.md").write_text(report)
     print(report)

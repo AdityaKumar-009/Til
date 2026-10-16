@@ -46,7 +46,10 @@ jobs:
           git worktree add --detach /tmp/til-startup-before HEAD^
           (cd /tmp/til-startup-before && bash gradlew assemblePerformance --stacktrace)
           cp /tmp/til-startup-before/app/build/outputs/apk/performance/app-performance.apk /tmp/til-startup-before.apk
-          bash gradlew assemblePerformance --stacktrace
+          bash gradlew assemblePerformance bundlePerformance --stacktrace
+          if [ -f app/src/main/baselineProfiles/startup-prof.txt ]; then
+            python3 .github/scripts/verify-startup-profiles.py
+          fi
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -59,13 +62,19 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: false
-          script: python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk
+          script: |
+            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5
+            mv app/build/startup-benchmark app/build/startup-uncompiled
+            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --compile-profile
       - name: Upload compact startup timings
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: startup-timings-api34
-          path: app/build/startup-benchmark
+          path: |
+            app/build/startup-benchmark
+            app/build/startup-uncompiled
+            app/build/startup-profiles/packaging.json
           if-no-files-found: warn
           retention-days: 1
 

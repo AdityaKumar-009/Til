@@ -1,7 +1,7 @@
 # Launcher startup profiles
 
 Til captures app-specific ART rules for Desktop, Windows Phone 8.1, and Windows 10
-Mobile. `app/src/main/startup-prof.txt` contains fresh and saved-state launch paths;
+Mobile. `app/src/main/baselineProfiles/startup-prof.txt` contains fresh and saved-state launch paths;
 `baseline-prof.txt` also includes opening and scrolling All Apps. These supplement
 the profiles from AndroidX. They do not alter launcher animations or pinned apps.
 

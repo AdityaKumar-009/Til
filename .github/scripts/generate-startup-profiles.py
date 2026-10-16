@@ -18,7 +18,7 @@ startup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(startup)
 adb, PACKAGE = startup.adb, startup.PACKAGE
 OUT = Path("app/build/startup-profiles")
-SOURCE = Path("app/src/main")
+SOURCE = Path("app/src/main/baselineProfiles")
 RECEIVER = f"{PACKAGE}/androidx.profileinstaller.ProfileInstallReceiver"
 
 
@@ -63,6 +63,7 @@ def open_drawer(mode):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    SOURCE.mkdir(parents=True, exist_ok=True)
     adb("root")
     adb("wait-for-device")
     if int(adb("shell", "getprop", "ro.build.version.sdk").strip()) < 34:
