@@ -2052,18 +2052,9 @@ fun PhoneLauncherSurface(
                         android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
                 }.getOrDefault(false) && pkg != MOSAIC_SETTINGS_ID
             }
-            val classicMenuRows = if (pkg == MOSAIC_SETTINGS_ID) 2
-                else if (uninstallable) 3 else 2
-            val menuHeightPx = with(LocalDensity.current) {
-                (if (isClassicPhone) (24 + 65 * classicMenuRows).dp else 265.dp).toPx()
-            }
-            // Disco places the panel immediately beneath the selected row
-            // unless 219px would collide with the bottom inset.
-            val menuTopPx = if (isClassicPhone) {
-                if (appContextBounds.bottom + menuHeightPx <= surfaceBounds.bottom)
-                    appContextBounds.bottom
-                else appContextBounds.top - menuHeightPx
-            } else appContextBounds.bottom
+            // WP8.1 is placed in window coordinates by the context menu itself.
+            // W10M continues to use the existing compact strip placement.
+            val tenMenuHeightPx = with(LocalDensity.current) { 265.dp.toPx() }
             PhoneAppContextMenu(
                 mode = mode,
                 packageName = pkg,
@@ -2073,9 +2064,11 @@ fun PhoneLauncherSurface(
                 isUninstallable = uninstallable,
                 xPx = if (isClassicPhone) appContextBounds.center.x.toInt()
                     else appContextBounds.left.toInt().coerceAtLeast(8),
-                yPx = menuTopPx.toInt().coerceIn(
-                    0, (surfaceBounds.bottom - menuHeightPx).toInt().coerceAtLeast(0),
+                yPx = if (isClassicPhone) 0 else appContextBounds.bottom.toInt().coerceIn(
+                    0, (surfaceBounds.bottom - tenMenuHeightPx).toInt().coerceAtLeast(0),
                 ),
+                rowBoundsInWindow = appContextBounds,
+                viewportBoundsInWindow = paneBounds,
                 onPinChanged = {
                     val sharedPinned = onSharedPinsChanged != null && tiles.any {
                         it.packageName == pkg || (pkg == MOSAIC_SETTINGS_ID && it.id == "tile_settings")

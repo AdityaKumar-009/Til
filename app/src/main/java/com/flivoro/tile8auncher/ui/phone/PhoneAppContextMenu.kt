@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -31,11 +32,42 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.PopupPositionProvider
+import kotlin.math.roundToInt
 import com.flivoro.tile8auncher.features.LauncherUiMode
+
+/**
+ * Disco's appList.js chooses the edge of the held row: below when 219px fits,
+ * above when it would collide with the lower safe inset. The result is an
+ * absolute window coordinate, not a Compose Popup anchor-relative offset.
+ */
+internal data class ClassicAppMenuPlacement(val topPx: Int, val opensAbove: Boolean)
+
+internal fun placeClassicAppMenu(
+    rowTopPx: Int,
+    rowBottomPx: Int,
+    viewportTopPx: Int,
+    viewportBottomPx: Int,
+    menuHeightPx: Int,
+): ClassicAppMenuPlacement {
+    val safeTop = viewportTopPx.coerceAtLeast(0)
+    val safeBottom = viewportBottomPx.coerceAtLeast(safeTop)
+    val height = menuHeightPx.coerceAtLeast(1)
+    // Disco uses >=, so the panel flips even if it exactly touches the bottom edge.
+    val opensAbove = rowBottomPx + height >= safeBottom
+    val desiredTop = if (opensAbove) rowTopPx - height else rowBottomPx
+    return ClassicAppMenuPlacement(
+        topPx = desiredTop.coerceIn(safeTop, (safeBottom - height).coerceAtLeast(safeTop)),
+        opensAbove = opensAbove,
+    )
+}
 
 /**
  * WP8.1 matches Disco's appList.scss:
@@ -52,6 +84,8 @@ internal fun PhoneAppContextMenu(
     isUninstallable: Boolean = true,
     xPx: Int,
     yPx: Int,
+    rowBoundsInWindow: Rect = Rect.Zero,
+    viewportBoundsInWindow: Rect = Rect.Zero,
     onPinChanged: () -> Unit,
     onAppInfo: () -> Unit,
     onUninstall: () -> Unit = {},
@@ -67,6 +101,35 @@ internal fun PhoneAppContextMenu(
     val commandCount = if (packageName == "mosaic.launcher.settings") 2
         else if (isUninstallable) 3 else 2
     val classicMenuHeight = 24f + 65f * commandCount
+    val menuHeightPx = with(LocalDensity.current) { classicMenuHeight.dp.roundToPx() }
+    val opensAbove = placeClassicAppMenu(
+        rowBoundsInWindow.top.roundToInt(),
+        rowBoundsInWindow.bottom.roundToInt(),
+        viewportBoundsInWindow.top.roundToInt(),
+        viewportBoundsInWindow.bottom.roundToInt(),
+        menuHeightPx,
+    ).opensAbove
+    // Compose Popup(alignment, offset) uses an anchor-relative offset, whereas
+    // our source row coordinates are in the window. Position absolutely.
+    val classicPositionProvider = remember(rowBoundsInWindow, viewportBoundsInWindow) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset {
+                val placement = placeClassicAppMenu(
+                    rowBoundsInWindow.top.roundToInt(),
+                    rowBoundsInWindow.bottom.roundToInt(),
+                    viewportBoundsInWindow.top.roundToInt(),
+                    minOf(windowSize.height, viewportBoundsInWindow.bottom.roundToInt()),
+                    popupContentSize.height,
+                )
+                return IntOffset(0, placement.topPx)
+            }
+        }
+    }
     val introduction = remember(packageName, mode) { Animatable(if (classic) 0f else 1f) }
     LaunchedEffect(packageName, mode) {
         if (classic) introduction.animateTo(1f, tween(750, easing = LinearEasing))
@@ -97,12 +160,7 @@ internal fun PhoneAppContextMenu(
         )
     }
 
-    Popup(
-        alignment = Alignment.TopStart,
-        offset = IntOffset(if (classic) 0 else xPx.coerceAtLeast(0), yPx.coerceAtLeast(0)),
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true),
-    ) {
+    val menuContent: @Composable () -> Unit = {
         if (classic) {
             val phase = introduction.value
             val fold = if (phase <= .51f) 0f else
@@ -119,7 +177,7 @@ internal fun PhoneAppContextMenu(
                         .graphicsLayer {
                             scaleY = fold.coerceAtLeast(.001f)
                             alpha = if (phase >= .51f) 1f else 0f
-                            transformOrigin = TransformOrigin(.5f, 0f)
+                            transformOrigin = TransformOrigin(.5f, if (opensAbove) 1f else 0f)
                         }
                         .background(Color.White)
                         .clipToBounds()
@@ -134,7 +192,8 @@ internal fun PhoneAppContextMenu(
                     } else item("Mosaic Settings", action = onAppInfo)
                 }
                 Box(
-                    Modifier.fillMaxWidth().height((2f * scale).dp)
+                    Modifier.align(if (opensAbove) Alignment.BottomStart else Alignment.TopStart)
+                        .fillMaxWidth().height((2f * scale).dp)
                         .graphicsLayer {
                             scaleX = (phase / .5f).coerceIn(.001f, 1f)
                             alpha = if (phase < .55f) 1f else 0f
@@ -164,5 +223,20 @@ internal fun PhoneAppContextMenu(
                 } else item("Mosaic Settings", action = onAppInfo)
             }
         }
+    }
+    if (classic) {
+        Popup(
+            positionProvider = classicPositionProvider,
+            onDismissRequest = onDismiss,
+            properties = PopupProperties(focusable = true),
+        ) { menuContent() }
+    } else {
+        // Keep Windows 10 Mobile's compact command strip unchanged.
+        Popup(
+            alignment = Alignment.TopStart,
+            offset = IntOffset(xPx.coerceAtLeast(0), yPx.coerceAtLeast(0)),
+            onDismissRequest = onDismiss,
+            properties = PopupProperties(focusable = true),
+        ) { menuContent() }
     }
 }
