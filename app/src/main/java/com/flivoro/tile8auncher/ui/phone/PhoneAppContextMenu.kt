@@ -226,7 +226,7 @@ internal fun PhoneAppContextMenu(
     }
     if (classic) {
         Popup(
-            positionProvider = classicPositionProvider,
+            popupPositionProvider = classicPositionProvider,
             onDismissRequest = onDismiss,
             properties = PopupProperties(focusable = true),
         ) { menuContent() }
