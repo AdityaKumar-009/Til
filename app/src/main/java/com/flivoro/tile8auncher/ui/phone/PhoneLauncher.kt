@@ -1003,9 +1003,7 @@ fun PhoneLauncherSurface(
                                             "app:" + tile.id.removePrefix("phone_app_")
                                         else tile.id
                                     } else editing = null
-                                } else if (tile.id == "phone_app_$MOSAIC_SETTINGS_ID" ||
-                                    tile.id == "tile_settings") onOpenSettings()
-                                else if (tile.id.startsWith("phone_folder_")) {
+                                } else if (tile.id.startsWith("phone_folder_")) {
                                     openFolderId = tile.id
                                     openFolderBounds = bounds
                                 } else onLaunch(tile, bounds, LaunchOrigin.START)
@@ -1601,8 +1599,9 @@ fun PhoneLauncherSurface(
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
                                                 onClick = {
-                                                    if (app.packageName == MOSAIC_SETTINGS_ID) onOpenSettings()
-                                                    else onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS)
+                                                    // Treat Mosaic Settings exactly like any held
+                                                    // app: its real row bounds drive native exit.
+                                                    onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS)
                                                 },
                                                 onLongClick = {
                                                     editing = "app:${app.packageName}"
@@ -1943,8 +1942,10 @@ fun PhoneLauncherSurface(
                                 .background(Color(0xFF303030))
                                 .clickable {
                                     actionCenterOpen = false
-                                    if (intentAction.isEmpty()) onOpenSettings()
-                                    else runCatching { context.startActivity(Intent(intentAction)) }
+                                    if (intentAction.isEmpty()) {
+                                        actionCenterOpen = false
+                                        onOpenSettings()
+                                    } else runCatching { context.startActivity(Intent(intentAction)) }
                                 }.padding(5.dp), contentAlignment = Alignment.Center) {
                                 Text(title, color = Color.White,
                                     fontSize = if (isTen) 11.sp else 10.sp,
@@ -2116,8 +2117,10 @@ fun PhoneLauncherSurface(
                     }
                 },
                 onAppInfo = {
-                    if (pkg == MOSAIC_SETTINGS_ID) onOpenSettings()
-                    else onOpenAppInfo(pkg)
+                    if (pkg == MOSAIC_SETTINGS_ID) {
+                        // Preserve the long-pressed row origin for its launch.
+                        onLaunch(appTile(app), appContextBounds, LaunchOrigin.ALL_APPS)
+                    } else onOpenAppInfo(pkg)
                 },
                 onUninstall = { onUninstallApp(pkg) },
                 onDismiss = { editing = null },

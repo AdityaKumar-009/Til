@@ -237,7 +237,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onTriggerFlip = { tile, bounds, origin ->
                         if (entranceReady && !flipState.isRunning) {
-                            pendingLaunchIntent = resolveLaunchIntent(tile)
+                            // The launcher-native Settings screen must not resolve
+                            // to Android Settings' stock semantic intent.
+                            pendingLaunchIntent = if (tile.tileType == TileType.SETTINGS) null
+                                else resolveLaunchIntent(tile)
                             val icon = if (origin == LaunchOrigin.ALL_APPS) {
                                 cachedAllAppsIconForCurrentStyle(
                                     context = this@MainActivity,
@@ -828,16 +831,20 @@ fun Tile8LauncherApp(
     }
 
     fun openLauncherSettings() {
-        if (!entranceReady) return
+        if (!entranceReady || flipState.isRunning) return
         showCharms = false
-        // Arm recovery before adding the Settings composable. If the rendering process
-        // dies before Settings becomes stable, the next cold launch opens Desktop.
-        LauncherFeatureStore.beginPhoneSettings(context)
         val settingsTile = tiles.firstOrNull { it.tileType == TileType.SETTINGS }
             ?: TileModel(id = "tile_settings", title = "PC settings",
                 colorValue = WindowsColors.SettingsPurple, tileType = TileType.SETTINGS,
                 iconGlyph = "settings")
-        onOpenInAppTile(settingsTile)
+        // Keep non-tile phone shortcuts on the native exit timeline too.
+        // Desktop's existing direct Settings opening is unchanged.
+        LauncherFeatureStore.beginPhoneSettings(context)
+        if (LauncherFeatureStore.launcherUiMode(context) == LauncherUiMode.DESKTOP) {
+            onOpenInAppTile(settingsTile)
+        } else {
+            onTriggerFlip(settingsTile, Rect.Zero, LaunchOrigin.START)
+        }
     }
 
     fun openDeviceSettings() {
@@ -1090,9 +1097,16 @@ fun Tile8LauncherApp(
                         screenOffRequest = screenOffRequest,
                         returningTileId = returningPhoneTileId,
                         onLaunch = { tile, bounds, origin ->
+                            // Stock Settings has an Android semantic fallback, but
+                            // its phone tile represents our own internal app.
+                            val nativeSettings = tile.tileType == TileType.SETTINGS
                             if (entranceReady && !flipState.isRunning &&
-                                !bindOrPickDefaultTile(tile, bounds)
+                                (nativeSettings || !bindOrPickDefaultTile(tile, bounds))
                             ) {
+                                if (nativeSettings) {
+                                    // Preserve phone Settings crash-loop recovery.
+                                    LauncherFeatureStore.beginPhoneSettings(context)
+                                }
                                 onTriggerFlip(tile, bounds, origin)
                             }
                         },
