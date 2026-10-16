@@ -45,6 +45,8 @@ object PackageCatalogUpdates {
  * existing short Home/Back RETURN fit for that one entrance. It creates no additional View/surface.
  */
 class Tile8Application : Application() {
+    // HOME Activity recreation must reuse the catalog, pin state and decoded artwork.
+    val appsRepository by lazy { com.flivoro.tile8auncher.data.AppsRepository(this) }
     private val mainHandler = Handler(Looper.getMainLooper())
     private var unlockGeneration = 0
     private var mainActivityResumed = false

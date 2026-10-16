@@ -13,6 +13,8 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.LruCache
+import android.util.AtomicFile
+import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -139,6 +141,79 @@ class AppsRepository(private val context: Context) {
     @Volatile
     private var categorizedAppsCache: List<AppSection>? = null
     private val categorizedAppsCacheLock = Any()
+    @Volatile private var pinnedSnapshot: Pair<String, List<TileModel>>? = null
+    // Other activities and backup restore can update these preferences through another repository.
+    // Compare the in-memory preference value before reusing decoded pins.
+    val cachedPinnedTiles: List<TileModel>?
+        get() = pinnedSnapshot?.takeIf { it.first == prefs.getString("pinned_tiles_json", null) }?.second
+    @Volatile private var verifiedCatalogRevision = -1
+    @Volatile private var catalogLocale = Locale.getDefault().toLanguageTag()
+    private val catalogRefreshLock = Any()
+    private val catalogSnapshotFile get() = AtomicFile(File(context.filesDir, "launcher_catalog_v1.json"))
+
+    fun peekCategorizedApps(): List<AppSection>? =
+        categorizedAppsCache.takeIf { catalogLocale == Locale.getDefault().toLanguageTag() }
+
+    /** Fast cold restore; validation runs after the saved launcher has been drawn. */
+    fun loadInitialCatalog(revision: Int): List<AppSection> = synchronized(catalogRefreshLock) {
+        peekCategorizedApps()?.let { return@synchronized it }
+        val restored = runCatching {
+            val json = JSONObject(catalogSnapshotFile.openRead().bufferedReader().use { it.readText() })
+            if (json.getString("locale") != Locale.getDefault().toLanguageTag()) return@runCatching null
+            val data = json.getJSONArray("sections")
+            (0 until data.length()).map { index ->
+                val section = data.getJSONObject(index)
+                val entries = section.getJSONArray("apps")
+                AppSection(section.getString("letter"), (0 until entries.length()).map { n ->
+                    val app = entries.getJSONObject(n)
+                    AppInfo(app.getString("label"), app.getString("package"), app.getString("activity"))
+                })
+            }
+        }.getOrNull()
+        if (restored != null) {
+            installedAppsCache = restored.flatMap(AppSection::apps)
+            categorizedAppsCache = restored
+            catalogLocale = Locale.getDefault().toLanguageTag()
+            return@synchronized restored
+        }
+        refreshCatalogIfNeeded(revision)
+    }
+
+    fun refreshCatalogIfNeeded(revision: Int): List<AppSection> = synchronized(catalogRefreshLock) {
+        if (verifiedCatalogRevision == revision) peekCategorizedApps()?.let { return@synchronized it }
+        val previous = categorizedAppsCache
+        invalidateAppCatalog()
+        val fresh = try {
+            getCategorizedApps()
+        } catch (error: Exception) {
+            Log.w("MosaicStartup", "Unable to refresh packages; keeping saved apps", error)
+            installedAppsCache = previous?.flatMap(AppSection::apps)
+            categorizedAppsCache = previous
+            return@synchronized previous.orEmpty()
+        }
+        catalogLocale = Locale.getDefault().toLanguageTag()
+        verifiedCatalogRevision = revision
+        val json = JSONObject().put("locale", Locale.getDefault().toLanguageTag())
+            .put("sections", JSONArray().apply {
+                fresh.forEach { section -> put(JSONObject().put("letter", section.letter)
+                    .put("apps", JSONArray().apply {
+                        section.apps.forEach { app -> put(JSONObject().put("label", app.label)
+                            .put("package", app.packageName).put("activity", app.activityName)) }
+                    })) }
+            })
+        val file = catalogSnapshotFile
+        runCatching {
+            val output = file.startWrite()
+            try {
+                output.write(json.toString().toByteArray(Charsets.UTF_8))
+                file.finishWrite(output)
+            } catch (error: Exception) {
+                file.failWrite(output)
+                throw error
+            }
+        }
+        fresh
+    }
 
     /**
      * Returns the launcher-visible apps from one process-local PackageManager scan.
@@ -149,6 +224,7 @@ class AppsRepository(private val context: Context) {
      */
     /** Android package broadcasts invalidate metadata, but normal Home/Back does not rescan. */
     fun invalidateAppCatalog() {
+        verifiedCatalogRevision = -1
         synchronized(categorizedAppsCacheLock) { categorizedAppsCache = null }
         synchronized(installedAppsCacheLock) { installedAppsCache = null }
         packageUpdateStamps.clear()
@@ -1378,7 +1454,7 @@ class AppsRepository(private val context: Context) {
      *
      * This method performs PackageManager/bitmap work and must be called off the main thread.
      */
-    fun refreshAutomaticAppAccentTiles(tiles: List<TileModel>): List<TileModel> {
+    fun refreshAutomaticAppAccentTiles(tiles: List<TileModel>, persist: Boolean = true): List<TileModel> {
         val previousVersion = prefs.getInt(APP_ACCENT_ALGORITHM_VERSION_KEY, 0)
         val allowLegacyRecognition = previousVersion < APP_ACCENT_ALGORITHM_VERSION
         val accentPairs = mutableMapOf<String, Pair<Long, Long>>()
@@ -1441,7 +1517,7 @@ class AppsRepository(private val context: Context) {
         if (allowLegacyRecognition) {
             prefs.edit { putInt(APP_ACCENT_ALGORITHM_VERSION_KEY, APP_ACCENT_ALGORITHM_VERSION) }
         }
-        if (changed) savePinnedTiles(refreshed)
+        if (changed && persist) savePinnedTiles(refreshed)
         return refreshed
     }
 
@@ -1523,6 +1599,7 @@ class AppsRepository(private val context: Context) {
     }
 
     fun loadPinnedTiles(): List<TileModel> {
+        cachedPinnedTiles?.let { return it }
         val savedJson = prefs.getString("pinned_tiles_json", null)
         if (!savedJson.isNullOrEmpty()) {
             try {
@@ -1558,7 +1635,10 @@ class AppsRepository(private val context: Context) {
                         )
                     )
                 }
-                if (list.isNotEmpty()) return upgradeLegacyStockStartIfNeeded(list)
+                // An explicitly empty Start is valid; never repopulate removed pins on reopen.
+                val restored = if (list.isEmpty()) list else upgradeLegacyStockStartIfNeeded(list)
+                if (restored === list) pinnedSnapshot = savedJson to restored
+                return restored
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -1595,7 +1675,10 @@ class AppsRepository(private val context: Context) {
             }
             array.put(obj)
         }
-        prefs.edit { putString("pinned_tiles_json", array.toString()) }
+        val json = array.toString()
+        prefs.edit { putString("pinned_tiles_json", json) }
+        pinnedSnapshot = json to tiles.toList()
+        SharedStartWorkspace.reconcileFolders(context, tiles)
     }
 
     fun getDefaultTiles(): List<TileModel> {

@@ -61,6 +61,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.prepareLauncher
+import com.flivoro.tile8auncher.data.PreparedLauncher
+import com.flivoro.tile8auncher.data.SharedStartWorkspace
+import com.flivoro.tile8auncher.data.warmLauncherArtwork
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
@@ -205,7 +208,7 @@ class MainActivity : ComponentActivity() {
             LauncherFeatureStore.recoverInterruptedPhoneRender(this)
         }
         LauncherFeatureStore.beginPhoneRender(this)
-        appsRepository = AppsRepository(this)
+        appsRepository = (application as Tile8Application).appsRepository
         ContextCompat.registerReceiver(
             this,
             userPresentReceiver,
@@ -649,8 +652,10 @@ fun Tile8LauncherApp(
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
     var wallpaperStyle by remember { mutableIntStateOf(appsRepository.getWallpaperStyle()) }
-    val tiles = remember { mutableStateListOf<TileModel>() }
-    var tilesLoaded by remember { mutableStateOf(false) }
+    val tiles = remember { mutableStateListOf<TileModel>().apply {
+        addAll(appsRepository.cachedPinnedTiles.orEmpty())
+    } }
+    var tilesLoaded by remember { mutableStateOf(appsRepository.cachedPinnedTiles != null) }
     var selectedTileForCustomization by remember { mutableStateOf<TileModel?>(null) }
     var showPowerDialog by remember { mutableStateOf(false) }
     var showPinAppsDialog by remember { mutableStateOf(false) }
@@ -891,42 +896,76 @@ fun Tile8LauncherApp(
         if (flipState.isRunning) showCharms = false
     }
 
-    // Keep the selected mode invisible until its saved Start layout, complete app catalog and
-    // opening viewport artwork are ready. Distant rows prepare on demand without holding HOME.
+    // Activity recreation reuses process memory. A cold process restores the small saved catalog
+    // before validating packages or decoding icons; theme/settings changes never hide a ready HOME.
     val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
-    val launcherMode = remember(launcherModeRevision) {
-        LauncherFeatureStore.launcherUiMode(context)
-    }
+    val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val packageRevision = PackageCatalogUpdates.revision
-    var preparedMode by remember { mutableStateOf<LauncherUiMode?>(null) }
-    var preparedIconsRevision by remember { mutableIntStateOf(-1) }
-    var preparedPackageRevision by remember { mutableIntStateOf(-1) }
-    var lastCatalogRevision by remember { mutableIntStateOf(packageRevision) }
-    var loadingMessage by remember { mutableStateOf("Preparing Start") }
-    var categorizedApps by remember { mutableStateOf<List<AppSection>>(emptyList()) }
-    var preparedPhoneRecentApps by remember { mutableStateOf<List<AppInfo>?>(null) }
-    val launcherPrepared = tilesLoaded && preparedMode == launcherMode &&
-        preparedIconsRevision == iconsRevision && preparedPackageRevision == packageRevision
+    var categorizedApps by remember { mutableStateOf(appsRepository.peekCategorizedApps().orEmpty()) }
+    var catalogLoaded by remember { mutableStateOf(appsRepository.peekCategorizedApps() != null) }
+    val launcherPrepared = tilesLoaded && catalogLoaded
+    var showInitialLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(launcherPrepared) {
+        if (!launcherPrepared) {
+            // This only delays the indicator, never the content. Fast disk restores avoid a flash.
+            delay(180)
+            showInitialLoading = true
+            Log.i("MosaicStartup", "Loading indicator shown")
+        } else showInitialLoading = false
+    }
 
-    LaunchedEffect(launcherMode, iconsRevision, packageRevision) {
+    val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
+    LaunchedEffect(externalPinnedRevision) {
         val startedAt = SystemClock.elapsedRealtime()
-        if (lastCatalogRevision != packageRevision) {
-            withContext(Dispatchers.IO) { appsRepository.invalidateAppCatalog() }
-            lastCatalogRevision = packageRevision
-        }
         val prepared = prepareLauncher(context.applicationContext, appsRepository,
-            launcherMode, iconsRevision) { loadingMessage = it }
-        preparedPhoneRecentApps = prepared.recentPhoneApps
+            packageRevision)
         categorizedApps = prepared.sections
-        tiles.clear()
-        tiles.addAll(prepared.tiles)
+        if (tiles.toList() != prepared.tiles) {
+            tiles.clear()
+            tiles.addAll(prepared.tiles)
+        }
         tilesLoaded = true
-        preparedMode = launcherMode
-        preparedIconsRevision = iconsRevision
-        preparedPackageRevision = packageRevision
+        catalogLoaded = true
         Log.i("MosaicStartup", "Ready $launcherMode, ${prepared.sections.sumOf { it.apps.size }} apps, " +
             "${SystemClock.elapsedRealtime() - startedAt}ms")
+    }
+
+    LaunchedEffect(catalogLoaded, packageRevision) {
+        if (catalogLoaded) {
+            withFrameNanos { }
+            withFrameNanos { }
+            // Reconcile package changes without replacing the interactive surface with a splash.
+            categorizedApps = withContext(Dispatchers.IO) {
+                appsRepository.refreshCatalogIfNeeded(packageRevision)
+            }
+        }
+    }
+
+    val pinnedTiles = tiles.toList()
+    LaunchedEffect(launcherPrepared, launcherMode, iconsRevision, categorizedApps, pinnedTiles) {
+        if (launcherPrepared) {
+            withFrameNanos { }
+            withFrameNanos { }
+            warmLauncherArtwork(context.applicationContext, appsRepository, launcherMode,
+                iconsRevision, PreparedLauncher(categorizedApps, pinnedTiles, null))
+            val refreshed = withContext(Dispatchers.IO) {
+                runCatching { appsRepository.refreshAutomaticAppAccentTiles(pinnedTiles, persist = false) }
+                    .onFailure { Log.w("MosaicStartup", "Unable to refresh app accents", it) }
+                    .getOrDefault(pinnedTiles)
+            }
+            // A pin/edit may have happened during decoding. Only update untouched tiles.
+            val before = pinnedTiles.associateBy(TileModel::id)
+            val after = refreshed.associateBy(TileModel::id)
+            val updated = tiles.map { tile ->
+                if (before[tile.id] == tile) after[tile.id] ?: tile else tile
+            }
+            if (updated != tiles.toList()) {
+                tiles.clear()
+                tiles.addAll(updated)
+                appsRepository.savePinnedTiles(updated)
+            }
+        }
     }
 
     LaunchedEffect(launcherPrepared, entranceReady) {
@@ -982,19 +1021,20 @@ fun Tile8LauncherApp(
             }
         }
     }
-    // Consume system Back on phone Start without destroying/recreating the HOME
-    // Activity; the more specific phone-page BackHandler takes priority on All Apps.
+    // Root Back keeps HOME alive in every mode, retaining its prepared catalog and artwork.
+    // More specific page, editing and dialog BackHandlers retain priority.
     BackHandler(
-        enabled = launcherMode != LauncherUiMode.DESKTOP &&
-            entranceReady && activeInAppTile == null && !flipState.isRunning,
+        enabled = entranceReady && activeInAppTile == null && !flipState.isRunning &&
+            currentScreen == LauncherScreen.START && !showCharms && !showPowerDialog && !showPinAppsDialog,
     ) {
-        // Already at the root phone Start: intentionally no navigation.
+        // Already at Start: intentionally no navigation.
     }
     // Do not mount either pane behind the splash: phone/Desktop entrance animations
     // must start on the first real launcher frame, not elapse invisibly while loading.
     // An already-open Settings panel stays usable during a mode/style change.
     if (!launcherPrepared && activeInAppTile == null) {
-        LauncherStartupSplash(message = loadingMessage)
+        if (showInitialLoading) LauncherStartupSplash(message = "Loading Start")
+        else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black))
         return
     }
     if (launcherMode != LauncherUiMode.DESKTOP) {
@@ -1024,10 +1064,10 @@ fun Tile8LauncherApp(
                     phoneSurfaceStates.SaveableStateProvider(launcherMode.name) {
                         PhoneLauncherSurface(
                         mode = launcherMode,
-                        tiles = tiles,
+                        tiles = pinnedTiles,
                         sections = categorizedApps,
                         appsRepository = appsRepository,
-                        preparedRecentApps = preparedPhoneRecentApps,
+                        preparedRecentApps = null,
                         homeRequest = homeRequest,
                         entranceRequest = startEntranceRequest,
                         launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
@@ -1060,6 +1100,13 @@ fun Tile8LauncherApp(
                         onOpenAppInfo = { onOpenAppInfo(it) },
                         onUninstallApp = { onUninstallApp(it) },
                         onVisiblePageChanged = onPhonePageChanged,
+                        onSharedPinsChanged = { order ->
+                            val updated = SharedStartWorkspace.tilesForPhoneOrder(context,
+                                launcherMode, order, tiles.toList(), categorizedApps.flatMap(AppSection::apps))
+                            appsRepository.savePinnedTiles(updated)
+                            tiles.clear()
+                            tiles.addAll(updated)
+                        },
                         )
                     }
                 }

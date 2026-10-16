@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare old/new optimized APKs on the SAME emulator; never treat am-start TTID as ready."""
+"""Compare old/new optimized APKs, first drawn launcher surface, and warm reopen behavior."""
 import json
 import os
 from pathlib import Path
@@ -19,6 +19,18 @@ def adb(*args):
     return subprocess.check_output(["adb", *args], text=True, stderr=subprocess.STDOUT)
 
 
+def startup_log():
+    return adb("logcat", "-d", "-s", "MosaicStartup:I", "ActivityTaskManager:I", "AndroidRuntime:E")
+
+
+def fully_drawn_ms(log):
+    match = re.search(r"Fully drawn " + re.escape(PACKAGE) + r"/[^:]+:\s*\+([0-9a-z]+)", log)
+    if not match:
+        return None
+    units = {"ms": 1, "s": 1000, "m": 60_000}
+    return sum(int(value) * units[unit] for value, unit in re.findall(r"(\d+)(ms|s|m)", match[1]))
+
+
 def launch(mode):
     adb("shell", "am", "force-stop", PACKAGE)
     adb("logcat", "-c")
@@ -27,7 +39,7 @@ def launch(mode):
         raise RuntimeError(output)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        log = adb("logcat", "-d", "-s", "MosaicStartup:I", "AndroidRuntime:E")
+        log = startup_log()
         if "FATAL EXCEPTION" in log or "VerifyError" in log:
             raise RuntimeError(log)
         ready = re.search(rf"Ready {mode}, (\d+) apps, (\d+)ms", log)
@@ -36,9 +48,30 @@ def launch(mode):
                 raise RuntimeError("Launcher exited after readiness")
             # Let its entrance and deferred writes settle before killing the process again.
             time.sleep(2)
-            return {"apps": int(ready[1]), "ready_ms": int(ready[2]), "log": log}
+            log = startup_log()
+            if "FATAL EXCEPTION" in log:
+                raise RuntimeError(log)
+            return {"apps": int(ready[1]), "ready_ms": int(ready[2]),
+                    "fully_drawn_ms": fully_drawn_ms(log), "am_start": output, "log": log}
         time.sleep(.2)
     raise RuntimeError(f"{mode} never became ready:\n{log}")
+
+
+def reopen(require_reuse):
+    pid = adb("shell", "pidof", PACKAGE).strip()
+    adb("shell", "am", "start", "-a", "android.settings.SETTINGS")
+    adb("logcat", "-c")
+    output = adb("shell", "am", "start", "-W", "-n", COMPONENT)
+    time.sleep(1)
+    adb("shell", "input", "keyevent", "4")
+    adb("shell", "am", "start", "-W", "-n", COMPONENT)
+    time.sleep(1)
+    log = startup_log()
+    reused = (pid == adb("shell", "pidof", PACKAGE).strip() and
+              "Ready " not in log and "Loading indicator shown" not in log)
+    if "FATAL EXCEPTION" in log or (require_reuse and not reused):
+        raise RuntimeError(f"Warm reopen restarted launcher preparation:\n{log}")
+    return {"reused": reused, "am_start": output, "log": log}
 
 
 def measure(apk, label):
@@ -60,8 +93,11 @@ def measure(apk, label):
         adb("shell", "restorecon", "-R", str(Path(pref).parent))
         first = launch(mode)
         cached = [launch(mode) for _ in range(3)]
+        drawn = [item["fully_drawn_ms"] for item in cached if item["fully_drawn_ms"] is not None]
         results[mode] = {"first": first, "cached": cached,
-                         "cached_median_ms": statistics.median(item["ready_ms"] for item in cached)}
+                         "cached_median_ms": statistics.median(item["ready_ms"] for item in cached),
+                         "cached_drawn_median_ms": statistics.median(drawn) if drawn else None,
+                         "reopen": [reopen(label == "after") for _ in range(3)]}
         print(f"{label} {mode}: first={first['ready_ms']}ms, cached median={results[mode]['cached_median_ms']}ms", flush=True)
     return results
 
@@ -76,12 +112,12 @@ def main():
     for label, apk in zip(("before", "after"), sys.argv[1:], strict=True):
         results[label] = measure(apk, label)
         (OUT / "timings.json").write_text(json.dumps(results, indent=2))
-    lines = ["### Launcher preparation on the same API 34 emulator", "",
-             "Fresh data once; cold process with saved disk caches three times. Timings end at Start/All Apps readiness; they exclude process/Compose initialization. Emulator timings are not device guarantees.", "",
-             "| Mode | Apps | Fresh before / after | Cached median before / after |", "|---|---:|---:|---:|"]
+    lines = ["### Launcher startup on the same API 34 emulator", "",
+             "Fresh data once; saved cold starts three times. Fully drawn includes process and initial UI rendering, before the entrance animation finishes. Preparation timings exclude process/Compose initialization; the new build loads artwork after showing Start. Emulator timings are not device guarantees.", "",
+             "| Mode | Apps | Fresh prep before / after | Cached prep median before / after | Cached fully drawn before / after | Warm reuse after |", "|---|---:|---:|---:|---:|---:|"]
     for mode, after in results["after"].items():
         before = results["before"][mode]
-        lines.append(f"| {mode} | {after['first']['apps']} | {before['first']['ready_ms']} / {after['first']['ready_ms']} ms | {before['cached_median_ms']} / {after['cached_median_ms']} ms |")
+        lines.append(f"| {mode} | {after['first']['apps']} | {before['first']['ready_ms']} / {after['first']['ready_ms']} ms | {before['cached_median_ms']} / {after['cached_median_ms']} ms | {before['cached_drawn_median_ms']} / {after['cached_drawn_median_ms']} ms | {sum(item['reused'] for item in after['reopen'])}/3 |")
     report = "\n".join(lines) + "\n"
     (OUT / "summary.md").write_text(report)
     print(report)

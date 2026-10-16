@@ -18,6 +18,7 @@ import com.flivoro.tile8auncher.features.LauncherUiMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +27,34 @@ import org.junit.runner.RunWith
 class LauncherModeSwitchTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun activityRecreationReusesPreparedStateAndRootBackKeepsDesktopAlive() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val previousMode = LauncherFeatureStore.launcherUiMode(context)
+        val repository = (compose.activity.application as Tile8Application).appsRepository
+        try {
+            compose.runOnUiThread { LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.DESKTOP) }
+            compose.waitUntil(timeoutMillis = 20_000) {
+                repository.peekCategorizedApps() != null && repository.cachedPinnedTiles != null
+            }
+            val catalog = repository.refreshCatalogIfNeeded(PackageCatalogUpdates.revision)
+            val pins = repository.cachedPinnedTiles
+            compose.waitForIdle()
+            repeat(3) {
+                compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+            }
+            assertFalse("Root Back destroyed Desktop", compose.activity.isFinishing)
+            compose.activityRule.scenario.recreate()
+            compose.waitForIdle()
+            assertSame(repository, (compose.activity.application as Tile8Application).appsRepository)
+            assertSame("Recreation rescanned installed apps", catalog, repository.peekCategorizedApps())
+            assertEquals(pins?.map { it.id }, repository.cachedPinnedTiles?.map { it.id })
+            compose.onNodeWithText("Loading Start").assertDoesNotExist()
+        } finally {
+            compose.runOnUiThread { LauncherFeatureStore.setLauncherUiMode(context, previousMode) }
+        }
+    }
 
     @Test
     fun switchingActiveLauncherToWp81DoesNotCrash() {

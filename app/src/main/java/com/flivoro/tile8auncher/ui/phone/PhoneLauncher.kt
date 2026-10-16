@@ -103,6 +103,7 @@ import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.SharedStartWorkspace
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.AppIconStyle
@@ -251,8 +252,8 @@ internal object PhoneLayoutStore {
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(
         LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE,
     )
-    // WP8.1 and W10M are themes over ONE phone Start workspace.
-    // Desktop keeps its independent layout and tiles.
+    // Phone presentation preferences are shared by WP8.1/W10M. Pin membership comes from
+    // SharedStartWorkspace, also used by Desktop; tile sizing remains appropriate to each grid.
     private fun key(mode: LauncherUiMode, suffix: String) =
         if (mode == LauncherUiMode.DESKTOP) "phone_DESKTOP_$suffix"
         else "phone_shared_$suffix"
@@ -367,6 +368,7 @@ fun PhoneLauncherSurface(
     screenOffRequest: Int = 0,
     returningTileId: String? = null,
     preparedRecentApps: List<AppInfo>? = null,
+    onSharedPinsChanged: ((List<String>) -> Unit)? = null,
 ) {
     var classicHomeTap by remember(mode) { mutableStateOf(0) }
     var classicHomeEntrance by remember(mode) { mutableStateOf(-1) }
@@ -410,10 +412,12 @@ fun PhoneLauncherSurface(
     // and vanish on others depending on asynchronous package scanning.
     val appCatalogReady = catalog.any { it.packageName != MOSAIC_SETTINGS_ID }
     var order by remember(mode) {
-        mutableStateOf(PhoneLayoutStore.order(context, mode, phoneSeed))
+        val saved = PhoneLayoutStore.order(context, mode, phoneSeed)
+        mutableStateOf(if (onSharedPinsChanged == null) saved else
+            SharedStartWorkspace.projectPhoneOrder(tiles, saved, PhoneFolderStore.read(context, mode)))
     }
     LaunchedEffect(mode, appCatalogReady, phoneSeed) {
-        if (appCatalogReady && !PhoneLayoutStore.hasSavedOrder(context, mode)) {
+        if (onSharedPinsChanged == null && appCatalogReady && !PhoneLayoutStore.hasSavedOrder(context, mode)) {
             val stable = phoneSeed.map(TileModel::id).distinct()
             if (stable.isNotEmpty()) {
                 order = stable
@@ -446,8 +450,14 @@ fun PhoneLauncherSurface(
     var phone8SearchVisible by remember(mode) { mutableStateOf(false) }
     var phoneRevision by remember(mode) { mutableStateOf(0) }
     var folderRevision by remember(mode) { mutableIntStateOf(0) }
-    val phoneFolders = remember(mode, folderRevision) {
+    val phoneFolders = remember(mode, folderRevision, tiles) {
         PhoneFolderStore.read(context, mode)
+    }
+    LaunchedEffect(tiles, phoneFolders) {
+        if (onSharedPinsChanged != null) {
+            val projected = SharedStartWorkspace.projectPhoneOrder(tiles, order, phoneFolders)
+            if (projected != order) order = projected
+        }
     }
     val foldersById = remember(phoneFolders) { phoneFolders.associateBy(PhoneFolder::id) }
     var openFolderId by remember(mode) { mutableStateOf<String?>(null) }
@@ -671,7 +681,7 @@ fun PhoneLauncherSurface(
     )
 
     fun tileFor(id: String): TileModel? {
-        val source = desktopById[id] ?: when {
+        val source = desktopById[id].takeUnless { id.startsWith("app:") } ?: when {
             id.startsWith("app:") -> byPackage[id.removePrefix("app:")]?.let(::appTile)
             id.startsWith("phone_folder_") -> foldersById[id]?.let { folder ->
                 TileModel(
@@ -718,6 +728,7 @@ fun PhoneLauncherSurface(
     fun saveOrder(next: List<String>) {
         order = next.distinct()
         PhoneLayoutStore.saveOrder(context, mode, order)
+        onSharedPinsChanged?.invoke(order)
     }
 
     fun ungroupFolder(id: String) {
@@ -2056,7 +2067,9 @@ fun PhoneLauncherSurface(
             PhoneAppContextMenu(
                 mode = mode,
                 packageName = pkg,
-                alreadyPinned = id in order,
+                alreadyPinned = if (onSharedPinsChanged == null) id in order else tiles.any {
+                    it.packageName == pkg || (pkg == MOSAIC_SETTINGS_ID && it.id == "tile_settings")
+                },
                 isUninstallable = uninstallable,
                 xPx = if (isClassicPhone) appContextBounds.center.x.toInt()
                     else appContextBounds.left.toInt().coerceAtLeast(8),
@@ -2064,7 +2077,13 @@ fun PhoneLauncherSurface(
                     0, (surfaceBounds.bottom - menuHeightPx).toInt().coerceAtLeast(0),
                 ),
                 onPinChanged = {
-                    if (id in order) saveOrder(order.filterNot { it == id })
+                    val sharedPinned = onSharedPinsChanged != null && tiles.any {
+                        it.packageName == pkg || (pkg == MOSAIC_SETTINGS_ID && it.id == "tile_settings")
+                    }
+                    if (sharedPinned) {
+                        saveOrder(SharedStartWorkspace.orderWithoutPackage(context, mode, order, tiles, pkg))
+                        folderRevision++
+                    } else if (id in order) saveOrder(order.filterNot { it == id })
                     else {
                         val nextOrder = (order + id).distinct()
                         saveOrder(nextOrder)

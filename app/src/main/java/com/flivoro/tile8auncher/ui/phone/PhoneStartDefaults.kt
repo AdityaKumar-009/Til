@@ -1,6 +1,5 @@
 package com.flivoro.tile8auncher.ui.phone
 
-import android.content.Context
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
@@ -44,25 +43,6 @@ internal fun phoneStartSeed(
             }
         } else null
     }.ifEmpty { tiles }
-}
-
-internal fun phoneStartupPackages(
-    context: Context,
-    mode: LauncherUiMode,
-    tiles: List<TileModel>,
-    catalog: List<AppInfo>,
-): List<String> {
-    val seed = phoneStartSeed(tiles, catalog, mode)
-    val order = PhoneLayoutStore.order(context, mode, seed)
-    val folders = PhoneFolderStore.read(context, mode).associateBy(PhoneFolder::id)
-    val packagesById = tiles.associate { it.id to it.packageName }
-    val installed = catalog.mapTo(HashSet(), AppInfo::packageName)
-    // Include folder previews and saved app pins beyond the first alphabet page.
-    return order.flatMap { id -> listOf(id) + folders[id]?.children.orEmpty() }
-        .mapNotNull { id ->
-            packagesById[id] ?: id.takeIf { it.startsWith("app:") }
-                ?.removePrefix("app:")?.takeIf { it in installed }
-        }.distinct()
 }
 
 /** Same #, A..Z, international order as the phone drawer, including folded accented labels. */

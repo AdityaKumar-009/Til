@@ -1,19 +1,14 @@
 package com.flivoro.tile8auncher.data
 
 import android.content.Context
-import android.os.SystemClock
 import android.util.Log
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
-import com.flivoro.tile8auncher.features.loadEnhancedApps
-import com.flivoro.tile8auncher.features.recentlyInstalledApps
 import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.components.preloadStartIcons
 import com.flivoro.tile8auncher.ui.phone.phoneAppsInDisplayOrder
-import com.flivoro.tile8auncher.ui.phone.phoneStartupPackages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,51 +19,32 @@ internal data class PreparedLauncher(
     val recentPhoneApps: List<AppInfo>?,
 )
 
-/** Keep all PackageManager and bitmap work outside the large launcher composable. */
+/** Restore saved data first. Artwork and package verification never hold this result hostage. */
 internal suspend fun prepareLauncher(
+    context: Context,
+    repository: AppsRepository,
+    packageRevision: Int,
+): PreparedLauncher = withContext(Dispatchers.IO) {
+    val sections = startupFallback("restore app catalog", emptyList()) { repository.loadInitialCatalog(packageRevision) }
+    val saved = startupFallback("restore saved tiles", emptyList()) { repository.loadPinnedTiles() }
+    val pinned = startupFallback("share pinned apps", saved) {
+        SharedStartWorkspace.migrate(context, repository, saved, sections.flatMap(AppSection::apps))
+    }
+    PreparedLauncher(sections, pinned, null)
+}
+
+internal suspend fun warmLauncherArtwork(
     context: Context,
     repository: AppsRepository,
     mode: LauncherUiMode,
     iconsRevision: Int,
-    onProgress: (String) -> Unit,
-): PreparedLauncher = coroutineScope {
-    val startedAt = SystemClock.elapsedRealtime()
+    prepared: PreparedLauncher,
+) = coroutineScope {
     val style = LauncherFeatureStore.appIconStyle(context)
-    val excluded = LauncherFeatureStore.hiddenPackages(context) +
-        LauncherFeatureStore.privatePackages(context)
-    onProgress("Loading installed apps")
-    // Catalog and saved layout are independent on subsequent launches. A first-run default
-    // layout shares the repository's single catalog query instead of issuing a second scan.
-    val catalogTask = async(Dispatchers.IO) {
-        startupFallback("enumerate installed apps", emptyList()) { repository.getCategorizedApps() }
-    }
-    val tilesTask = async(Dispatchers.IO) {
-        val saved = startupFallback("restore saved tiles", emptyList()) { repository.loadPinnedTiles() }
-        startupFallback("refresh tile accents", saved) { repository.refreshAutomaticAppAccentTiles(saved) }
-    }
-    val sections = catalogTask.await()
-    val apps = sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName)
-    val recentTask = async(Dispatchers.IO) {
-        if (mode == LauncherUiMode.MOBILE_10 &&
-            LauncherFeatureStore.showRecentlyInstalledPhoneApps(context)) {
-            try {
-                recentlyInstalledApps(loadEnhancedApps(context, apps.filter { it.packageName !in excluded }))
-                    .map { it.app }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                Log.w("MosaicStartup", "Unable to load recent apps", error)
-                emptyList()
-            }
-        } else null
-    }
-    val pinned = tilesTask.await()
-    val startPackages = withContext(Dispatchers.IO) {
-        if (mode == LauncherUiMode.DESKTOP) pinned.mapNotNull(TileModel::packageName)
-        else phoneStartupPackages(context, mode, pinned, apps)
-    }
-    val recent = recentTask.await()
-    val metadataMs = SystemClock.elapsedRealtime() - startedAt
+    val excluded = LauncherFeatureStore.hiddenPackages(context) + LauncherFeatureStore.privatePackages(context)
+    val apps = prepared.sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName)
+    val startPackages = prepared.tiles.mapNotNull(TileModel::packageName)
+    val recent = prepared.recentPhoneApps
     val config = context.resources.configuration
     // A screenful plus a scroll-ahead margin, scaled for tablets/landscape. This cost depends
     // on screen size, never on the number of apps installed on the device.
@@ -79,7 +55,6 @@ internal suspend fun prepareLauncher(
         startPackages, if (mode == LauncherUiMode.DESKTOP) apps else phoneAppsInDisplayOrder(apps),
         excluded, recent.orEmpty(), viewportIconCount = rows * columns,
     )
-    onProgress("Preparing Start and All Apps")
     coroutineScope {
         if (mode == LauncherUiMode.DESKTOP) {
             launch { preloadStartIcons(context, repository, plan.startPackages, style, iconsRevision) }
@@ -91,10 +66,7 @@ internal suspend fun prepareLauncher(
                 style, iconsRevision, normalizeWp81 = mode == LauncherUiMode.PHONE_8)
         }
     }
-    Log.i("MosaicStartup", "Prepared $mode: catalog=${apps.size}, startIcons=${plan.startPackages.size}, " +
-        "drawerIcons=${plan.allAppsPackages.size}, metadata=${metadataMs}ms, " +
-        "artwork=${SystemClock.elapsedRealtime() - startedAt - metadataMs}ms")
-    PreparedLauncher(sections, pinned, recent)
+    // Only the opening viewport is proactively warmed. Lazy rows request subsequent icons.
 }
 
 private inline fun <T> startupFallback(label: String, fallback: T, block: () -> T): T = try {
