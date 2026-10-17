@@ -1,12 +1,19 @@
 # Launcher startup profiles
 
 Til captures app-specific ART rules for Desktop, Windows Phone 8.1, and Windows 10
-Mobile. `app/src/main/baselineProfiles/startup-prof.txt` contains fresh and saved-state launch paths;
-`baseline-prof.txt` also includes opening and scrolling All Apps. These supplement
-the profiles from AndroidX. They do not alter launcher animations or pinned apps.
+Mobile. `app/src/main/baselineProfiles/baseline-prof.txt` covers fresh and saved-state
+launches, plus opening and scrolling All Apps. It supplements the profiles from
+AndroidX. It does not alter launcher animations or pinned apps.
 
-R8 consumes the Startup Profile to group startup code into the first DEX files.
-The Baseline Profile is rewritten by R8 and packaged in the APK for Android's
+The captured Startup Profile layout is currently withheld. Two complete API 34
+comparisons found approximately 10% slower precompiled Desktop startup with the
+combined app profiles (runs 39066860649 attempt 1 and 39068923256). The Baseline
+Profile is being evaluated separately, without that DEX layout change. The
+original Startup Profile remains available in commit bc70854; regenerate and
+benchmark all three modes before enabling a replacement.
+
+When enabled, R8 consumes the Startup Profile to group startup code into the first
+DEX files. The Baseline Profile is rewritten by R8 and packaged in the APK for Android's
 ahead-of-time compilation. ProfileInstaller also supports sideloads; the full
 compilation benefit on a sideloaded APK depends on Android's background dexopt,
 so the first launch is not equivalent to a precompiled installation.
@@ -25,8 +32,8 @@ records three launches per mode, and unions the observed rules. No wildcard
 class rules or production mode-selection hooks are needed. Mode preferences
 are written only on the disposable rooted emulator.
 
-Download `launcher-startup-profiles`, review the generated source profiles and
-`capture.json`, then commit both `*-prof.txt` files together. Normal builds use
+Download `launcher-startup-profiles`, review the generated source profiles,
+`capture.json`, and measured results before committing either profile. Normal builds use
 the checked-in profiles without running an emulator. Regenerate after meaningful
 changes to startup, the three launcher surfaces, or dependencies.
 
@@ -54,9 +61,10 @@ limits and each sample is saved as it
 finishes, so an emulator failure preserves completed measurements and fails
 promptly. Incomplete runs must not be reported as a measured improvement.
 
-`verify-startup-profiles.py` checks the APK's binary ART profile and size limit,
-then verifies the bundle's R8 metadata identifies a startup DEX with a matching
-checksum. This catches misplaced or unconsumed Startup Profile source files.
+`verify-startup-profiles.py` checks the APK's binary ART profile and size limit.
+With a Startup Profile present, it also requires R8 metadata to identify a startup
+DEX with a matching checksum. `--without-startup-layout` instead requires no
+startup DEX, verifying that the Baseline-only build excludes the rejected layout.
 
 References:
 

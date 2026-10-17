@@ -57,7 +57,7 @@ jobs:
           if [ "$COMPARE_PROFILES" = "true" ]; then
             git worktree add --detach /tmp/til-startup-before HEAD
             # Only the disposable control checkout loses the app-specific profiles.
-            rm /tmp/til-startup-before/app/src/main/baselineProfiles/{baseline,startup}-prof.txt
+            rm -f /tmp/til-startup-before/app/src/main/baselineProfiles/{baseline,startup}-prof.txt
           else
             git worktree add --detach /tmp/til-startup-before HEAD^
           fi
@@ -66,6 +66,8 @@ jobs:
           bash gradlew assemblePerformance bundlePerformance --stacktrace
           if [ -f app/src/main/baselineProfiles/startup-prof.txt ]; then
             python3 .github/scripts/verify-startup-profiles.py
+          elif [ -f app/src/main/baselineProfiles/baseline-prof.txt ]; then
+            python3 .github/scripts/verify-startup-profiles.py --without-startup-layout
           fi
       - name: Enable KVM
         run: |

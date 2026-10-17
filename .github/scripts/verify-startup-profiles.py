@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify shipped ART profiles and R8's actual startup DEX layout, not just source files."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -7,6 +8,10 @@ import zipfile
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--without-startup-layout", action="store_true",
+                        help="Verify a Baseline-only build, with no app Startup Profile layout")
+    args = parser.parse_args()
     with zipfile.ZipFile("app/build/outputs/apk/performance/app-performance.apk") as apk:
         profile = apk.read("assets/dexopt/baseline.prof")
         metadata = apk.read("assets/dexopt/baseline.profm")
@@ -15,7 +20,10 @@ def main():
     with zipfile.ZipFile("app/build/outputs/bundle/performance/app-performance.aab") as bundle:
         r8 = json.loads(bundle.read("BUNDLE-METADATA/com.android.tools/r8.json"))
         startup_dex = [dex for dex in r8["dexFiles"] if dex.get("startup")]
-        assert startup_dex, "R8 did not consume the Startup Profile"
+        if args.without_startup_layout:
+            assert not startup_dex, "Unexpected Startup Profile layout in the Baseline-only build"
+        else:
+            assert startup_dex, "R8 did not consume the Startup Profile"
         checksums = {hashlib.sha256(bundle.read(name)).hexdigest()
                      for name in bundle.namelist() if name.startswith("base/dex/") and name.endswith(".dex")}
         assert all(dex["checksum"] in checksums for dex in startup_dex)
