@@ -668,9 +668,7 @@ fun PhoneLauncherSurface(
         // the package is user-installed or a system app. Only the default
         // Phone/Messages Metro launchers intentionally follow the theme accent.
         colorValue = when {
-            mode == LauncherUiMode.PHONE_8 &&
-                (app.label.equals("Phone", true) || app.label.equals("Dialer", true) ||
-                    app.label.equals("Messages", true) || app.label.equals("Messaging", true)) ->
+            isPhoneOrMessagesApp(app.label) ->
                 StartPersonalization.accentArgb
             else -> appsRepository.getDiscoTileAccentColor(app.packageName)
                 ?: StartPersonalization.accentArgb
@@ -697,17 +695,13 @@ fun PhoneLauncherSurface(
         }
         return source?.copy(
             size = PhoneLayoutStore.size(context, mode, source),
-            colorValue = if (mode == LauncherUiMode.PHONE_8 &&
-                !PhoneLayoutStore.hasCustomColor(context, mode, source.id) &&
-                // Actual stock tiles follow the accent, not every Android
-                // system package: All Apps may have a genuine brand color for
-                // Maps, Store, or another preinstalled app.
-                (source.id.startsWith("tile_") ||
-                    source.title.equals("Phone", true) ||
-                    source.title.equals("Dialer", true) ||
-                    source.title.equals("Messages", true) ||
-                    source.title.equals("Messaging", true))
-            ) StartPersonalization.accentArgb
+            // WP8.1 and W10M are skins of the same pinned workspace:
+            // default Metro tiles follow the accent in both modes, while
+            // app-brand colors and user-picked colors remain untouched.
+            colorValue = if (usesPhoneThemeAccent(
+                source.id, source.title,
+                PhoneLayoutStore.hasCustomColor(context, mode, source.id),
+            )) StartPersonalization.accentArgb
             else PhoneLayoutStore.color(context, mode, source),
         )
     }
@@ -1502,11 +1496,19 @@ fun PhoneLauncherSurface(
                                 itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
                                     val discoLayered = LauncherFeatureStore.appIconStyle(context) ==
                                         AppIconStyle.DISCO_LAYERED
+                                    // Share WP8.1's normalized layered artwork,
+                                    // optional painted backdrop and stored accent.
                                     val visual = rememberWp81TileVisual(
                                         appsRepository, app.packageName,
-                                        isClassicPhone && discoLayered,
+                                        discoLayered,
                                     )
                                     val icon = visual.icon
+                                    val plateSideDp = if (isClassicPhone) 52f * classicUnit else 45f
+                                    val artworkSideDp = phoneAllAppsGlyphSizeDp(plateSideDp)
+                                    val settingsGlyphSideDp = if (isClassicPhone) 27f
+                                        else phoneAllAppsSettingsGlyphSizeDp(plateSideDp)
+                                    val fallbackGlyphSp = if (isClassicPhone) 22f * classicUnit
+                                        else phoneAllAppsFallbackSizeSp(plateSideDp)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
                                     val listIndex = (positions[letter] ?: 0) + appIndex +
@@ -1614,13 +1616,14 @@ fun PhoneLauncherSurface(
                                     ) {
                                         Box(Modifier
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
-                                            .size(if (isClassicPhone) (52f * classicUnit).dp else 45.dp)
+                                            .size(plateSideDp.dp)
                                             .background(
-                                                if (isTen || discoLayered) visual.accent
+                                                // Match WP8.1 in every icon style: only
+                                                // Disco layered icons supply brand plates.
+                                                if (discoLayered) visual.accent
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
-                                            if (isClassicPhone && discoLayered &&
-                                                visual.richBackground != null) {
+                                            if (discoLayered && visual.richBackground != null) {
                                                 androidx.compose.foundation.Image(
                                                     bitmap = visual.richBackground,
                                                     contentDescription = null,
@@ -1633,13 +1636,13 @@ fun PhoneLauncherSurface(
                                             // artwork. Start tile logos retain their own sizing.
                                             if (app.packageName == MOSAIC_SETTINGS_ID) {
                                                 com.flivoro.tile8auncher.ui.components.MetroIcon(
-                                                    glyph = "settings", size = 27.dp)
+                                                    glyph = "settings", size = settingsGlyphSideDp.dp)
                                             } else if (icon != null) androidx.compose.foundation.Image(
                                                 bitmap = icon, contentDescription = null,
-                                                modifier = Modifier.size(if (isClassicPhone) (30f * classicUnit).dp else 28.dp),
+                                                modifier = Modifier.size(artworkSideDp.dp),
                                                 colorFilter = null)
                                             else Text(app.label.take(1), color = Color.White,
-                                                fontSize = if (isClassicPhone) (22f * classicUnit).sp else 22.sp)
+                                                fontSize = fallbackGlyphSp.sp)
                                         }
                                         val displayTitle = remember(app.label, search, phone8SearchVisible, isClassicPhone, accent) {
                                             if (!isClassicPhone || !phone8SearchVisible || search.isBlank()) {
@@ -2614,30 +2617,19 @@ private fun PhoneTile(
         repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
     )
     val icon = visual.icon
-    val classicStockTile = mode == LauncherUiMode.PHONE_8 &&
-        tile.id.startsWith("tile_")
-    val classicPrimaryAppTile = mode == LauncherUiMode.PHONE_8 &&
-        tile.id.startsWith("phone_app_") &&
-        (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true) ||
-            tile.title.equals("Messages", true) || tile.title.equals("Messaging", true))
-    val userChoseColor = mode == LauncherUiMode.PHONE_8 &&
-        PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
-    // Icons decode asynchronously. Once a third-party adaptive layer is ready,
-    // its vivid brand color may appear, but never override the default accent
-    // used by system tiles or any explicit manual tile-color choice.
-    val allowClassicBrandColor = mode == LauncherUiMode.PHONE_8 &&
-        !classicStockTile && !classicPrimaryAppTile &&
-        !userChoseColor && layered
-    val resolvedTile = when {
-        allowClassicBrandColor && !tile.packageName.isNullOrBlank() ->
-            // Use the identical background chosen in All Apps, including
-            // valid neutral backgrounds paired with colorful foregrounds.
-            visual.accent?.let { tile.copy(colorValue = it) } ?: tile
-        mode != LauncherUiMode.PHONE_8 && layered &&
-            !tile.packageName.isNullOrBlank() ->
-            visual.accent?.let { tile.copy(colorValue = it) } ?: tile
-        else -> tile
-    }
+    val classicStockTile = tile.id.startsWith("tile_")
+    val classicPrimaryAppTile = tile.id.startsWith("phone_app_") &&
+        isPhoneOrMessagesApp(tile.title)
+    val userChoseColor = PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
+    // Keep W10M on the same WP8.1 tile-color policy, including the
+    // stock Metro accent, manual overrides and remembered brand plate.
+    val allowClassicBrandColor = canUsePhoneBrandColor(
+        tile.id, tile.title, userChoseColor, layered,
+    )
+    val resolvedTile = if (allowClassicBrandColor &&
+        !tile.packageName.isNullOrBlank()) {
+        visual.accent?.let { tile.copy(colorValue = it) } ?: tile
+    } else tile
     // WP8.1 app icons are normalized by visible content bounds, not per-app
     // scale heuristics. Stock tiles retain their requested 1.5x glyphs.
     val classicIconScale = when {
@@ -2740,7 +2732,7 @@ private fun PhoneTile(
         appIcon = icon,
         // The complete WP8.1 color policy is resolved above. Prevent the
         // icon-face compositor from silently painting white on top of it.
-        allowAppDerivedBackground = mode != LauncherUiMode.PHONE_8,
+        allowAppDerivedBackground = false,
         logoModifier = if (wp81NativeGlyph == "wp81_phone") {
             Modifier.graphicsLayer {
                 // Position only; keep native-density vector edges sharp.
