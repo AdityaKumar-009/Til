@@ -119,6 +119,7 @@ import com.flivoro.tile8auncher.features.recentlyInstalledApps as selectRecently
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
+import com.flivoro.tile8auncher.ui.components.highlightedAppLabel
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.elasticVerticalScroll
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
@@ -1503,6 +1504,28 @@ fun PhoneLauncherSurface(
                                         discoLayered,
                                     )
                                     val icon = visual.icon
+                                    // W10M All Apps uses the same resolved color as
+                                    // its Start tile, including custom and stock tiles.
+                                    val startAppTile = if (isTen)
+                                        phoneTiles.firstOrNull { it.packageName == app.packageName }
+                                            ?: appTile(app)
+                                    else null
+                                    val manuallyColored = if (isTen && startAppTile != null)
+                                        PhoneLayoutStore.hasCustomColor(context, mode, startAppTile.id)
+                                    else false
+                                    val rowColor = if (isTen && startAppTile != null)
+                                        resolvePhoneTileBackgroundArgb(
+                                            startAppTile.id, startAppTile.title,
+                                            startAppTile.colorValue, visual.accent,
+                                            manuallyColored, discoLayered,
+                                        )
+                                    else null
+                                    val showBrandBackground = if (isTen && startAppTile != null)
+                                        canUsePhoneBrandColor(
+                                            startAppTile.id, startAppTile.title,
+                                            manuallyColored, discoLayered,
+                                        )
+                                    else discoLayered
                                     val plateSideDp = if (isClassicPhone) 52f * classicUnit else 45f
                                     val artworkSideDp = phoneAllAppsGlyphSizeDp(plateSideDp)
                                     val settingsGlyphSideDp = if (isClassicPhone) 27f
@@ -1618,12 +1641,11 @@ fun PhoneLauncherSurface(
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
                                             .size(plateSideDp.dp)
                                             .background(
-                                                // Match WP8.1 in every icon style: only
-                                                // Disco layered icons supply brand plates.
-                                                if (discoLayered) visual.accent
+                                                if (isTen) Color(rowColor ?: StartPersonalization.accentArgb)
+                                                else if (discoLayered) visual.accent
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
-                                            if (discoLayered && visual.richBackground != null) {
+                                            if (showBrandBackground && visual.richBackground != null) {
                                                 androidx.compose.foundation.Image(
                                                     bitmap = visual.richBackground,
                                                     contentDescription = null,
@@ -1644,20 +1666,12 @@ fun PhoneLauncherSurface(
                                             else Text(app.label.take(1), color = Color.White,
                                                 fontSize = fallbackGlyphSp.sp)
                                         }
-                                        val displayTitle = remember(app.label, search, phone8SearchVisible, isClassicPhone, accent) {
-                                            if (!isClassicPhone || !phone8SearchVisible || search.isBlank()) {
-                                                AnnotatedString(app.label)
-                                            } else buildAnnotatedString {
-                                                val match = app.label.indexOf(search, ignoreCase = true)
-                                                if (match < 0) append(app.label)
-                                                else {
-                                                    append(app.label.substring(0, match))
-                                                    withStyle(SpanStyle(color = accent)) {
-                                                        append(app.label.substring(match, match + search.length))
-                                                    }
-                                                    append(app.label.substring(match + search.length))
-                                                }
-                                            }
+                                        // Classic highlights only within search mode;
+                                        // W10M highlights whenever its search box is used.
+                                        val activeSearch = if (isClassicPhone &&
+                                            !phone8SearchVisible) "" else search
+                                        val displayTitle = remember(app.label, activeSearch, accent) {
+                                            highlightedAppLabel(app.label, activeSearch, accent)
                                         }
                                         Text(displayTitle, color = Color.White,
                                             fontSize = if (isClassicPhone) (30f * classicUnit).sp else 18.sp,
@@ -2626,10 +2640,13 @@ private fun PhoneTile(
     val allowClassicBrandColor = canUsePhoneBrandColor(
         tile.id, tile.title, userChoseColor, layered,
     )
-    val resolvedTile = if (allowClassicBrandColor &&
-        !tile.packageName.isNullOrBlank()) {
-        visual.accent?.let { tile.copy(colorValue = it) } ?: tile
-    } else tile
+    val resolvedColor = resolvePhoneTileBackgroundArgb(
+        tile.id, tile.title, tile.colorValue,
+        visual.accent.takeIf { !tile.packageName.isNullOrBlank() },
+        userChoseColor, layered,
+    )
+    val resolvedTile = if (resolvedColor != tile.colorValue)
+        tile.copy(colorValue = resolvedColor) else tile
     // WP8.1 app icons are normalized by visible content bounds, not per-app
     // scale heuristics. Stock tiles retain their requested 1.5x glyphs.
     val classicIconScale = when {

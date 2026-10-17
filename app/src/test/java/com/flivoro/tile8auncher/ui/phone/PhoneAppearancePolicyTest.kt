@@ -27,6 +27,29 @@ class PhoneAppearancePolicyTest {
         assertFalse(usesPhoneThemeAccent("app_installed", "Camera Extra", false))
     }
 
+    @Test fun allAppsAndStartResolveTheSameBrandedTileColor() {
+        val blue = 0xFF0078D7L
+        val red = 0xFFCC0033L
+        assertEquals(red, resolvePhoneTileBackgroundArgb(
+            "phone_app_camera", "Camera Extra", blue, red,
+            manualColor = false, discoLayered = true))
+        assertEquals(blue, resolvePhoneTileBackgroundArgb(
+            "phone_app_camera", "Camera Extra", blue, red,
+            manualColor = true, discoLayered = true))
+        assertEquals(blue, resolvePhoneTileBackgroundArgb(
+            "tile_camera", "Camera", blue, red,
+            manualColor = false, discoLayered = true))
+        assertEquals(blue, resolvePhoneTileBackgroundArgb(
+            "phone_app_dialer", "Phone", blue, red,
+            manualColor = false, discoLayered = true))
+        assertEquals(blue, resolvePhoneTileBackgroundArgb(
+            "phone_app_camera", "Camera Extra", blue, red,
+            manualColor = false, discoLayered = false))
+        assertEquals(blue, resolvePhoneTileBackgroundArgb(
+            "phone_app_camera", "Camera Extra", blue, null,
+            manualColor = false, discoLayered = true))
+    }
+
     @Test fun mobileAllAppsIconsUseTheExactClassicArtworkRatio() {
         assertEquals(30f, phoneAllAppsGlyphSizeDp(52f), .0001f)
         assertEquals(45f * 30f / 52f, phoneAllAppsGlyphSizeDp(45f), .0001f)

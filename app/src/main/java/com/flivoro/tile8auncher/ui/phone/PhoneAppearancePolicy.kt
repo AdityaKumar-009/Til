@@ -24,6 +24,21 @@ internal fun canUsePhoneBrandColor(
 ): Boolean = isDiscoLayered && !usesPhoneThemeAccent(tileId, title, false) &&
     !hasManualColor
 
+/**
+ * Reuse the exact Start tile's resolved color in W10M All Apps. The caller
+ * supplies the already-resolved (shared-pins/manual/theme) tile color; only
+ * supported third-party layered artwork may override it.
+ */
+internal fun resolvePhoneTileBackgroundArgb(
+    tileId: String,
+    title: String,
+    baseColor: Long,
+    layeredAccent: Long?,
+    manualColor: Boolean,
+    discoLayered: Boolean,
+): Long = if (canUsePhoneBrandColor(tileId, title, manualColor, discoLayered))
+    layeredAccent ?: baseColor else baseColor
+
 /** Match WP8.1's 30-unit glyph within a 52-unit app-list icon plate. */
 internal fun phoneAllAppsGlyphSizeDp(plateSideDp: Float): Float =
     plateSideDp * (30f / 52f)

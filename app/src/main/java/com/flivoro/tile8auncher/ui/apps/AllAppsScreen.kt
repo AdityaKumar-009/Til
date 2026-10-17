@@ -104,6 +104,7 @@ import com.flivoro.tile8auncher.features.usageAccessSettingsIntent
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
+import com.flivoro.tile8auncher.ui.components.highlightedAppLabel
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.components.rememberAllAppsIcon
@@ -389,6 +390,7 @@ fun AllAppsScreen(
             ) {
                 if (searchQuery.isNotBlank()) {
                     UniversalSearchPanel(
+                        query = searchQuery,
                         matchingApps = matchingApps,
                         universalResults = universalResults,
                         appsRepository = appsRepository,
@@ -674,6 +676,7 @@ fun AllAppsScreen(
 
 @Composable
 private fun UniversalSearchPanel(
+    query: String,
     matchingApps: List<AppInfo>,
     universalResults: List<UniversalSearchResult>,
     appsRepository: AppsRepository,
@@ -705,6 +708,7 @@ private fun UniversalSearchPanel(
                     isNew = isNewByPackage[app.packageName] == true,
                     appTileAccent = appTileAccent,
                     useAppAccentColors = useAppAccentColors,
+                    highlightQuery = query,
                     onClick = { onAppClick(app, it) },
                     onLongClick = { onAppLongClick(app) },
                 )
@@ -1136,6 +1140,7 @@ private fun AppListItem(
     isNew: Boolean,
     appTileAccent: Color,
     useAppAccentColors: Boolean,
+    highlightQuery: String = "",
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -1202,8 +1207,11 @@ private fun AppListItem(
             }
         }
         Spacer(modifier = Modifier.width(10.dp))
+        val highlightedTitle = remember(app.label, highlightQuery, StartPersonalization.accentColor) {
+            highlightedAppLabel(app.label, highlightQuery, StartPersonalization.accentColor)
+        }
         Text(
-            text = app.label,
+            text = highlightedTitle,
             style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Normal),
             color = Color.White,
             maxLines = 1,
