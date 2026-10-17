@@ -16,7 +16,17 @@ OUT = Path("app/build/startup-benchmark")
 
 
 def adb(*args):
-    return subprocess.check_output(["adb", *args], text=True, stderr=subprocess.STDOUT)
+    # A wedged emulator must fail this check rather than consume the entire CI job.
+    timeout = 120 if "compile" in args or args[0] == "install" else 60
+    try:
+        return subprocess.check_output(["adb", *args], text=True,
+                                       stderr=subprocess.STDOUT, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f"Emulator command timed out after {timeout}s: adb {' '.join(args)}") from error
+
+
+def checkpoint(results):
+    (OUT / "timings.json").write_text(json.dumps(results, indent=2))
 
 
 def startup_log():
@@ -51,6 +61,8 @@ def launch(mode):
             log = startup_log()
             if "FATAL EXCEPTION" in log:
                 raise RuntimeError(log)
+            if fully_drawn_ms(log) is None:
+                raise RuntimeError(f"{mode} did not report a fully drawn launcher:\n{log}")
             return {"apps": int(ready[1]), "ready_ms": int(ready[2]),
                     "initial_drawn_ms": int(re.search(r"TotalTime: (\d+)", output)[1]),
                     "fully_drawn_ms": fully_drawn_ms(log), "am_start": output, "log": log}
@@ -107,24 +119,34 @@ def install_and_compile_profile():
     return {"install": installed, "compile": compiled}
 
 
-def measure(apk, label, iterations=3, compile_profile=False):
+def measure(apk, label, iterations=3, compile_profile=False, all_results=None):
     adb("install", "-r", apk)
     results = {}
+    if all_results is None:
+        all_results = {}
+    all_results[label] = results
     for mode in ("DESKTOP", "PHONE_8", "MOBILE_10"):
+        print(f"Measuring {label} {mode}, profile compilation={compile_profile}", flush=True)
         set_mode(mode)
         # Keep ART compilation conditions equal across APKs and modes.
         adb("shell", "cmd", "package", "compile", "-f", "-m", "verify", PACKAGE)
         adb("shell", "pm", "art", "clear-app-profiles", PACKAGE)
         first = launch(mode)
-        compilation = install_and_compile_profile() if compile_profile else None
-        cached = [launch(mode) for _ in range(iterations)]
+        current = results[mode] = {"first": first, "cached": [], "reopen": []}
+        checkpoint(all_results)
+        current["compilation"] = install_and_compile_profile() if compile_profile else None
+        cached = current["cached"]
+        for _ in range(iterations):
+            cached.append(launch(mode))
+            checkpoint(all_results)
         drawn = [item["fully_drawn_ms"] for item in cached if item["fully_drawn_ms"] is not None]
-        results[mode] = {"first": first, "cached": cached,
-                         "cached_median_ms": statistics.median(item["ready_ms"] for item in cached),
+        current.update({"cached_median_ms": statistics.median(item["ready_ms"] for item in cached),
                          "cached_initial_drawn_median_ms": statistics.median(item["initial_drawn_ms"] for item in cached),
-                         "cached_drawn_median_ms": statistics.median(drawn) if drawn else None,
-                         "compilation": compilation,
-                         "reopen": [reopen(label == "after") for _ in range(3)]}
+                         "cached_drawn_median_ms": statistics.median(drawn)})
+        checkpoint(all_results)
+        for _ in range(3):
+            current["reopen"].append(reopen(label == "after"))
+            checkpoint(all_results)
         print(f"{label} {mode}: cached preparation={results[mode]['cached_median_ms']}ms, "
               f"first frame={results[mode]['cached_initial_drawn_median_ms']}ms, "
               f"fully drawn={results[mode]['cached_drawn_median_ms']}ms", flush=True)
@@ -143,10 +165,11 @@ def main():
     adb("wait-for-device")
     adb("shell", "wm", "size", "1080x2160")
     adb("shell", "wm", "density", "480")
+    adb("shell", "settings", "put", "global", "stay_on_while_plugged_in", "7")
+    adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
     results = {}
     for label, apk in zip(("before", "after"), (args.before, args.after), strict=True):
-        results[label] = measure(apk, label, args.iterations, args.compile_profile)
-        (OUT / "timings.json").write_text(json.dumps(results, indent=2))
+        measure(apk, label, args.iterations, args.compile_profile, results)
     lines = ["### Launcher startup on the same API 34 emulator", "",
              f"Fresh data once; saved cold starts {args.iterations} times. Fully drawn includes process and initial UI rendering, before the entrance animation finishes. Preparation timings exclude process/Compose initialization. Emulator timings are not device guarantees.",
              "Both APKs use their bundled Baseline Profile, installed and AOT-compiled before cached measurements." if args.compile_profile else "Both APKs start with ART compilation reset; no forced ahead-of-time compilation.", "",

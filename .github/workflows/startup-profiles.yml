@@ -46,6 +46,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: false
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
           script: bash .github/scripts/profile-and-benchmark.sh
       - name: Upload captured profiles and measurements
         if: always()

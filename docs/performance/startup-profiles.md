@@ -42,6 +42,15 @@ startup plus the prepared initial UI, before the entrance animation completes).
 It also checks repeated foreground/Back returns retain prepared state and never
 show the launcher loading indicator. Emulator timings are not device guarantees.
 
+To isolate the profile benefit from other feature changes, use the Android build
+workflow's `benchmark_profiles` input, or `[startup-profile-benchmark]` in the
+commit message. It builds the same revision twice, removing only the app-specific
+profiles in a disposable control checkout. AndroidX library profiles remain in
+both APKs. Each compilation condition uses a fresh software-rendered emulator
+with Vulkan disabled. Commands have time limits and each sample is saved as it
+finishes, so an emulator failure preserves completed measurements and fails
+promptly. Incomplete runs must not be reported as a measured improvement.
+
 `verify-startup-profiles.py` checks the APK's binary ART profile and size limit,
 then verifies the bundle's R8 metadata identifies a startup DEX with a matching
 checksum. This catches misplaced or unconsumed Startup Profile source files.
