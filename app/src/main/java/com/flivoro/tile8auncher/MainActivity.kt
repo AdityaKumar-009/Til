@@ -11,6 +11,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -25,6 +27,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,6 +44,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -55,6 +60,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.prepareLauncher
+import com.flivoro.tile8auncher.data.PreparedLauncher
+import com.flivoro.tile8auncher.data.SharedStartWorkspace
+import com.flivoro.tile8auncher.data.warmLauncherArtwork
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.TileModel
@@ -65,9 +74,15 @@ import com.flivoro.tile8auncher.data.defaultTilePickerBaseIntent
 import com.flivoro.tile8auncher.data.defaultTileSemanticIntent
 import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.data.resolveDefaultTileApp
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.canRequestAppUninstall
+import com.flivoro.tile8auncher.features.userConfirmedAppUninstallIntent
+import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
+import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
@@ -80,7 +95,7 @@ import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
-import com.flivoro.tile8auncher.ui.components.preloadStartIcons
+import com.flivoro.tile8auncher.ui.components.LauncherStartupSplash
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
 import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
@@ -116,6 +131,7 @@ class MainActivity : ComponentActivity() {
     private var homeRequest by mutableIntStateOf(0)
     private var entranceRequest by mutableIntStateOf(0)
     private var entranceKind by mutableStateOf(StartEntranceKind.STARTUP)
+    private var phoneResumeUsesBackMotion by mutableStateOf(false)
     private var entranceReady by mutableStateOf(false)
     private var startupEntrancePending = true
     private var pendingLaunchIntent: Intent? = null
@@ -126,6 +142,26 @@ class MainActivity : ComponentActivity() {
     private var userPresentObserved = false
     private var homeIntentPending = false
     private var unlockReleaseGeneration = 0
+    // Ignore delayed activity-resume animation callbacks after a pause, a
+    // replacement resume, or destruction. Disco delays activityResume by 200ms.
+    private var classicPhoneResumeGeneration = 0
+    private var pendingClassicHomeReturn = false
+    private var classicExternalAppLaunched = false
+    private var mobileExternalAppLaunched = false
+    private var phoneReturnSourceTileId by mutableStateOf<String?>(null)
+    private var phoneAllAppsVisible = false
+    private var screenOffRequest by mutableIntStateOf(0)
+
+    // The system uninstaller must be launched for a result, not as a NEW_TASK
+    // no-animation app launch. Android broadcasts PACKAGE_REMOVED after confirmation.
+    private val uninstallRequest = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            // Also refresh if an OEM failed to send us its package broadcast.
+            PackageCatalogUpdates.notifyPackageChanged()
+        }
+    }
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -138,6 +174,9 @@ class MainActivity : ComponentActivity() {
                     startupEntrancePending = true
                     waitingForUserPresent = true
                     entranceReady = false
+                    screenOffRequest++
+                    mobileExternalAppLaunched = false
+                    phoneReturnSourceTileId = null
                     activeInAppTile = null
                     pendingLaunchIntent = null
                     if (flipState.isRunning) flipState = FlipAnimationState()
@@ -176,7 +215,13 @@ class MainActivity : ComponentActivity() {
         insetsController.isAppearanceLightStatusBars = false
         insetsController.isAppearanceLightNavigationBars = false
 
-        appsRepository = AppsRepository(this)
+        // A phone-mode crash during its first render or while opening Settings must not
+        // strand the device in an unopenable home launcher. Restore Desktop on next cold start.
+        if (savedInstanceState == null) {
+            LauncherFeatureStore.recoverInterruptedPhoneRender(this)
+        }
+        LauncherFeatureStore.beginPhoneRender(this)
+        appsRepository = (application as Tile8Application).appsRepository
         ContextCompat.registerReceiver(
             this,
             userPresentReceiver,
@@ -194,6 +239,9 @@ class MainActivity : ComponentActivity() {
                     homeRequest = homeRequest,
                     entranceRequest = entranceRequest,
                     entranceKind = entranceKind,
+                    resumeUsesBackMotion = phoneResumeUsesBackMotion,
+                    screenOffRequest = screenOffRequest,
+                    returningPhoneTileId = phoneReturnSourceTileId,
                     entranceReady = entranceReady,
                     onOpenInAppTile = { activeInAppTile = it },
                     onCloseInAppTile = {
@@ -202,7 +250,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onTriggerFlip = { tile, bounds, origin ->
                         if (entranceReady && !flipState.isRunning) {
-                            pendingLaunchIntent = resolveLaunchIntent(tile)
+                            // The launcher-native Settings screen must not resolve
+                            // to Android Settings' stock semantic intent.
+                            pendingLaunchIntent = if (tile.tileType == TileType.SETTINGS) null
+                                else resolveLaunchIntent(tile)
                             val icon = if (origin == LaunchOrigin.ALL_APPS) {
                                 cachedAllAppsIconForCurrentStyle(
                                     context = this@MainActivity,
@@ -240,7 +291,8 @@ class MainActivity : ComponentActivity() {
                         pendingLaunchIntent = null
                     },
                     onOpenAppInfo = { packageName -> openAppInfo(packageName) },
-                    onUninstallApp = { packageName -> uninstallApp(packageName) }
+                    onUninstallApp = { packageName -> uninstallApp(packageName) },
+                    onPhonePageChanged = { phoneAllAppsVisible = it },
                 )
             }
         }
@@ -255,6 +307,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         launcherForeground = false
         launcherResumed = false
+        classicPhoneResumeGeneration++
         super.onStop()
         if (flipState.isRunning) {
             flipState = FlipAnimationState(isRunning = false)
@@ -265,6 +318,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         launcherResumed = false
+        classicPhoneResumeGeneration++
 
         // Some OEMs deliver ACTION_SCREEN_OFF after onPause. Pre-arm the same background-only gate
         // here when the display/keyguard already says the device is leaving the interactive state.
@@ -283,6 +337,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun scheduleClassicPhoneResume() {
+        // src/script.js in DiscoLauncher defers activityResume -> onResume()
+        // for 200ms. Keep a black launcher surface in the meantime so the
+        // Android task switch cannot consume the native-style tile entrance.
+        entranceReady = false
+        val generation = ++classicPhoneResumeGeneration
+        window.decorView.postDelayed({
+            if (generation != classicPhoneResumeGeneration || !launcherResumed ||
+                deviceRequiresEntranceGate() || startupEntrancePending
+            ) return@postDelayed
+
+            entranceKind = StartEntranceKind.RETURN
+            // Explicit Home enters from the right; returning from an app
+            // launched here uses the native Back turn from the left.
+            phoneResumeUsesBackMotion = classicExternalAppLaunched && !pendingClassicHomeReturn
+            classicExternalAppLaunched = false
+            entranceReady = true
+            entranceRequest++
+            if (pendingClassicHomeReturn) {
+                pendingClassicHomeReturn = false
+                homeRequest++
+            }
+        }, 200L)
+    }
+
     override fun onResume() {
         super.onResume()
         LiveTileRuntime.requestReconnect(this)
@@ -294,16 +373,37 @@ class MainActivity : ComponentActivity() {
         val gatedBySystem = deviceRequiresEntranceGate()
         waitingForUserPresent = gatedBySystem
         if (gatedBySystem) {
+            phoneResumeUsesBackMotion = false
             startupEntrancePending = true
             entranceReady = false
             if (userPresentObserved) scheduleUnlockReleaseIfReady()
         } else if (startupEntrancePending) {
+            phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
         } else {
-            entranceReady = true
-            if (!homeWasPending) {
-                entranceKind = StartEntranceKind.RETURN
-                entranceRequest++
+            val mode = LauncherFeatureStore.launcherUiMode(this)
+            if (mode == LauncherUiMode.PHONE_8) {
+                // Only an external app handoff or true Home return can replay
+                // the classic animation. An incidental onResume is not navigation.
+                if (classicExternalAppLaunched || homeWasPending || pendingClassicHomeReturn) {
+                    if (homeWasPending) pendingClassicHomeReturn = true
+                    scheduleClassicPhoneResume()
+                } else {
+                    entranceReady = true
+                    phoneResumeUsesBackMotion = false
+                }
+            } else {
+                entranceReady = true
+                val mobileBackReturn = mode == LauncherUiMode.MOBILE_10 &&
+                    mobileExternalAppLaunched && !homeWasPending
+                mobileExternalAppLaunched = false
+                phoneResumeUsesBackMotion = mobileBackReturn
+                if (mobileBackReturn || (mode == LauncherUiMode.DESKTOP && !homeWasPending)) {
+                    entranceKind = StartEntranceKind.RETURN
+                    entranceRequest++
+                } else if (homeWasPending) {
+                    phoneReturnSourceTileId = null
+                }
             }
         }
 
@@ -318,6 +418,15 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            // Android routinely redelivers HOME to the already-visible launcher.
+            // A settled phone Start must not reset the animation clock at all.
+            if (LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP &&
+                launcherResumed && !phoneAllAppsVisible && activeInAppTile == null &&
+                !flipState.isRunning
+            ) return
+            phoneResumeUsesBackMotion = false
+            mobileExternalAppLaunched = false
+            phoneReturnSourceTileId = null
             if (flipState.isRunning) {
                 requestFlipReverse(FlipReverseReason.HOME)
                 return
@@ -326,16 +435,29 @@ class MainActivity : ComponentActivity() {
             pendingLaunchIntent = null
             val returningFromOutside = !launcherResumed
             homeIntentPending = returningFromOutside
-            if (returningFromOutside && entranceReady) {
-                entranceKind = StartEntranceKind.RETURN
-                entranceRequest++
+            if (LauncherFeatureStore.launcherUiMode(this) == LauncherUiMode.PHONE_8 &&
+                (returningFromOutside || !entranceReady)
+            ) {
+                // Defer the HOME request alongside the 200ms activity-resume
+                // event. Otherwise homeRequest itself restarts motionClock
+                // before the window is shown (and causes the observed twitch).
+                pendingClassicHomeReturn = true
+                if (launcherResumed && !startupEntrancePending) {
+                    scheduleClassicPhoneResume()
+                }
+            } else {
+                if (returningFromOutside && entranceReady) {
+                    entranceKind = StartEntranceKind.RETURN
+                    entranceRequest++
+                }
+                homeRequest++
             }
-            homeRequest++
         }
     }
 
     override fun onDestroy() {
         unlockReleaseGeneration++
+        classicPhoneResumeGeneration++
         if (userPresentReceiverRegistered) {
             unregisterReceiver(userPresentReceiver)
             userPresentReceiverRegistered = false
@@ -373,7 +495,12 @@ class MainActivity : ComponentActivity() {
         startupEntrancePending = false
         entranceReady = true
         entranceKind = StartEntranceKind.STARTUP
+        phoneResumeUsesBackMotion = false
         entranceRequest++
+        if (pendingClassicHomeReturn) {
+            pendingClassicHomeReturn = false
+            homeRequest++
+        }
     }
 
     private fun deviceRequiresEntranceGate(): Boolean {
@@ -422,14 +549,36 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun uninstallApp(packageName: String) {
-        try {
-            val intent = Intent(Intent.ACTION_DELETE).apply {
-                data = Uri.parse("package:$packageName")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!canRequestAppUninstall(this, packageName)) {
+            val installed = runCatching {
+                packageManager.getApplicationInfo(packageName, 0)
+            }.isSuccess
+            if (installed && packageName != this.packageName) {
+                Toast.makeText(this, "System apps cannot be removed; opening App info", Toast.LENGTH_LONG).show()
+                openAppInfo(packageName)
+            } else {
+                Toast.makeText(this, "This app cannot be uninstalled", Toast.LENGTH_SHORT).show()
             }
-            startActivityWithCustomAnim(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Could not request uninstall", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            // ACTION_UNINSTALL_PACKAGE opens the user's platform confirmation.
+            // No FLAG_ACTIVITY_NEW_TASK: the ActivityResult contract must receive
+            // success/cancel and the launcher must not suppress the system UI.
+            uninstallRequest.launch(userConfirmedAppUninstallIntent(packageName))
+        } catch (first: Exception) {
+            Log.w("MosaicUninstall", "Uninstaller intent failed for $packageName", first)
+            // Some vendor package managers register only the legacy DELETE action.
+            try {
+                uninstallRequest.launch(Intent(Intent.ACTION_DELETE,
+                    Uri.fromParts("package", packageName, null)).apply {
+                        putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                    })
+            } catch (second: Exception) {
+                Log.e("MosaicUninstall", "Unable to show uninstall confirmation for $packageName", second)
+                Toast.makeText(this, "Uninstaller unavailable. Try App info.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -469,8 +618,22 @@ class MainActivity : ComponentActivity() {
         }
         try {
             launchHandoffPending = true
+            when (LauncherFeatureStore.launcherUiMode(this)) {
+                LauncherUiMode.PHONE_8 -> {
+                    classicExternalAppLaunched = true
+                    phoneReturnSourceTileId = tile.id
+                }
+                LauncherUiMode.MOBILE_10 -> {
+                    mobileExternalAppLaunched = true
+                    phoneReturnSourceTileId = tile.id
+                }
+                else -> Unit
+            }
             startActivityWithCustomAnim(preparedIntent)
         } catch (_: Exception) {
+            classicExternalAppLaunched = false
+            mobileExternalAppLaunched = false
+            phoneReturnSourceTileId = null
             launchHandoffPending = false
             activeInAppTile = tile
             flipState = FlipAnimationState()
@@ -498,12 +661,16 @@ fun Tile8LauncherApp(
     onDismissFlip: () -> Unit,
     onOpenAppInfo: (packageName: String) -> Unit,
     onUninstallApp: (packageName: String) -> Unit,
+    onPhonePageChanged: (Boolean) -> Unit = {},
     homeRequest: Int = 0,
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
+    resumeUsesBackMotion: Boolean = false,
+    screenOffRequest: Int = 0,
+    returningPhoneTileId: String? = null,
     entranceReady: Boolean = true,
 ) {
-    var currentScreen by remember { mutableStateOf(LauncherScreen.START) }
+    var currentScreen by rememberSaveable { mutableStateOf(LauncherScreen.START) }
     val drawerProgress = remember { mutableFloatStateOf(0f) }
     val appsFullyVisible by remember { derivedStateOf { drawerProgress.floatValue >= 0.999f } }
     val initialStartScrollIndex = remember { appsRepository.getStartScrollIndex() }
@@ -523,8 +690,10 @@ fun Tile8LauncherApp(
         mutableStateOf(appsRepository.getWallpaperParallaxEnabled())
     }
     var wallpaperStyle by remember { mutableIntStateOf(appsRepository.getWallpaperStyle()) }
-    val tiles = remember { mutableStateListOf<TileModel>() }
-    var tilesLoaded by remember { mutableStateOf(false) }
+    val tiles = remember { mutableStateListOf<TileModel>().apply {
+        addAll(appsRepository.cachedPinnedTiles.orEmpty())
+    } }
+    var tilesLoaded by remember { mutableStateOf(appsRepository.cachedPinnedTiles != null) }
     var selectedTileForCustomization by remember { mutableStateOf<TileModel?>(null) }
     var showPowerDialog by remember { mutableStateOf(false) }
     var showPinAppsDialog by remember { mutableStateOf(false) }
@@ -534,6 +703,9 @@ fun Tile8LauncherApp(
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
+    var localPhoneResumeUsesBackMotion by remember(entranceRequest, homeRequest) {
+        mutableStateOf(resumeUsesBackMotion)
+    }
     var showCharms by remember { mutableStateOf(false) }
     var searchFocusRequest by remember { mutableIntStateOf(0) }
     var drawerResetRequest by remember { mutableIntStateOf(0) }
@@ -664,14 +836,18 @@ fun Tile8LauncherApp(
         }
     }
 
-    // Screen-off is a real UI mode, not merely alpha=0. Close transient launcher chrome and put
-    // the vertical navigator back on Start while the wallpaper remains the only rendered layer.
+    // A temporary entrance gate (including a recreated Activity after app launch) must not
+    // discard the saved page. Only an actual screen-off event explicitly resets navigation.
     LaunchedEffect(entranceReady) {
         if (!entranceReady) {
             showCharms = false
             selectedTileForCustomization = null
             showPinAppsDialog = false
             showPowerDialog = false
+        }
+    }
+    LaunchedEffect(screenOffRequest) {
+        if (screenOffRequest > 0) {
             currentScreen = LauncherScreen.START
             drawerResetRequest++
         }
@@ -690,13 +866,20 @@ fun Tile8LauncherApp(
     }
 
     fun openLauncherSettings() {
-        if (!entranceReady) return
+        if (!entranceReady || flipState.isRunning) return
         showCharms = false
         val settingsTile = tiles.firstOrNull { it.tileType == TileType.SETTINGS }
             ?: TileModel(id = "tile_settings", title = "PC settings",
                 colorValue = WindowsColors.SettingsPurple, tileType = TileType.SETTINGS,
                 iconGlyph = "settings")
-        onOpenInAppTile(settingsTile)
+        // Keep non-tile phone shortcuts on the native exit timeline too.
+        // Desktop's existing direct Settings opening is unchanged.
+        LauncherFeatureStore.beginPhoneSettings(context)
+        if (LauncherFeatureStore.launcherUiMode(context) == LauncherUiMode.DESKTOP) {
+            onOpenInAppTile(settingsTile)
+        } else {
+            onTriggerFlip(settingsTile, Rect.Zero, LaunchOrigin.START)
+        }
     }
 
     fun openDeviceSettings() {
@@ -716,6 +899,7 @@ fun Tile8LauncherApp(
 
     fun returnToStart() {
         val wasAwayFromStart = currentScreen != LauncherScreen.START || activeInAppTile != null
+        localPhoneResumeUsesBackMotion = false
         showCharms = false
         selectedTileForCustomization = null
         showPinAppsDialog = false
@@ -742,6 +926,7 @@ fun Tile8LauncherApp(
         onCloseInAppTile()
         if (wasOpen && entranceReady) {
             startEntranceKind = StartEntranceKind.RETURN
+            localPhoneResumeUsesBackMotion = true
             localStartEntranceRequest++
         }
     }
@@ -753,32 +938,97 @@ fun Tile8LauncherApp(
         if (flipState.isRunning) showCharms = false
     }
 
-    LaunchedEffect(Unit) {
-        val iconStyle = LauncherFeatureStore.appIconStyle(context)
-        val iconsRevision = LauncherFeatureRuntime.iconsRevision
-        val pinned = withContext(Dispatchers.IO) {
-            val loaded = appsRepository.loadPinnedTiles()
-            appsRepository.refreshAutomaticAppAccentTiles(loaded)
-        }
-
-        // Start stays hidden while persisted colors and the exact selected icon style are restored.
-        // After the first successful resolution, later launcher restarts normally hit Tile8's
-        // on-disk visual cache instead of flashing fallback glyphs/colors before async decoding.
-        preloadStartIcons(
-            context = context.applicationContext,
-            repository = appsRepository,
-            packageNames = pinned.mapNotNull(TileModel::packageName),
-            style = iconStyle,
-            iconsRevision = iconsRevision,
-        )
-
-        tiles.clear()
-        tiles.addAll(pinned)
-        tilesLoaded = true
+    // Activity recreation reuses process memory. A cold process restores the small saved catalog
+    // before validating packages or decoding icons; theme/settings changes never hide a ready HOME.
+    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
+    val iconsRevision = LauncherFeatureRuntime.iconsRevision
+    val packageRevision = PackageCatalogUpdates.revision
+    var categorizedApps by remember { mutableStateOf(appsRepository.peekCategorizedApps().orEmpty()) }
+    var catalogLoaded by remember { mutableStateOf(appsRepository.peekCategorizedApps() != null) }
+    val launcherPrepared = tilesLoaded && catalogLoaded
+    var showInitialLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(launcherPrepared) {
+        if (!launcherPrepared) {
+            // This only delays the indicator, never the content. Fast disk restores avoid a flash.
+            delay(180)
+            showInitialLoading = true
+            Log.i("MosaicStartup", "Loading indicator shown")
+        } else showInitialLoading = false
     }
 
-    val categorizedApps by produceState<List<AppSection>>(emptyList(), appsRepository) {
-        value = withContext(Dispatchers.IO) { appsRepository.getCategorizedApps() }
+    val externalPinnedRevision = LauncherFeatureRuntime.pinnedTilesRevision
+    LaunchedEffect(externalPinnedRevision) {
+        val startedAt = SystemClock.elapsedRealtime()
+        val prepared = prepareLauncher(context.applicationContext, appsRepository,
+            packageRevision)
+        categorizedApps = prepared.sections
+        if (tiles.toList() != prepared.tiles) {
+            tiles.clear()
+            tiles.addAll(prepared.tiles)
+        }
+        tilesLoaded = true
+        catalogLoaded = true
+        Log.i("MosaicStartup", "Ready $launcherMode, ${prepared.sections.sumOf { it.apps.size }} apps, " +
+            "${SystemClock.elapsedRealtime() - startedAt}ms")
+    }
+
+    LaunchedEffect(catalogLoaded, packageRevision) {
+        if (catalogLoaded) {
+            withFrameNanos { }
+            withFrameNanos { }
+            // Reconcile package changes without replacing the interactive surface with a splash.
+            categorizedApps = withContext(Dispatchers.IO) {
+                appsRepository.refreshCatalogIfNeeded(packageRevision)
+            }
+        }
+    }
+
+    val pinnedTiles = tiles.toList()
+    var sharedPinsRevision by remember { mutableIntStateOf(0) }
+    val phonePinnedTiles = remember(pinnedTiles, categorizedApps, externalPinnedRevision, sharedPinsRevision) {
+        SharedStartWorkspace.phoneTiles(context, pinnedTiles, categorizedApps.flatMap(AppSection::apps))
+    }
+    fun unpinPackage(packageName: String) {
+        val updated = SharedStartWorkspace.tilesWithoutPackage(context, tiles.toList(),
+            categorizedApps.flatMap(AppSection::apps), packageName)
+        appsRepository.savePinnedTiles(updated)
+        tiles.clear()
+        tiles.addAll(updated)
+        sharedPinsRevision++
+    }
+    LaunchedEffect(launcherPrepared, launcherMode, iconsRevision, categorizedApps, pinnedTiles) {
+        if (launcherPrepared) {
+            withFrameNanos { }
+            withFrameNanos { }
+            warmLauncherArtwork(context.applicationContext, appsRepository, launcherMode,
+                iconsRevision, PreparedLauncher(categorizedApps, pinnedTiles, null))
+            val refreshed = withContext(Dispatchers.IO) {
+                runCatching { appsRepository.refreshAutomaticAppAccentTiles(pinnedTiles, persist = false) }
+                    .onFailure { Log.w("MosaicStartup", "Unable to refresh app accents", it) }
+                    .getOrDefault(pinnedTiles)
+            }
+            // A pin/edit may have happened during decoding. Only update untouched tiles.
+            val before = pinnedTiles.associateBy(TileModel::id)
+            val after = refreshed.associateBy(TileModel::id)
+            val updated = tiles.map { tile ->
+                if (before[tile.id] == tile) after[tile.id] ?: tile else tile
+            }
+            if (updated != tiles.toList()) {
+                tiles.clear()
+                tiles.addAll(updated)
+                appsRepository.savePinnedTiles(updated)
+            }
+        }
+    }
+
+    LaunchedEffect(launcherPrepared, entranceReady) {
+        if (launcherPrepared && entranceReady) {
+            // Wait for the prepared surface to be composed and submitted, not just the splash.
+            withFrameNanos { }
+            withFrameNanos { }
+            (context as? Activity)?.reportFullyDrawn()
+        }
     }
 
     val activeContentRetreat by animateFloatAsState(
@@ -800,6 +1050,151 @@ fun Tile8LauncherApp(
 
     val charmsAvailable = entranceReady && !flipState.isRunning && !showPowerDialog &&
         !showPinAppsDialog && selectedTileForCustomization == null
+
+    // Desktop and phone modes retain their independent motion implementations.
+    // The phone skins are Android launchers, not standalone operating systems:
+    // keep the user's real Android gesture/three-button navigation visible.
+    // The classic mock navigation row was removed from PhoneLauncherSurface.
+    LaunchedEffect(launcherMode) {
+        (context as? Activity)?.window?.let { hostWindow ->
+            WindowCompat.getInsetsController(hostWindow, hostWindow.decorView)
+                .show(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+        }
+    }
+    val phoneSurfaceStates = rememberSaveableStateHolder()
+    // Do not consider a phone mode healthy merely because its preference was written.
+    // Confirm it after an actual visible, composed phone Start/All Apps frame.
+    LaunchedEffect(launcherMode, launcherPrepared, entranceReady, activeInAppTile) {
+        if (launcherMode != LauncherUiMode.DESKTOP && launcherPrepared && entranceReady) {
+            withFrameNanos { }
+            delay(600)
+            if (activeInAppTile == null) {
+                LauncherFeatureStore.confirmPhoneRender(context)
+            } else if (activeInAppTile.tileType == TileType.SETTINGS) {
+                LauncherFeatureStore.confirmPhoneSettings(context)
+            }
+        }
+    }
+    // Root Back keeps HOME alive in every mode, retaining its prepared catalog and artwork.
+    // More specific page, editing and dialog BackHandlers retain priority.
+    BackHandler(
+        enabled = entranceReady && activeInAppTile == null && !flipState.isRunning &&
+            currentScreen == LauncherScreen.START && !showCharms && !showPowerDialog && !showPinAppsDialog,
+    ) {
+        // Already at Start: intentionally no navigation.
+    }
+    // Do not mount either pane behind the splash: phone/Desktop entrance animations
+    // must start on the first real launcher frame, not elapse invisibly while loading.
+    // An already-open Settings panel stays usable during a mode/style change.
+    if (!launcherPrepared && activeInAppTile == null) {
+        if (showInitialLoading) LauncherStartupSplash(message = "Loading Start")
+        else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black))
+        return
+    }
+    if (launcherMode != LauncherUiMode.DESKTOP) {
+        // Keep the completed exit drawn while Android asynchronously starts the target app.
+        // Without this latch, the 61fps recording shows Start tiles reappearing at 7.91–8.04s.
+        var phoneHandoffHeld by remember(launcherMode, startEntranceRequest, homeRequest) {
+            mutableStateOf(false)
+        }
+        val phoneLaunchActive = flipState.isRunning &&
+            flipState.direction == FlipAnimationDirection.FORWARD
+        val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
+        LaunchedEffect(flipState.isRunning, flipState.direction, launcherMode) {
+            if (flipState.isRunning && flipState.direction == FlipAnimationDirection.REVERSE) {
+                phoneHandoffHeld = false
+                onDismissFlip()
+                localStartEntranceRequest++
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = if (entranceReady) 1f else 0f
+            }) {
+                // PC Settings loads wallpaper previews and animation tooling. Keeping the
+                // entire phone panorama + lazy app grid alive beneath it can exhaust graphics
+                // memory on physical devices. Save navigation state and unmount it while open.
+                if (tilesLoaded && activeInAppTile == null) {
+                    phoneSurfaceStates.SaveableStateProvider(launcherMode.name) {
+                        PhoneLauncherSurface(
+                        mode = launcherMode,
+                        tiles = phonePinnedTiles,
+                        sections = categorizedApps,
+                        appsRepository = appsRepository,
+                        preparedRecentApps = null,
+                        homeRequest = homeRequest,
+                        entranceRequest = startEntranceRequest,
+                        launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
+                        isLaunching = phoneExitActive,
+                        interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
+                        wallpaperStyle = wallpaperStyle,
+                        resumeUsesBackMotion = localPhoneResumeUsesBackMotion,
+                        screenOffRequest = screenOffRequest,
+                        returningTileId = returningPhoneTileId,
+                        onLaunch = { tile, bounds, origin ->
+                            // Stock Settings has an Android semantic fallback, but
+                            // its phone tile represents our own internal app.
+                            val nativeSettings = tile.tileType == TileType.SETTINGS
+                            if (entranceReady && !flipState.isRunning &&
+                                (nativeSettings || !bindOrPickDefaultTile(tile, bounds))
+                            ) {
+                                if (nativeSettings) {
+                                    // Preserve phone Settings crash-loop recovery.
+                                    LauncherFeatureStore.beginPhoneSettings(context)
+                                }
+                                onTriggerFlip(tile, bounds, origin)
+                            }
+                        },
+                        onExitFinished = {
+                            // The compositor reports completion after submitting its final frame.
+                            // Preserve the exit pose and selected ID through Android's window swap.
+                            if (phoneLaunchActive && !flipLaunchDispatched) {
+                                flipState.sourceTile?.let { tile ->
+                                    phoneHandoffHeld = true
+                                    flipLaunchDispatched = true
+                                    onLaunchTile(tile)
+                                }
+                                onDismissFlip()
+                            }
+                        },
+                        onOpenSettings = { openLauncherSettings() },
+                        onOpenAppInfo = { onOpenAppInfo(it) },
+                        onUninstallApp = { onUninstallApp(it) },
+                        onVisiblePageChanged = onPhonePageChanged,
+                        onSharedPinsChanged = { order ->
+                            val updated = SharedStartWorkspace.tilesForPhoneOrder(context,
+                                launcherMode, order, tiles.toList(), categorizedApps.flatMap(AppSection::apps))
+                            appsRepository.savePinnedTiles(updated)
+                            tiles.clear()
+                            tiles.addAll(updated)
+                            sharedPinsRevision++
+                        },
+                        )
+                    }
+                }
+            }
+            if (entranceReady && activeInAppTile != null) {
+                WindowsAppView(
+                    tile = activeInAppTile,
+                    appsRepository = appsRepository,
+                    onClose = { closeInAppTileAndRetriggerEntrance() },
+                    onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
+                    onWallpaperStyleChanged = { wallpaperStyle = it },
+                )
+            }
+            if (entranceReady &&
+                WindowsLockScreenRuntime.pending &&
+                WindowsLockScreenPreferences.isEnabled(context)
+            ) {
+                Windows81LockScreen(
+                    cameraGestureEnabled = WindowsLockScreenPreferences.isCameraGestureEnabled(context),
+                    onDismiss = { WindowsLockScreenRuntime.dismiss() },
+                )
+            }
+        }
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()
         .charmsEdgeGesture(enabled = charmsAvailable && !showCharms) { showCharms = true }
         .semantics {
@@ -810,7 +1205,9 @@ fun Tile8LauncherApp(
                 })
             }
         }) {
-        WindowsWallpaper(
+        val desktopTilePictureMode = LauncherFeatureStore.backgroundStyle(
+            context, LauncherUiMode.DESKTOP) == PhoneBackgroundStyle.TILE_PICTURE
+        if (!desktopTilePictureMode) WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
             enabled = wallpaperParallaxEnabled,
             scrollOffsetPx = {
@@ -901,6 +1298,8 @@ fun Tile8LauncherApp(
                         },
                         initialWallpaperScrollPx = startWallpaperScrollPx,
                         onWallpaperScrollOffsetChanged = { startWallpaperScrollPx = it },
+                        tilePictureMode = desktopTilePictureMode,
+                        tileWallpaperStyle = wallpaperStyle,
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
                         onCharmsClick = { if (entranceReady) showCharms = true },
@@ -934,17 +1333,14 @@ fun Tile8LauncherApp(
                                 onTriggerFlip(tile, bounds, LaunchOrigin.ALL_APPS)
                             }
                         },
-                        isAppPinned = { pkg -> tiles.any { it.packageName == pkg } },
+                        isAppPinned = { pkg -> phonePinnedTiles.any { it.packageName == pkg } },
                         onPinApp = { app ->
                             if (entranceReady) {
                                 pinAppWithAccent(app)
                             }
                         },
                         onUnpinApp = { pkg ->
-                            if (entranceReady) {
-                                tiles.removeAll { it.packageName == pkg }
-                                appsRepository.savePinnedTiles(tiles.toList())
-                            }
+                            if (entranceReady) unpinPackage(pkg)
                         },
                         onOpenAppInfo = { pkg -> if (entranceReady) onOpenAppInfo(pkg) },
                         onUninstallApp = { pkg -> if (entranceReady) onUninstallApp(pkg) },
@@ -1072,13 +1468,12 @@ fun Tile8LauncherApp(
             }
             PinAppsDialog(
                 installedApps = allInstalled,
-                pinnedTiles = tiles,
+                pinnedTiles = phonePinnedTiles,
                 appsRepository = appsRepository,
                 onDismiss = { showPinAppsDialog = false },
                 onTogglePin = { app, isPinned ->
                     if (isPinned) {
-                        tiles.removeAll { it.packageName == app.packageName }
-                        appsRepository.savePinnedTiles(tiles.toList())
+                        unpinPackage(app.packageName)
                     } else {
                         pinAppWithAccent(app)
                     }

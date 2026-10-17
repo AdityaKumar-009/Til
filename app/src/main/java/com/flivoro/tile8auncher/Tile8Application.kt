@@ -45,6 +45,8 @@ object PackageCatalogUpdates {
  * existing short Home/Back RETURN fit for that one entrance. It creates no additional View/surface.
  */
 class Tile8Application : Application() {
+    // HOME Activity recreation must reuse the catalog, pin state and decoded artwork.
+    val appsRepository by lazy { com.flivoro.tile8auncher.data.AppsRepository(this) }
     private val mainHandler = Handler(Looper.getMainLooper())
     private var unlockGeneration = 0
     private var mainActivityResumed = false
@@ -56,6 +58,7 @@ class Tile8Application : Application() {
                     unlockGeneration++
                     UnlockEntranceMotionOverride.arm()
                     WindowsLockScreenRuntime.arm(context)
+                    preloadLockArtwork()
                 }
 
                 Intent.ACTION_SCREEN_ON -> {
@@ -100,24 +103,37 @@ class Tile8Application : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Application.onCreate runs for a new process even when Android restores a saved
+        // MainActivity instance. Recover here so an interrupted phone-mode render cannot
+        // loop on devices that restart HOME with non-null savedInstanceState.
+        LauncherFeatureStore.recoverInterruptedPhoneRender(this)
+        // The original short render watchdog can clear its flag before a later
+        // device-only crash. Keep a process-wide fallback that saves the failure
+        // reason and rolls only the active phone-mode preference back to Desktop.
+        val systemCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                LauncherFeatureStore.recoverFatalPhoneCrash(this, error)
+            } catch (_: Throwable) {
+                // Never mask the original crash or enter a recursive crash handler.
+            }
+            if (systemCrashHandler != null) {
+                systemCrashHandler.uncaughtException(thread, error)
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        }
 
         // Load the tiny saved Accent preference once for the process. This only updates the
         // All Apps icon-container purple; wallpapers remain the original stock artwork.
         StartPersonalization.ensureLoaded(this)
-        LauncherImageCache.preload(
-            this,
-            WindowsLockScreenPreferences.wallpaperUri(this),
-            maxSide = 2560,
-        )
-        LauncherFeatureStore.lockSlideshowUris(this).forEach { uri ->
-            LauncherImageCache.preload(this, uri, maxSide = 2560)
-        }
 
         // If the process itself is created while the phone is asleep/locked, treat the eventual
         // reveal as an unlock even though this process missed the earlier SCREEN_OFF broadcast.
         if (deviceRequiresUnlockGate()) {
             UnlockEntranceMotionOverride.arm()
             WindowsLockScreenRuntime.arm(this)
+            preloadLockArtwork()
         }
 
         ContextCompat.registerReceiver(
@@ -185,6 +201,13 @@ class Tile8Application : Application() {
                 UnlockEntranceMotionOverride.cancel()
             }
         }, UNLOCK_OVERRIDE_HOLD_MILLIS)
+    }
+
+    private fun preloadLockArtwork() {
+        if (!WindowsLockScreenPreferences.isEnabled(this)) return
+        // The lock UI loads slideshow frames on demand. Decoding every 2560px slide during
+        // Application.onCreate competed with Start and could evict the active wallpaper.
+        LauncherImageCache.preload(this, WindowsLockScreenPreferences.wallpaperUri(this))
     }
 
     /**

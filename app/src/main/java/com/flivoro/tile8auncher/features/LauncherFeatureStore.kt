@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.features
 
 import android.content.Context
+import android.os.Process
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
@@ -17,14 +18,35 @@ enum class StartDoubleTapAction {
     LOCK_DEVICE,
 }
 
+/** Independent launch surfaces; DESKTOP deliberately retains all previous rendering defaults. */
+enum class LauncherUiMode(val title: String, val detail: String) {
+    DESKTOP("Windows 8.1 Desktop", "Original horizontal Start and desktop motion"),
+    PHONE_8("Windows Phone 8.1", "Classic phone Start, observed spatial tile cascade and turnstile motion"),
+    MOBILE_10("Windows 10 Mobile", "Phone Start, translucent tiles and modern motion"),
+}
+
 enum class AppIconStyle {
+    DISCO_LAYERED,
     DEFAULT,
     ANDROID_ADAPTIVE,
     WHITE_MONOCHROME,
 }
 
+/** The two Start picture treatments offered by Windows 10 Mobile. */
+enum class PhoneBackgroundStyle(val displayName: String) {
+    FULL_SCREEN("Full screen picture"),
+    TILE_PICTURE("Tile picture"),
+}
+
 /** Process-local signals for feature changes that visible launcher surfaces should re-read. */
 object LauncherFeatureRuntime {
+    var launcherModeRevision by mutableIntStateOf(0)
+        private set
+
+    fun notifyLauncherModeChanged() {
+        launcherModeRevision++
+    }
+
     var pinnedTilesRevision by mutableIntStateOf(0)
         private set
     var iconsRevision by mutableIntStateOf(0)
@@ -66,6 +88,17 @@ object LauncherFeatureRuntime {
 object LauncherFeatureStore {
     const val PREFS_NAME = "tile8_launcher_prefs_v2"
 
+    private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
+    private const val PHONE_RENDER_PENDING = "phone_render_pending"
+    private const val PHONE_RENDER_ATTEMPTED = "phone_render_attempted"
+    private const val PHONE_RENDER_PROCESS_ID = "phone_render_process_id"
+    private const val PHONE_RENDER_MODE = "mode"
+    private const val PHONE_RENDER_SETTINGS = "settings"
+    private const val PHONE_LAST_CRASH = "phone_last_crash"
+    private const val PHONE_SMALL_COLUMNS = "phone_small_columns"
+    private const val PHONE_TILE_OPACITY = "phone_tile_opacity"
+    private const val PHONE_BACKGROUND_STYLE = "phone_background_style"
+    private const val PHONE_RECENTLY_INSTALLED_APPS = "phone_recently_installed_apps"
     private const val HIDDEN_PACKAGES = "feature_hidden_packages"
     private const val PRIVATE_PACKAGES = "feature_private_packages"
     private const val LIVE_TILE_DISABLED_PACKAGES = "feature_live_tile_disabled_packages"
@@ -83,6 +116,193 @@ object LauncherFeatureStore {
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    fun launcherUiMode(context: Context): LauncherUiMode {
+        val saved = prefs(context).getString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+        return LauncherUiMode.entries.firstOrNull { it.name == saved } ?: LauncherUiMode.DESKTOP
+    }
+
+    fun setLauncherUiMode(
+        context: Context,
+        mode: LauncherUiMode,
+        phoneRenderAttempted: Boolean = false,
+    ) {
+        if (launcherUiMode(context) == mode) return
+        // Persist the pending render with the mode itself. If switching to a phone
+        // surface crashes before it displays, recover on the next cold launch.
+        prefs(context).edit(commit = true) {
+            putString(LAUNCHER_UI_MODE, mode.name)
+            if (mode == LauncherUiMode.DESKTOP) {
+                remove(PHONE_RENDER_PENDING)
+                remove(PHONE_RENDER_ATTEMPTED)
+                remove(PHONE_RENDER_PROCESS_ID)
+            } else {
+                putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+                // Selection and rendering are different. A persisted selection made by
+                // an instrumentation test (or just before a cold launch) is not a crash.
+                putBoolean(PHONE_RENDER_ATTEMPTED, phoneRenderAttempted)
+                if (phoneRenderAttempted) putInt(PHONE_RENDER_PROCESS_ID, Process.myPid())
+                else remove(PHONE_RENDER_PROCESS_ID)
+            }
+        }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    /** Restore a usable home without deleting the user's tiles, colors or layouts. */
+    fun recoverInterruptedPhoneRender(
+        context: Context,
+        currentProcessId: Int = Process.myPid(),
+    ): Boolean {
+        val preferences = prefs(context)
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == null) return false
+        val attempted = preferences.getBoolean(PHONE_RENDER_ATTEMPTED, false)
+        val renderProcessId = preferences.getInt(PHONE_RENDER_PROCESS_ID, -1)
+        // A recreated Activity in the same process is a normal Android lifecycle event.
+        // Roll back only when the process that began a visible phone render has ended.
+        if (!attempted || renderProcessId == currentProcessId) return false
+        val failedMode = launcherUiMode(context)
+        val needsRecovery = failedMode != LauncherUiMode.DESKTOP
+        preferences.edit(commit = true) {
+            remove(PHONE_RENDER_PENDING)
+            remove(PHONE_RENDER_ATTEMPTED)
+            remove(PHONE_RENDER_PROCESS_ID)
+            if (needsRecovery) {
+                putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+                putString(
+                    PHONE_LAST_CRASH,
+                    "Recovered ${failedMode.title} after its rendering process ended before the first stable frame.",
+                )
+            }
+        }
+        if (needsRecovery) LauncherFeatureRuntime.notifyLauncherModeChanged()
+        return needsRecovery
+    }
+
+    fun beginPhoneRender(context: Context, processId: Int = Process.myPid()) {
+        if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
+            prefs(context).edit(commit = true) {
+                putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+                putBoolean(PHONE_RENDER_ATTEMPTED, true)
+                putInt(PHONE_RENDER_PROCESS_ID, processId)
+            }
+        }
+    }
+
+    fun beginPhoneSettings(context: Context) {
+        if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
+            prefs(context).edit(commit = true) {
+                putString(PHONE_RENDER_PENDING, PHONE_RENDER_SETTINGS)
+                putBoolean(PHONE_RENDER_ATTEMPTED, true)
+                putInt(PHONE_RENDER_PROCESS_ID, Process.myPid())
+            }
+        }
+    }
+
+    fun confirmPhoneRender(context: Context) {
+        clearPendingRender(context, PHONE_RENDER_MODE)
+    }
+
+    fun confirmPhoneSettings(context: Context) {
+        clearPendingRender(context, PHONE_RENDER_SETTINGS)
+    }
+
+    private fun clearPendingRender(context: Context, expected: String) {
+        val preferences = prefs(context)
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == expected) {
+            preferences.edit {
+                remove(PHONE_RENDER_PENDING)
+                remove(PHONE_RENDER_ATTEMPTED)
+                remove(PHONE_RENDER_PROCESS_ID)
+            }
+        }
+    }
+
+    /**
+     * Called from the process exception handler, including failures after the initial
+     * successful frame. Restore Desktop before Android restarts the HOME Activity.
+     * Do not clear pinned tiles, mode layouts, icon caches, or user personalization.
+     */
+    fun recoverFatalPhoneCrash(context: Context, cause: Throwable): Boolean {
+        val mode = launcherUiMode(context)
+        if (mode == LauncherUiMode.DESKTOP) return false
+        val summary = buildString {
+            append(mode.name).append(": ").append(cause.javaClass.name)
+            append(": ").append(cause.message?.take(400).orEmpty())
+            cause.stackTrace.take(35).forEach { append("\n at ").append(it.toString()) }
+            cause.cause?.let { nested ->
+                append("\nCaused by: ").append(nested.javaClass.name)
+                append(": ").append(nested.message?.take(250).orEmpty())
+            }
+        }.take(6000)
+        prefs(context).edit(commit = true) {
+            putString(PHONE_LAST_CRASH, summary)
+            putString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
+            remove(PHONE_RENDER_PENDING)
+            remove(PHONE_RENDER_ATTEMPTED)
+            remove(PHONE_RENDER_PROCESS_ID)
+        }
+        return true
+    }
+
+    fun lastPhoneCrash(context: Context): String? =
+        prefs(context).getString(PHONE_LAST_CRASH, null)?.takeIf(String::isNotBlank)
+
+    fun phoneSmallColumns(context: Context, mode: LauncherUiMode): Int =
+        prefs(context).getInt(PHONE_SMALL_COLUMNS + mode.name, if (mode == LauncherUiMode.PHONE_8) 4 else 6)
+            .let { if (it == 4) 4 else 6 }
+
+    fun setPhoneSmallColumns(context: Context, mode: LauncherUiMode, columns: Int) {
+        require(columns == 4 || columns == 6)
+        prefs(context).edit { putInt(PHONE_SMALL_COLUMNS + mode.name, columns) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    fun phoneBackgroundStyle(context: Context): PhoneBackgroundStyle =
+        PhoneBackgroundStyle.entries.firstOrNull {
+            it.name == prefs(context).getString(PHONE_BACKGROUND_STYLE, PhoneBackgroundStyle.FULL_SCREEN.name)
+        } ?: PhoneBackgroundStyle.FULL_SCREEN
+
+    fun setPhoneBackgroundStyle(context: Context, style: PhoneBackgroundStyle) {
+        prefs(context).edit { putString(PHONE_BACKGROUND_STYLE, style.name) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    /** Appearance only: three modes keep their own tile-picture choice while
+     *  WP8.1 and W10M still share a single pinned-tile workspace. */
+    fun backgroundStyle(context: Context, mode: LauncherUiMode): PhoneBackgroundStyle =
+        if (mode == LauncherUiMode.MOBILE_10) phoneBackgroundStyle(context)
+        else {
+            val fallback = if (mode == LauncherUiMode.PHONE_8)
+                PhoneBackgroundStyle.TILE_PICTURE else PhoneBackgroundStyle.FULL_SCREEN
+            val stored = prefs(context).getString("mode_background_${mode.name}", fallback.name)
+            PhoneBackgroundStyle.entries.firstOrNull { it.name == stored } ?: fallback
+        }
+
+    fun setBackgroundStyle(
+        context: Context, mode: LauncherUiMode, style: PhoneBackgroundStyle,
+    ) {
+        if (mode == LauncherUiMode.MOBILE_10) setPhoneBackgroundStyle(context, style)
+        else {
+            prefs(context).edit { putString("mode_background_${mode.name}", style.name) }
+            LauncherFeatureRuntime.notifyLauncherModeChanged()
+        }
+    }
+
+    fun phoneTileOpacity(context: Context): Float =
+        prefs(context).getInt(PHONE_TILE_OPACITY, 82).coerceIn(0, 100) / 100f
+
+    fun setPhoneTileOpacity(context: Context, percent: Int) {
+        prefs(context).edit { putInt(PHONE_TILE_OPACITY, percent.coerceIn(0, 100)) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
+
+    fun showRecentlyInstalledPhoneApps(context: Context): Boolean =
+        prefs(context).getBoolean(PHONE_RECENTLY_INSTALLED_APPS, true)
+
+    fun setShowRecentlyInstalledPhoneApps(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(PHONE_RECENTLY_INSTALLED_APPS, enabled) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
 
     fun hiddenPackages(context: Context): Set<String> =
         prefs(context).getStringSet(HIDDEN_PACKAGES, emptySet()).orEmpty().toSet()
@@ -116,8 +336,8 @@ object LauncherFeatureStore {
         prefs(context).getString(ICON_PACK_PACKAGE, null)?.takeIf(String::isNotBlank)
 
     fun appIconStyle(context: Context): AppIconStyle {
-        val stored = prefs(context).getString(APP_ICON_STYLE, AppIconStyle.DEFAULT.name)
-        return AppIconStyle.entries.firstOrNull { it.name == stored } ?: AppIconStyle.DEFAULT
+        val stored = prefs(context).getString(APP_ICON_STYLE, AppIconStyle.DISCO_LAYERED.name)
+        return AppIconStyle.entries.firstOrNull { it.name == stored } ?: AppIconStyle.DISCO_LAYERED
     }
 
     fun setAppIconStyle(context: Context, style: AppIconStyle) {

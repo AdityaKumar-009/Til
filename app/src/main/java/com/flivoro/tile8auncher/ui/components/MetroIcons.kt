@@ -1,9 +1,11 @@
 package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import android.util.LruCache
@@ -25,6 +27,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.cos
+import com.flivoro.tile8auncher.R
+import androidx.compose.ui.res.painterResource
 import kotlin.math.sin
 
 @Composable
@@ -34,6 +38,18 @@ fun MetroIcon(
     color: Color = Color.White,
     size: Dp = 32.dp,
 ) {
+    // VectorDrawable is rasterized at the target device density, so Phone
+    // remains sharp on high-DPI screens. All other Metro icons use the existing
+    // bitmap drawing/cache path without changes.
+    if (glyph.equals("wp81_phone", ignoreCase = true)) {
+        Image(
+            painter = painterResource(R.drawable.wp81_lumia_phone_vector),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(color),
+            modifier = modifier.size(size),
+        )
+        return
+    }
     Box(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
@@ -65,6 +81,32 @@ private fun DrawScope.drawMetroGlyph(glyph: String, color: Color) {
     val strokeW = (w * 0.08f).coerceAtLeast(2f)
 
     when (glyph.lowercase()) {
+        "wp81_messages" -> {
+            // WP8.1 outlined speech tile glyph; separate from Android Messages.
+            val bubble = Path().apply {
+                moveTo(w * .20f, h * .17f)
+                lineTo(w * .78f, h * .17f)
+                quadraticBezierTo(w * .87f, h * .17f, w * .87f, h * .27f)
+                lineTo(w * .87f, h * .67f)
+                quadraticBezierTo(w * .87f, h * .76f, w * .78f, h * .76f)
+                lineTo(w * .46f, h * .76f)
+                lineTo(w * .26f, h * .90f)
+                lineTo(w * .29f, h * .76f)
+                lineTo(w * .20f, h * .76f)
+                quadraticBezierTo(w * .12f, h * .76f, w * .12f, h * .67f)
+                lineTo(w * .12f, h * .27f)
+                quadraticBezierTo(w * .12f, h * .17f, w * .20f, h * .17f)
+                close()
+            }
+            drawPath(bubble, color, style = Stroke(
+                width = w * .09f, cap = StrokeCap.Round, join = StrokeJoin.Round,
+            ))
+            drawLine(color, Offset(w * .275f, h * .39f),
+                Offset(w * .715f, h * .39f), w * .065f, cap = StrokeCap.Round)
+            drawLine(color, Offset(w * .275f, h * .54f),
+                Offset(w * .59f, h * .54f), w * .065f, cap = StrokeCap.Round)
+        }
+
         "mail" -> {
             // Windows 8 Envelope
             val left = w * 0.12f

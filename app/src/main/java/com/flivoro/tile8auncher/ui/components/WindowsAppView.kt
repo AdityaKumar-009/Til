@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +45,7 @@ import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -412,6 +414,7 @@ private fun PCSettingsAppContent(
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
+    var showLauncherPreferences by remember { mutableStateOf(true) }
 
     fun updateWallpaperParallax(enabled: Boolean) {
         wallpaperParallaxEnabled = enabled
@@ -422,13 +425,14 @@ private fun PCSettingsAppContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("til-advanced-settings-content")
             .background(Color(0xFFF0F0F0))
             .verticalScroll(rememberScrollState())
             .padding(24.dp)
     ) {
         // Page Title
         Text(
-            text = "PC settings",
+            text = "Mosaic Settings",
             style = WindowsTypography.displayLarge.copy(
                 color = Color(0xFF222222),
                 fontSize = 32.sp,
@@ -438,6 +442,25 @@ private fun PCSettingsAppContent(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // The single Mosaic Settings destination contains all launcher options.
+        // The old animation tools are retained as a section rather than a second app.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(true to "Launcher & appearance", false to "Animation tools").forEach { (tab, title) ->
+                Text(
+                    text = title, color = if (showLauncherPreferences == tab) Color.White
+                        else Color(0xFF313131), fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                        .background(if (showLauncherPreferences == tab) Color(0xFF5133AB)
+                            else Color(0xFFDEDEDE))
+                        .clickable { showLauncherPreferences = tab }
+                        .padding(horizontal = 7.dp, vertical = 13.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        if (showLauncherPreferences) {
+            LauncherFeatureSettings(appsRepository)
+        } else {
         // Group Header
         Text(
             text = "App opening animation",
@@ -603,7 +626,7 @@ private fun PCSettingsAppContent(
                 .clickable {
                     val testTile = TileModel(
                         id = "test_preview_tile",
-                        title = "PC settings",
+                        title = "Mosaic Settings",
                         colorValue = 0xFF5133AB,
                         tileType = TileType.SETTINGS,
                         iconGlyph = "settings"
@@ -687,6 +710,7 @@ private fun PCSettingsAppContent(
                 style = WindowsTypography.bodyMedium.copy(color = Color.Gray, fontSize = 12.sp)
             )
         }
+        } // Animation tools tab
     }
 }
 

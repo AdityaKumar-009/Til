@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
@@ -85,7 +86,10 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.usableDiscoTileAccent
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
+import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
@@ -100,6 +104,7 @@ import com.flivoro.tile8auncher.features.usageAccessSettingsIntent
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
+import com.flivoro.tile8auncher.ui.components.highlightedAppLabel
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.components.rememberAllAppsIcon
@@ -385,6 +390,7 @@ fun AllAppsScreen(
             ) {
                 if (searchQuery.isNotBlank()) {
                     UniversalSearchPanel(
+                        query = searchQuery,
                         matchingApps = matchingApps,
                         universalResults = universalResults,
                         appsRepository = appsRepository,
@@ -435,19 +441,24 @@ fun AllAppsScreen(
                     // position therefore has its visible icons hot before distant columns.
                     LaunchedEffect(columns, iconsRevision, iconStyle) {
                         if (columns.isEmpty()) return@LaunchedEffect
-                        delay(180)
+                        delay(1_200)
                         val origin = listState.firstVisibleItemIndex.coerceIn(0, columns.lastIndex)
                         val priorityPackages = columns.indices
                             .sortedBy { index -> abs(index - origin) }
                             .flatMap { index -> columns[index].apps }
                             .map(AppInfo::packageName)
-                        preloadAllAppsIcons(
-                            context = context.applicationContext,
-                            repository = appsRepository,
-                            packageNames = priorityPackages,
-                            style = iconStyle,
-                            iconsRevision = iconsRevision,
-                        )
+                        priorityPackages.distinct().chunked(2).forEach { batch ->
+                            preloadAllAppsIcons(
+                                context = context.applicationContext,
+                                repository = appsRepository,
+                                packageNames = batch,
+                                style = iconStyle,
+                                iconsRevision = iconsRevision,
+                                parallelism = 2,
+                            )
+                            // Leave decode capacity for foreground rows and input/entrance frames.
+                            delay(24)
+                        }
                     }
 
                     val alphabetSources = remember(columns) {
@@ -581,6 +592,9 @@ fun AllAppsScreen(
             val currentApp = selectedAppForAction
             if (currentApp != null) {
                 val isPinned = isAppPinned(currentApp.packageName)
+                val uninstallable = remember(currentApp.packageName) {
+                    canRequestAppUninstall(context, currentApp.packageName)
+                }
                 val icon = rememberAllAppsIcon(appsRepository, currentApp.packageName)
                 Surface(
                     color = Color(0xF0180424),
@@ -599,7 +613,10 @@ fun AllAppsScreen(
                                 modifier = Modifier.size(40.dp).background(appTileAccent),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (icon != null) Image(icon, currentApp.label, Modifier.size(28.dp))
+                                if (icon != null) Image(
+                                    icon, currentApp.label, Modifier.size(28.dp),
+                                    colorFilter = null,
+                                )
                                 else MetroIcon(glyph = "app", color = Color.White, size = 24.dp)
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -634,14 +651,16 @@ fun AllAppsScreen(
                                     selectedAppForAction = null
                                 },
                             )
-                            MetroActionButton(
-                                glyph = "power",
-                                label = "Uninstall",
-                                onClick = {
-                                    onUninstallApp(currentApp.packageName)
-                                    selectedAppForAction = null
-                                },
-                            )
+                            if (uninstallable) {
+                                MetroActionButton(
+                                    glyph = "power",
+                                    label = "Uninstall",
+                                    onClick = {
+                                        onUninstallApp(currentApp.packageName)
+                                        selectedAppForAction = null
+                                    },
+                                )
+                            }
                             MetroActionButton(
                                 glyph = "arrow_down",
                                 label = "Cancel",
@@ -657,6 +676,7 @@ fun AllAppsScreen(
 
 @Composable
 private fun UniversalSearchPanel(
+    query: String,
     matchingApps: List<AppInfo>,
     universalResults: List<UniversalSearchResult>,
     appsRepository: AppsRepository,
@@ -688,6 +708,7 @@ private fun UniversalSearchPanel(
                     isNew = isNewByPackage[app.packageName] == true,
                     appTileAccent = appTileAccent,
                     useAppAccentColors = useAppAccentColors,
+                    highlightQuery = query,
                     onClick = { onAppClick(app, it) },
                     onLongClick = { onAppLongClick(app) },
                 )
@@ -1053,7 +1074,12 @@ private fun SemanticAllAppsRow(
     appTileAccent: Color,
 ) {
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
-    val tileForeground = readableAllAppsTileForeground(appTileAccent)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val tileColor = if (layered) {
+        appsRepository.getDiscoTileAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+    } else appTileAccent
+    val tileForeground = readableAllAppsTileForeground(tileColor)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1064,7 +1090,7 @@ private fun SemanticAllAppsRow(
         Box(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
-                .background(appTileAccent),
+                .background(tileColor),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
@@ -1072,6 +1098,7 @@ private fun SemanticAllAppsRow(
                     bitmap = icon,
                     contentDescription = null,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                    colorFilter = null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
@@ -1113,24 +1140,34 @@ private fun AppListItem(
     isNew: Boolean,
     appTileAccent: Color,
     useAppAccentColors: Boolean,
+    highlightQuery: String = "",
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val iconCoordinates = remember { TileCoordinatesHolder() }
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val effectiveColors = useAppAccentColors || layered
     val effectiveTileAccent by produceState(
-        initialValue = if (useAppAccentColors) {
-            appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+        initialValue = if (effectiveColors) {
+            appsRepository.getDiscoTileAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
         } else {
             appTileAccent
         },
         app.packageName,
         appTileAccent,
-        useAppAccentColors,
+        effectiveColors,
     ) {
-        value = if (useAppAccentColors) {
+        value = if (effectiveColors) {
             withContext(Dispatchers.IO) {
-                appsRepository.loadAppAccentColor(app.packageName).toTileColor()
+                if (layered) {
+                    appsRepository.loadDiscoAllAppsIcon(app.packageName,
+                        (40f * context.resources.displayMetrics.density).roundToInt().coerceIn(72, 160))
+                    appsRepository.getDiscoTileAccentColor(app.packageName)
+                        ?.toTileColor() ?: appTileAccent
+                } else appsRepository.loadAppAccentColor(app.packageName).toTileColor()
             }
         } else {
             appTileAccent
@@ -1163,14 +1200,18 @@ private fun AppListItem(
                     bitmap = icon,
                     contentDescription = app.label,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                    colorFilter = null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
             }
         }
         Spacer(modifier = Modifier.width(10.dp))
+        val highlightedTitle = remember(app.label, highlightQuery, StartPersonalization.accentColor) {
+            highlightedAppLabel(app.label, highlightQuery, StartPersonalization.accentColor)
+        }
         Text(
-            text = app.label,
+            text = highlightedTitle,
             style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Normal),
             color = Color.White,
             maxLines = 1,

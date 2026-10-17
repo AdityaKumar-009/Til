@@ -13,8 +13,11 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.LruCache
+import android.util.AtomicFile
+import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.core.content.edit
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +26,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
@@ -65,6 +69,27 @@ class AppsRepository(private val context: Context) {
         }
     }
     private val monochromeIconCacheLock = Any()
+    // Independent adaptive foreground cache, bounded like the normal icons.
+    private val layeredIconCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * BYTES_PER_PIXEL)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+    private val layeredIconCacheLock = Any()
+    private val inFlightLayeredLoads = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val wp81NormalizedCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * BYTES_PER_PIXEL)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+    private val wp81IconLock = Any()
+    private val inFlightWp81Icons = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val richBackgroundCache = object : LruCache<String, ImageBitmap>(ICON_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height * BYTES_PER_PIXEL)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+    private val richBackgroundLock = Any()
 
     /**
      * All Apps deliberately uses display-sized thumbnails instead of the launch-resolution cache.
@@ -85,6 +110,9 @@ class AppsRepository(private val context: Context) {
     private val failedAllAppsThumbnailKeys = ConcurrentHashMap.newKeySet<String>()
 
     private val appAccentCache = ConcurrentHashMap<String, Long>()
+    // Several bitmap variants and their accent share one package version. Never repeat the
+    // Binder lookup for every PNG read/write or freshness check during a cold start.
+    private val packageUpdateStamps = ConcurrentHashMap<String, Long>()
     private val visualCachePruneLock = Any()
     @Volatile private var lastVisualCachePruneMillis = 0L
     private val failedIcons = ConcurrentHashMap.newKeySet<String>()
@@ -96,6 +124,7 @@ class AppsRepository(private val context: Context) {
     // icon requests should not fan out into dozens of simultaneous decodes on low-end phones.
     private val iconDecodePermits = Semaphore(ICON_DECODE_CONCURRENCY)
     private val allAppsDecodePermits = Semaphore(ALL_APPS_ICON_DECODE_CONCURRENCY)
+    private val wp81DecodePermits = Semaphore(2)
 
     // The largest app icon currently rendered by the launcher is ~104 dp during the launch
     // overlay. Keeping a small guard above that preserves visual fidelity while preventing a
@@ -112,6 +141,79 @@ class AppsRepository(private val context: Context) {
     @Volatile
     private var categorizedAppsCache: List<AppSection>? = null
     private val categorizedAppsCacheLock = Any()
+    @Volatile private var pinnedSnapshot: Pair<String, List<TileModel>>? = null
+    // Other activities and backup restore can update these preferences through another repository.
+    // Compare the in-memory preference value before reusing decoded pins.
+    val cachedPinnedTiles: List<TileModel>?
+        get() = pinnedSnapshot?.takeIf { it.first == prefs.getString("pinned_tiles_json", null) }?.second
+    @Volatile private var verifiedCatalogRevision = -1
+    @Volatile private var catalogLocale = Locale.getDefault().toLanguageTag()
+    private val catalogRefreshLock = Any()
+    private val catalogSnapshotFile get() = AtomicFile(File(context.filesDir, "launcher_catalog_v1.json"))
+
+    fun peekCategorizedApps(): List<AppSection>? =
+        categorizedAppsCache.takeIf { catalogLocale == Locale.getDefault().toLanguageTag() }
+
+    /** Fast cold restore; validation runs after the saved launcher has been drawn. */
+    fun loadInitialCatalog(revision: Int): List<AppSection> = synchronized(catalogRefreshLock) {
+        peekCategorizedApps()?.let { return@synchronized it }
+        val restored = runCatching {
+            val json = JSONObject(catalogSnapshotFile.openRead().bufferedReader().use { it.readText() })
+            if (json.getString("locale") != Locale.getDefault().toLanguageTag()) return@runCatching null
+            val data = json.getJSONArray("sections")
+            (0 until data.length()).map { index ->
+                val section = data.getJSONObject(index)
+                val entries = section.getJSONArray("apps")
+                AppSection(section.getString("letter"), (0 until entries.length()).map { n ->
+                    val app = entries.getJSONObject(n)
+                    AppInfo(app.getString("label"), app.getString("package"), app.getString("activity"))
+                })
+            }
+        }.getOrNull()
+        if (restored != null) {
+            installedAppsCache = restored.flatMap(AppSection::apps)
+            categorizedAppsCache = restored
+            catalogLocale = Locale.getDefault().toLanguageTag()
+            return@synchronized restored
+        }
+        refreshCatalogIfNeeded(revision)
+    }
+
+    fun refreshCatalogIfNeeded(revision: Int): List<AppSection> = synchronized(catalogRefreshLock) {
+        if (verifiedCatalogRevision == revision) peekCategorizedApps()?.let { return@synchronized it }
+        val previous = categorizedAppsCache
+        invalidateAppCatalog()
+        val fresh = try {
+            getCategorizedApps()
+        } catch (error: Exception) {
+            Log.w("MosaicStartup", "Unable to refresh packages; keeping saved apps", error)
+            installedAppsCache = previous?.flatMap(AppSection::apps)
+            categorizedAppsCache = previous
+            return@synchronized previous.orEmpty()
+        }
+        catalogLocale = Locale.getDefault().toLanguageTag()
+        verifiedCatalogRevision = revision
+        val json = JSONObject().put("locale", Locale.getDefault().toLanguageTag())
+            .put("sections", JSONArray().apply {
+                fresh.forEach { section -> put(JSONObject().put("letter", section.letter)
+                    .put("apps", JSONArray().apply {
+                        section.apps.forEach { app -> put(JSONObject().put("label", app.label)
+                            .put("package", app.packageName).put("activity", app.activityName)) }
+                    })) }
+            })
+        val file = catalogSnapshotFile
+        runCatching {
+            val output = file.startWrite()
+            try {
+                output.write(json.toString().toByteArray(Charsets.UTF_8))
+                file.finishWrite(output)
+            } catch (error: Exception) {
+                file.failWrite(output)
+                throw error
+            }
+        }
+        fresh
+    }
 
     /**
      * Returns the launcher-visible apps from one process-local PackageManager scan.
@@ -120,6 +222,14 @@ class AppsRepository(private val context: Context) {
      * All Apps loading and default-tile creation. On slower devices those Binder/resource calls
      * competed with first-frame work. The immutable result is now shared for this repository.
      */
+    /** Android package broadcasts invalidate metadata, but normal Home/Back does not rescan. */
+    fun invalidateAppCatalog() {
+        verifiedCatalogRevision = -1
+        synchronized(categorizedAppsCacheLock) { categorizedAppsCache = null }
+        synchronized(installedAppsCacheLock) { installedAppsCache = null }
+        packageUpdateStamps.clear()
+    }
+
     fun getInstalledApps(): List<AppInfo> {
         installedAppsCache?.let { return it }
 
@@ -247,6 +357,203 @@ class AppsRepository(private val context: Context) {
         return (active ?: candidate).await()
     }
 
+    fun getCachedDiscoLayeredAppIcon(packageName: String): ImageBitmap? =
+        synchronized(layeredIconCacheLock) { layeredIconCache.get(packageName) }
+
+    fun getCachedWp81NormalizedIcon(packageName: String): ImageBitmap? =
+        synchronized(wp81IconLock) { wp81NormalizedCache.get(packageName) }
+
+    fun getCachedRichDiscoBackground(packageName: String): ImageBitmap? =
+        synchronized(richBackgroundLock) { richBackgroundCache.get(packageName) }
+
+    suspend fun loadRichDiscoBackground(packageName: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        getCachedRichDiscoBackground(packageName)?.let { return@withContext it }
+        if (!visualPrefs.getBoolean("disco_background_rich_v1:$packageName", false)) return@withContext null
+        val bitmap = readPersistedVisualBitmap(
+            packageName, "disco_background_rich_v1_$maxCachedIconPx",
+        ) ?: return@withContext null
+        bitmap.asImageBitmap().also { image ->
+            synchronized(richBackgroundLock) { richBackgroundCache.put(packageName, image) }
+        }
+    }
+
+    suspend fun loadWp81NormalizedIcon(packageName: String): ImageBitmap? {
+        getCachedWp81NormalizedIcon(packageName)?.let { return it }
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                // Resolve and cache all three visual inputs together:
+                // transparent foreground, app accent and optional rich background.
+                val source = loadDiscoLayeredAppIcon(packageName) ?: return@async null
+                wp81DecodePermits.withPermit {
+                    val fitted = readPersistedVisualBitmap(
+                        packageName, "wp81_fitted_art_v1_$maxCachedIconPx",
+                    ) ?: Wp81IconArtwork.normalize(source.asAndroidBitmap()).also {
+                        persistVisualBitmap(packageName,
+                            "wp81_fitted_art_v1_$maxCachedIconPx", it)
+                    }
+                    loadRichDiscoBackground(packageName)
+                    fitted.asImageBitmap().also { result ->
+                        synchronized(wp81IconLock) { wp81NormalizedCache.put(packageName, result) }
+                    }
+                }
+            } finally {
+                inFlightWp81Icons.remove(packageName)
+            }
+        }
+        val active = inFlightWp81Icons.putIfAbsent(packageName, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
+    /**
+     * Only a genuinely separable adaptive foreground should get WP8.1's
+     * 2x glyph enlargement. Legacy/full-plate icons keep their normal size.
+     * This metadata is persisted alongside the decoded layer bitmap.
+     */
+    fun hasDiscoForegroundLayer(packageName: String): Boolean =
+        visualPrefs.getBoolean("disco_layer_usable_v6:$packageName", false)
+
+    suspend fun loadDiscoLayeredAppIcon(packageName: String): ImageBitmap? {
+        getCachedDiscoLayeredAppIcon(packageName)?.let { return it }
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                iconDecodePermits.withPermit {
+                    val cached = readPersistedVisualBitmap(
+                        packageName, "disco_foreground_color_v7_$maxCachedIconPx",
+                    )?.asImageBitmap()
+                    val resolved = cached ?: runCatching {
+                        val drawable = packageManager.getApplicationIcon(packageName)
+                        val (glyph, hasSeparateForeground) = drawableToDiscoForeground(drawable)
+                        val colorfulForeground = hasColoredArtwork(glyph)
+                        visualPrefs.edit {
+                            putBoolean("disco_layer_color_v3:$packageName", colorfulForeground)
+                            putBoolean("disco_layer_usable_v6:$packageName", hasSeparateForeground)
+                        }
+                        persistVisualBitmap(
+                            packageName, "disco_foreground_color_v7_$maxCachedIconPx", glyph,
+                        )
+                        if (drawable is AdaptiveIconDrawable) {
+                            val background = renderDrawableAtResolution(
+                                drawable.background, maxCachedIconPx,
+                            )
+                            val backgroundColor = extractAppAccentColor(background)
+                            val rich = Wp81IconArtwork.isRichBackground(background)
+                            visualPrefs.edit {
+                                putBoolean("disco_background_rich_v1:$packageName", rich)
+                            }
+                            if (rich) {
+                                persistVisualBitmap(packageName,
+                                    "disco_background_rich_v1_$maxCachedIconPx", background)
+                                synchronized(richBackgroundLock) {
+                                    richBackgroundCache.put(packageName, background.asImageBitmap())
+                                }
+                            } else background.recycle()
+                            // An app's neutral background is intentional if its
+                            // foreground carries colored artwork (YouTube etc).
+                            val proposed = if (colorfulForeground) backgroundColor
+                                else usableDiscoTileAccent(backgroundColor)
+                                    ?: usableDiscoTileAccent(extractAppAccentColor(glyph))
+                            proposed?.let { persistAppAccent(packageName, it) }
+                        } else {
+                            visualPrefs.edit {
+                                putBoolean("disco_background_rich_v1:$packageName", false)
+                            }
+                            // Legacy icons still have a meaningful primary color.
+                            // Persist it for BOTH All Apps and newly pinned tiles.
+                            usableDiscoTileAccent(extractAppAccentColor(glyph))
+                                ?.let { persistAppAccent(packageName, it) }
+                        }
+                        glyph.asImageBitmap()
+                    }.getOrNull()
+                    if (resolved != null) synchronized(layeredIconCacheLock) {
+                        layeredIconCache.put(packageName, resolved)
+                    }
+                    resolved
+                }
+            } finally {
+                inFlightLayeredLoads.remove(packageName)
+            }
+        }
+        val active = inFlightLayeredLoads.putIfAbsent(packageName, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
+    }
+
+    /** Preserve native colored adaptive foregrounds, not a forced white mask. */
+    private fun drawableToDiscoForeground(drawable: Drawable): Pair<Bitmap, Boolean> {
+        if (drawable is AdaptiveIconDrawable) {
+            val foreground = renderDrawableAtResolution(
+                drawable.foreground, maxCachedIconPx,
+            )
+            val w = foreground.width
+            val h = foreground.height
+            val pixels = IntArray(w * h)
+            foreground.getPixels(pixels, 0, w, 0, 0, w, h)
+            val solid = pixels.count { Color.alpha(it) >= 96 }
+            // Keep color detail where the app actually provides a transparent
+            // foreground. Dense opaque plates are not suitable glyphs.
+            if (solid in (w * h / 75)..(w * h * 2 / 3)) {
+                // An adaptive foreground can itself be a fully drawn round
+                // app icon. Treat that like a whole icon, not a tiny Metro glyph:
+                // multiplying the full disk by 2 makes it fill the tile.
+                val safeToEnlarge = !isDiscoFullIconPlate(pixels, w, h, solid)
+                if (hasColoredArtwork(foreground)) return foreground to safeToEnlarge
+                // Monochrome foregrounds need white glyphs when the plain
+                // native plate gets replaced by the Metro tile accent.
+                foreground.recycle()
+                return renderTintedDrawable(
+                    drawable.foreground, Color.WHITE, maxCachedIconPx,
+                ) to safeToEnlarge
+            }
+            foreground.recycle()
+        }
+        // Disco uses the source icon when Android cannot provide a
+        // separate foreground. Never silently replace colorful legacy
+        // logos with a black/white silhouette.
+        return drawableToBitmap(drawable, maxCachedIconPx) to false
+    }
+
+    /** A big opaque disk/plate inside an adaptive "foreground" is already a
+     * full-sized logo. Only sparse glyph artwork benefits from 2x scaling. */
+    private fun isDiscoFullIconPlate(
+        pixels: IntArray, width: Int, height: Int, solidCount: Int,
+    ): Boolean {
+        if (solidCount < pixels.size * .19f) return false
+        val midRow = height / 2
+        val midCol = width / 2
+        val rowFill = (0 until width).count { x ->
+            Color.alpha(pixels[midRow * width + x]) >= 192
+        }
+        val colFill = (0 until height).count { y ->
+            Color.alpha(pixels[y * width + midCol]) >= 192
+        }
+        return rowFill >= width * .48f && colFill >= height * .48f
+    }
+
+    /** Neutral backgrounds are allowed only when an app has vivid
+     * foreground artwork; otherwise the Metro tile accent is preserved. */
+    fun getDiscoTileAccentColor(packageName: String): Long? {
+        val candidate = getCachedAppAccentColor(packageName)
+        if (usableDiscoTileAccent(candidate) != null) return candidate
+        return candidate.takeIf {
+            visualPrefs.getBoolean("disco_layer_color_v3:$packageName", false)
+        }
+    }
+
+    private fun hasColoredArtwork(image: Bitmap): Boolean {
+        val pixels = IntArray(image.width * image.height)
+        image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
+        val hsv = FloatArray(3)
+        var colorful = 0
+        for (pixel in pixels) {
+            if (Color.alpha(pixel) < 96) continue
+            Color.colorToHSV(pixel, hsv)
+            if (hsv[1] > .28f && hsv[2] > .2f) colorful++
+            if (colorful >= pixels.size / 95 + 5) return true
+        }
+        return false
+    }
+
     fun getCachedAllAppsIcon(
         packageName: String,
         maxPx: Int,
@@ -257,6 +564,42 @@ class AppsRepository(private val context: Context) {
         synchronized(allAppsThumbnailCacheLock) {
             return allAppsThumbnailCache.get(key)
         }
+    }
+
+    fun getCachedDiscoAllAppsIcon(packageName: String, maxPx: Int): ImageBitmap? =
+        synchronized(allAppsThumbnailCacheLock) {
+            allAppsThumbnailCache.get("disco:$packageName:$maxPx")
+        }
+
+    /** Layer extraction is expensive; subsequent launches read a real list-sized thumbnail. */
+    suspend fun loadDiscoAllAppsIcon(packageName: String, maxPx: Int): ImageBitmap? {
+        val safePx = maxPx.coerceIn(ALL_APPS_ICON_MIN_PX, ALL_APPS_ICON_MAX_PX)
+        getCachedDiscoAllAppsIcon(packageName, safePx)?.let { return it }
+        val key = "disco:$packageName:$safePx"
+        val candidate = iconLoadScope.async(start = CoroutineStart.LAZY) {
+            try {
+                allAppsDecodePermits.withPermit {
+                    val variant = "allapps_disco_color_v7_$safePx"
+                    val bitmap = readPersistedVisualBitmap(packageName, variant) ?: run {
+                        val source = loadDiscoLayeredAppIcon(packageName) ?: return@withPermit null
+                        val original = source.asAndroidBitmap()
+                        val scale = min(1f, safePx.toFloat() / max(original.width, original.height))
+                        Bitmap.createScaledBitmap(original,
+                            (original.width * scale).roundToInt().coerceAtLeast(1),
+                            (original.height * scale).roundToInt().coerceAtLeast(1), true,
+                        ).also { persistVisualBitmap(packageName, variant, it) }
+                    }
+                    bitmap.asImageBitmap().also { image ->
+                        synchronized(allAppsThumbnailCacheLock) { allAppsThumbnailCache.put(key, image) }
+                    }
+                }
+            } finally {
+                inFlightAllAppsThumbnailLoads.remove(key)
+            }
+        }
+        val active = inFlightAllAppsThumbnailLoads.putIfAbsent(key, candidate)
+        if (active == null) candidate.start() else candidate.cancel()
+        return (active ?: candidate).await()
     }
 
     suspend fun loadAllAppsIcon(
@@ -337,16 +680,18 @@ class AppsRepository(private val context: Context) {
         "allapps_${if (monochrome) "mono" else "color"}_$maxPx"
 
     private fun packageUpdateStamp(packageName: String): Long =
-        runCatching {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).lastUpdateTime
-        }.getOrDefault(0L)
+        packageUpdateStamps.computeIfAbsent(packageName) {
+            runCatching {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+            }.getOrDefault(0L)
+        }
 
     private fun visualCacheFile(packageName: String, variant: String): File {
         val source = "$packageName:$variant:${packageUpdateStamp(packageName)}"
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(source.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
         return File(File(context.filesDir, APP_VISUAL_CACHE_DIR), "$digest.png")
     }
 
@@ -1109,7 +1454,7 @@ class AppsRepository(private val context: Context) {
      *
      * This method performs PackageManager/bitmap work and must be called off the main thread.
      */
-    fun refreshAutomaticAppAccentTiles(tiles: List<TileModel>): List<TileModel> {
+    fun refreshAutomaticAppAccentTiles(tiles: List<TileModel>, persist: Boolean = true): List<TileModel> {
         val previousVersion = prefs.getInt(APP_ACCENT_ALGORITHM_VERSION_KEY, 0)
         val allowLegacyRecognition = previousVersion < APP_ACCENT_ALGORITHM_VERSION
         val accentPairs = mutableMapOf<String, Pair<Long, Long>>()
@@ -1172,7 +1517,7 @@ class AppsRepository(private val context: Context) {
         if (allowLegacyRecognition) {
             prefs.edit { putInt(APP_ACCENT_ALGORITHM_VERSION_KEY, APP_ACCENT_ALGORITHM_VERSION) }
         }
-        if (changed) savePinnedTiles(refreshed)
+        if (changed && persist) savePinnedTiles(refreshed)
         return refreshed
     }
 
@@ -1254,6 +1599,7 @@ class AppsRepository(private val context: Context) {
     }
 
     fun loadPinnedTiles(): List<TileModel> {
+        cachedPinnedTiles?.let { return it }
         val savedJson = prefs.getString("pinned_tiles_json", null)
         if (!savedJson.isNullOrEmpty()) {
             try {
@@ -1289,7 +1635,10 @@ class AppsRepository(private val context: Context) {
                         )
                     )
                 }
-                if (list.isNotEmpty()) return upgradeLegacyStockStartIfNeeded(list)
+                // An explicitly empty Start is valid; never repopulate removed pins on reopen.
+                val restored = if (list.isEmpty()) list else upgradeLegacyStockStartIfNeeded(list)
+                if (restored === list) pinnedSnapshot = savedJson to restored
+                return restored
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -1326,7 +1675,10 @@ class AppsRepository(private val context: Context) {
             }
             array.put(obj)
         }
-        prefs.edit { putString("pinned_tiles_json", array.toString()) }
+        val json = array.toString()
+        prefs.edit { putString("pinned_tiles_json", json) }
+        pinnedSnapshot = json to tiles.toList()
+        SharedStartWorkspace.reconcileFolders(context, tiles)
     }
 
     fun getDefaultTiles(): List<TileModel> {

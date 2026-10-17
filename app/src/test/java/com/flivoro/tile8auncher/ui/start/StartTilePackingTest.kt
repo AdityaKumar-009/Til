@@ -129,7 +129,14 @@ class StartTilePackingTest {
             assertTrue("$context band is taller than the viewport", metrics.bandHeightDp <= height + .001f)
             assertEquals(START_GRID_COLUMNS, packed.bands.first().columns)
             assertEquals(metrics.rows, packed.bands.first().rows)
-            assertEquals(tiles.map { it.id }, packed.tiles.map { it.tile.id })
+            // A small later tile may fill a hole in an earlier band after a large
+            // tile has continued right. Flattened spatial order is then different
+            // from input order; identity and order WITHIN each band must survive.
+            assertEquals(tiles.map { it.id }.sorted(), packed.tiles.map { it.tile.id }.sorted())
+            packed.bands.forEach { band ->
+                val ids = band.tiles.map { it.tile.id }
+                assertEquals(tiles.map { it.id }.filter { it in ids }, ids)
+            }
             assertBandGeometryIsValid(packed)
         }
     }

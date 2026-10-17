@@ -2,11 +2,111 @@ name: Android build
 
 on:
   workflow_dispatch:
+    inputs:
+      benchmark_startup:
+        description: 'Compare previous/current optimized APK startup on one emulator'
+        required: false
+        type: boolean
+        default: false
+      benchmark_profiles:
+        description: 'Compare the same code with and without app-specific startup profiles'
+        required: false
+        type: boolean
+        default: false
+      upload_full_motion_evidence:
+        description: 'Upload large frame captures for manual animation analysis (1-day retention)'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+      - feature/windows-phone-launcher-modes
+
+# Cancel superseded builds on the same branch so APK artifacts correspond to latest code.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  startup-performance:
+    # Opt in for startup work; ordinary animation/APK builds pay no extra build/storage cost.
+    if: ${{ inputs.benchmark_startup == true || inputs.benchmark_profiles == true || contains(github.event.head_commit.message, '[startup-benchmark]') || contains(github.event.head_commit.message, '[startup-profile-benchmark]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [DESKTOP, PHONE_8, MOBILE_10]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build previous and current optimized APKs
+        env:
+          COMPARE_PROFILES: ${{ inputs.benchmark_profiles == true || contains(github.event.head_commit.message, '[startup-profile-benchmark]') }}
+        run: |
+          if [ "$COMPARE_PROFILES" = "true" ]; then
+            git worktree add --detach /tmp/til-startup-before HEAD
+            # Only the disposable control checkout loses the app-specific profiles.
+            rm -f /tmp/til-startup-before/app/src/main/baselineProfiles/{baseline,startup}-prof.txt
+          else
+            git worktree add --detach /tmp/til-startup-before HEAD^
+          fi
+          (cd /tmp/til-startup-before && bash gradlew assemblePerformance --stacktrace)
+          cp /tmp/til-startup-before/app/build/outputs/apk/performance/app-performance.apk /tmp/til-startup-before.apk
+          bash gradlew assemblePerformance bundlePerformance --stacktrace
+          if [ -f app/src/main/baselineProfiles/startup-prof.txt ]; then
+            python3 .github/scripts/verify-startup-profiles.py
+          elif [ -f app/src/main/baselineProfiles/baseline-prof.txt ]; then
+            python3 .github/scripts/verify-startup-profiles.py --without-startup-layout
+          fi
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Measure startup without forced AOT compilation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
+          script: |
+            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --modes ${{ matrix.mode }}
+            mv app/build/startup-benchmark app/build/startup-uncompiled
+      - name: Measure startup with bundled profiles compiled
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
+          script: |
+            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --compile-profile --modes ${{ matrix.mode }}
+      - name: Upload compact startup timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-timings-api34-${{ matrix.mode }}
+          path: |
+            app/build/startup-benchmark
+            app/build/startup-uncompiled
+            app/build/startup-profiles/packaging.json
+          if-no-files-found: warn
+          retention-days: 7
+
   verify-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -24,13 +124,101 @@ jobs:
       - name: Make wrapper executable
         run: chmod +x gradlew
       - name: Unit tests
+        id: unit_tests
+        continue-on-error: true
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Build optimized installable APK
         run: ./gradlew assemblePerformance --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: tile8-windows81-apk
+          name: til-three-windows-modes-apk
           path: app/build/outputs/apk/performance/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2
+      - name: Upload performance R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-r8-mapping
+          path: app/build/outputs/mapping/performance/mapping.txt
+          if-no-files-found: error
+          retention-days: 2
+      - name: Fail if unit tests failed
+        if: steps.unit_tests.outcome == 'failure'
+        run: |
+          echo "::error::APK built, but unit tests failed; inspect the Unit tests step before merging."
+          exit 1
+
+  phone-motion-render:
+    if: github.ref == 'refs/heads/feature/windows-phone-launcher-modes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      matrix:
+        api-level: [29, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture and verify rendered phone motion
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash .github/scripts/verify-phone-motion.sh
+      - name: Upload compact native phone UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-ui-screenshots-api${{ matrix.api-level }}
+          path: app/build/phone-ui-snapshots/*.png
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Install FFmpeg for preview
+        if: always()
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Render WP8.1 Home-return preview video
+        if: always()
+        run: python3 .github/scripts/render-wp81-home-return.py
+      - name: Upload WP8.1 Home-return preview video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp81-home-return-preview-api${{ matrix.api-level }}
+          path: app/build/motion-preview/Til-WP81-Home-Return-Preview.mp4
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Render compact W10M frame review
+        if: ${{ always() && matrix.api-level == 34 }}
+        run: python3 .github/scripts/render-w10m-review.py
+      - name: Upload compact W10M frame review
+        if: ${{ always() && matrix.api-level == 34 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: w10m-compact-motion-review
+          path: app/build/w10m-review
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Upload full frame captures and device test results (manual opt-in)
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload_full_motion_evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-motion-render-evidence-api${{ matrix.api-level }}
+          path: |
+            app/build/motion-frames
+            app/build/outputs/androidTest-results
+            app/build/reports/androidTests
+          if-no-files-found: warn
+          retention-days: 1
