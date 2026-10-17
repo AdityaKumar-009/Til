@@ -37,6 +37,10 @@ jobs:
     if: ${{ inputs.benchmark_startup == true || inputs.benchmark_profiles == true || contains(github.event.head_commit.message, '[startup-benchmark]') || contains(github.event.head_commit.message, '[startup-profile-benchmark]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [DESKTOP, PHONE_8, MOBILE_10]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,7 +81,7 @@ jobs:
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
           script: |
-            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5
+            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --modes ${{ matrix.mode }}
             mv app/build/startup-benchmark app/build/startup-uncompiled
       - name: Measure startup with bundled profiles compiled
         uses: reactivecircus/android-emulator-runner@v2
@@ -88,12 +92,12 @@ jobs:
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
           script: |
-            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --compile-profile
+            python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --compile-profile --modes ${{ matrix.mode }}
       - name: Upload compact startup timings
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: startup-timings-api34
+          name: startup-timings-api34-${{ matrix.mode }}
           path: |
             app/build/startup-benchmark
             app/build/startup-uncompiled

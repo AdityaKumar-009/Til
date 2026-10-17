@@ -119,13 +119,14 @@ def install_and_compile_profile():
     return {"install": installed, "compile": compiled}
 
 
-def measure(apk, label, iterations=3, compile_profile=False, all_results=None):
+def measure(apk, label, iterations=3, compile_profile=False, all_results=None,
+            modes=("DESKTOP", "PHONE_8", "MOBILE_10")):
     adb("install", "-r", apk)
     results = {}
     if all_results is None:
         all_results = {}
     all_results[label] = results
-    for mode in ("DESKTOP", "PHONE_8", "MOBILE_10"):
+    for mode in modes:
         print(f"Measuring {label} {mode}, profile compilation={compile_profile}", flush=True)
         set_mode(mode)
         # Keep ART compilation conditions equal across APKs and modes.
@@ -159,6 +160,8 @@ def main():
     parser.add_argument("after")
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--compile-profile", action="store_true")
+    parser.add_argument("--modes", nargs="+", choices=("DESKTOP", "PHONE_8", "MOBILE_10"),
+                        default=("DESKTOP", "PHONE_8", "MOBILE_10"))
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     adb("root")
@@ -169,7 +172,7 @@ def main():
     adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
     results = {}
     for label, apk in zip(("before", "after"), (args.before, args.after), strict=True):
-        measure(apk, label, args.iterations, args.compile_profile, results)
+        measure(apk, label, args.iterations, args.compile_profile, results, args.modes)
     lines = ["### Launcher startup on the same API 34 emulator", "",
              f"Fresh data once; saved cold starts {args.iterations} times. Fully drawn includes process and initial UI rendering, before the entrance animation finishes. Preparation timings exclude process/Compose initialization. Emulator timings are not device guarantees.",
              "Both APKs use their bundled Baseline Profile, installed and AOT-compiled before cached measurements." if args.compile_profile else "Both APKs start with ART compilation reset; no forced ahead-of-time compilation.", "",

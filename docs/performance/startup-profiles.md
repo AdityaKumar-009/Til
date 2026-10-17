@@ -46,8 +46,11 @@ To isolate the profile benefit from other feature changes, use the Android build
 workflow's `benchmark_profiles` input, or `[startup-profile-benchmark]` in the
 commit message. It builds the same revision twice, removing only the app-specific
 profiles in a disposable control checkout. AndroidX library profiles remain in
-both APKs. Each compilation condition uses a fresh software-rendered emulator
-with Vulkan disabled. Commands have time limits and each sample is saved as it
+both APKs. Each mode and compilation condition uses a fresh software-rendered
+emulator with Vulkan disabled. Mode isolation avoids the emulator's intermittent
+ColorBuffer failure after switching launcher surfaces between cleared-data runs.
+Within each comparison, both APKs run on the same emulator. Commands have time
+limits and each sample is saved as it
 finishes, so an emulator failure preserves completed measurements and fails
 promptly. Incomplete runs must not be reported as a measured improvement.
 
