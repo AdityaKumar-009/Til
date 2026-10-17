@@ -89,6 +89,7 @@ import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.usableDiscoTileAccent
 import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
+import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
@@ -589,6 +590,9 @@ fun AllAppsScreen(
             val currentApp = selectedAppForAction
             if (currentApp != null) {
                 val isPinned = isAppPinned(currentApp.packageName)
+                val uninstallable = remember(currentApp.packageName) {
+                    canRequestAppUninstall(context, currentApp.packageName)
+                }
                 val icon = rememberAllAppsIcon(appsRepository, currentApp.packageName)
                 Surface(
                     color = Color(0xF0180424),
@@ -645,14 +649,16 @@ fun AllAppsScreen(
                                     selectedAppForAction = null
                                 },
                             )
-                            MetroActionButton(
-                                glyph = "power",
-                                label = "Uninstall",
-                                onClick = {
-                                    onUninstallApp(currentApp.packageName)
-                                    selectedAppForAction = null
-                                },
-                            )
+                            if (uninstallable) {
+                                MetroActionButton(
+                                    glyph = "power",
+                                    label = "Uninstall",
+                                    onClick = {
+                                        onUninstallApp(currentApp.packageName)
+                                        selectedAppForAction = null
+                                    },
+                                )
+                            }
                             MetroActionButton(
                                 glyph = "arrow_down",
                                 label = "Cancel",

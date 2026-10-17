@@ -78,6 +78,8 @@ import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.canRequestAppUninstall
+import com.flivoro.tile8auncher.features.userConfirmedAppUninstallIntent
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
@@ -149,6 +151,17 @@ class MainActivity : ComponentActivity() {
     private var phoneReturnSourceTileId by mutableStateOf<String?>(null)
     private var phoneAllAppsVisible = false
     private var screenOffRequest by mutableIntStateOf(0)
+
+    // The system uninstaller must be launched for a result, not as a NEW_TASK
+    // no-animation app launch. Android broadcasts PACKAGE_REMOVED after confirmation.
+    private val uninstallRequest = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            // Also refresh if an OEM failed to send us its package broadcast.
+            PackageCatalogUpdates.notifyPackageChanged()
+        }
+    }
 
     private val userPresentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -536,14 +549,36 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun uninstallApp(packageName: String) {
-        try {
-            val intent = Intent(Intent.ACTION_DELETE).apply {
-                data = Uri.parse("package:$packageName")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!canRequestAppUninstall(this, packageName)) {
+            val installed = runCatching {
+                packageManager.getApplicationInfo(packageName, 0)
+            }.isSuccess
+            if (installed && packageName != this.packageName) {
+                Toast.makeText(this, "System apps cannot be removed; opening App info", Toast.LENGTH_LONG).show()
+                openAppInfo(packageName)
+            } else {
+                Toast.makeText(this, "This app cannot be uninstalled", Toast.LENGTH_SHORT).show()
             }
-            startActivityWithCustomAnim(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Could not request uninstall", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            // ACTION_UNINSTALL_PACKAGE opens the user's platform confirmation.
+            // No FLAG_ACTIVITY_NEW_TASK: the ActivityResult contract must receive
+            // success/cancel and the launcher must not suppress the system UI.
+            uninstallRequest.launch(userConfirmedAppUninstallIntent(packageName))
+        } catch (first: Exception) {
+            Log.w("MosaicUninstall", "Uninstaller intent failed for $packageName", first)
+            // Some vendor package managers register only the legacy DELETE action.
+            try {
+                uninstallRequest.launch(Intent(Intent.ACTION_DELETE,
+                    Uri.fromParts("package", packageName, null)).apply {
+                        putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                    })
+            } catch (second: Exception) {
+                Log.e("MosaicUninstall", "Unable to show uninstall confirmation for $packageName", second)
+                Toast.makeText(this, "Uninstaller unavailable. Try App info.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

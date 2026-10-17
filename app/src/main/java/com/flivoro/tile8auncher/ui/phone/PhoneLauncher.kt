@@ -113,6 +113,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.loadEnhancedApps
 import com.flivoro.tile8auncher.features.recentlyInstalledApps as selectRecentlyInstalledApps
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
@@ -2047,11 +2048,7 @@ fun PhoneLauncherSurface(
         val app = byPackage[pkg]
         if (app != null) {
             val uninstallable = remember(pkg) {
-                runCatching {
-                    val info = context.packageManager.getApplicationInfo(pkg, 0)
-                    info.flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or
-                        android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
-                }.getOrDefault(false) && pkg != MOSAIC_SETTINGS_ID
+                canRequestAppUninstall(context, pkg)
             }
             // WP8.1 is placed in window coordinates by the context menu itself.
             // W10M continues to use the existing compact strip placement.

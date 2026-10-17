@@ -218,7 +218,7 @@ internal fun PhoneAppContextMenu(
                         }
                         launchIntent(Intent.createChooser(send, "Share app"))
                     }
-                    item("uninstall", action = onUninstall)
+                    if (isUninstallable) item("uninstall", action = onUninstall)
                     item("app info", action = onAppInfo)
                 } else item("Mosaic Settings", action = onAppInfo)
             }
