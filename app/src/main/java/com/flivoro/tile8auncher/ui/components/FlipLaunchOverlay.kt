@@ -63,6 +63,8 @@ fun FlipLaunchOverlay(
     onAnimationEnd: () -> Unit,
     onReverseAnimationEnd: (FlipReverseReason) -> Unit,
     destinationContent: (@Composable () -> Unit)? = null,
+    /** Optional real source renderer for phone skins borrowing Desktop motion. */
+    sourceFace: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
@@ -152,7 +154,8 @@ fun FlipLaunchOverlay(
         val backPoints = remember { FloatArray(8) }
         val logoPoints = remember { FloatArray(8) }
         var sourceLogo by remember(state.sourceTile?.id, state.sourceBounds) { mutableStateOf<Rect?>(null) }
-        val sharedLogo = !allApps && destinationContent == null && tile.tileType !in listOf(
+        val sharedLogo = sourceFace == null && !allApps &&
+            destinationContent == null && tile.tileType !in listOf(
             TileType.CLOCK, TileType.CALENDAR, TileType.DESKTOP)
         val frontRect = remember(source.width, source.height) {
             floatArrayOf(0f, 0f, source.width, 0f, source.width, source.height, 0f, source.height)
@@ -177,18 +180,28 @@ fun FlipLaunchOverlay(
         Box(Modifier.fillMaxSize().onGloballyPositioned { windowOrigin = it.positionInWindow() }) {
             // Both faces have fixed layout dimensions. Progress is read only during
             // drawing, so animation does not remeasure text or icons every frame.
-            WindowsTileFace(tile, state.appIcon,
-                Modifier.requiredSize(with(density) { source.width.toDp() },
-                    with(density) { source.height.toDp() })
-                    .projectedFace(frontMatrix, frontRect, frontPoints,
-                        frame = ::frame, visible = { it.isFrontFace && !modern && !allApps },
-                        onDrawn = { if (progress.value <= 0f) sourceFrameDrawn = true }),
-                logoModifier = if (sharedLogo) Modifier
-                    .onGloballyPositioned {
-                        sourceLogo = it.boundsInWindow().translate(-windowOrigin)
-                    }
-                    .alpha(0f) else Modifier,
+            // One physical source actor, rendered using the visual rules of
+            // the INTERFACE mode, never a desktop-derived duplicate app icon.
+            val physicalSource = Modifier.requiredSize(
+                with(density) { source.width.toDp() },
+                with(density) { source.height.toDp() },
+            ).projectedFace(
+                frontMatrix, frontRect, frontPoints,
+                frame = ::frame, visible = { it.isFrontFace && !modern && !allApps },
+                onDrawn = { if (progress.value <= 0f) sourceFrameDrawn = true },
             )
+            if (sourceFace != null) {
+                sourceFace(physicalSource)
+            } else {
+                WindowsTileFace(tile, state.appIcon,
+                    physicalSource,
+                    logoModifier = if (sharedLogo) Modifier
+                        .onGloballyPositioned {
+                            sourceLogo = it.boundsInWindow().translate(-windowOrigin)
+                        }
+                        .alpha(0f) else Modifier,
+                )
+            }
             val iconSize = with(density) { (min(width, height) * .20f).toDp() }
                 .coerceIn(48.dp, 104.dp)
             Box(
