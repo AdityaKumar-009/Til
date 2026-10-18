@@ -1106,8 +1106,14 @@ fun Tile8LauncherApp(
         var phoneHandoffHeld by remember(launcherMode, startEntranceRequest, homeRequest) {
             mutableStateOf(false)
         }
+        var handoffTileId by remember(launcherMode, startEntranceRequest, homeRequest) {
+            mutableStateOf<String?>(null)
+        }
+        var handoffAnimationMode by remember(launcherMode, startEntranceRequest, homeRequest) {
+            mutableStateOf<LauncherUiMode?>(null)
+        }
         // Default keeps each phone mode's original measured Start/All Apps exit.
-        // An explicit shared preset owns its frames in FlipLaunchOverlay instead.
+        // Cross-phone choices run on the original native launch compositor.
         val chosenLaunch = flipState.masterLaunchAnimation
         // Both phone modes share the original native motion engine. Switching
         // between PHONE_8/MOBILE_10 selects the source motion curves, not a new
@@ -1120,6 +1126,8 @@ fun Tile8LauncherApp(
             if (flipState.isRunning && !usesDesktopLaunch &&
                 flipState.direction == FlipAnimationDirection.REVERSE) {
                 phoneHandoffHeld = false
+                handoffTileId = null
+                handoffAnimationMode = null
                 onDismissFlip()
                 localStartEntranceRequest++
             }
@@ -1141,12 +1149,14 @@ fun Tile8LauncherApp(
                         preparedRecentApps = null,
                         homeRequest = homeRequest,
                         entranceRequest = startEntranceRequest,
-                        launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
-                        launchMotionMode = when (chosenLaunch) {
-                            MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
-                            MasterLaunchAnimation.MOBILE_10 -> LauncherUiMode.MOBILE_10
-                            else -> null
-                        },
+                        launchingTileId = if (phoneLaunchActive)
+                            flipState.sourceTile?.id else handoffTileId,
+                        launchMotionMode = if (phoneHandoffHeld) handoffAnimationMode
+                            else when (chosenLaunch) {
+                                MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
+                                MasterLaunchAnimation.MOBILE_10 -> LauncherUiMode.MOBILE_10
+                                else -> null
+                            },
                         isLaunching = phoneExitActive,
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
@@ -1172,6 +1182,12 @@ fun Tile8LauncherApp(
                             // Preserve the exit pose and selected ID through Android's window swap.
                             if (phoneLaunchActive && !flipLaunchDispatched) {
                                 flipState.sourceTile?.let { tile ->
+                                    handoffTileId = tile.id
+                                    handoffAnimationMode = when (chosenLaunch) {
+                                        MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
+                                        MasterLaunchAnimation.MOBILE_10 -> LauncherUiMode.MOBILE_10
+                                        else -> launcherMode
+                                    }
                                     phoneHandoffHeld = true
                                     flipLaunchDispatched = true
                                     onLaunchTile(tile)
