@@ -288,7 +288,8 @@ fun AllAppsScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()
+                .storyLaunchActor("desktop-apps-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false)) {
                 val isNarrow = maxWidth < 460.dp
                 val titleSize = when {
                     maxWidth < 300.dp -> 32.sp
@@ -298,8 +299,7 @@ fun AllAppsScreen(
 
                 Column(Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .storyLaunchActor("desktop-apps-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         Text(
@@ -581,7 +581,8 @@ fun AllAppsScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)
+                .storyLaunchActor("desktop-apps-footer", LaunchOrigin.ALL_APPS, sourceCandidate = false)) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
@@ -798,9 +799,7 @@ private fun SearchField(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .storyLaunchActor("desktop-app-search", LaunchOrigin.ALL_APPS, sourceCandidate = false)
-            .background(Color(0x33000000)).border(1.dp, Color(0x66FFFFFF)).padding(horizontal = 8.dp),
+        modifier = modifier.background(Color(0x33000000)).border(1.dp, Color(0x66FFFFFF)).padding(horizontal = 8.dp),
     ) {
         BasicTextField(
             value = query,
@@ -850,7 +849,8 @@ private fun AllAppsColumn(
                 var originalBounds by remember(item.key) { mutableStateOf(Rect.Zero) }
                 Box(Modifier.fillMaxWidth()
                     .onGloballyPositioned { originalBounds = it.boundsInWindow() }
-                    .storyLaunchActor("desktop-row-${item.key}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+                    .storyLaunchActor(if (item is AllAppsColumnItem.App) "app_${item.app.packageName}"
+                        else "desktop-row-${item.key}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
                     .borrowedPhoneScene(
                         style = borrowedLaunchStyle,
                         progress = borrowedLaunchProgress,

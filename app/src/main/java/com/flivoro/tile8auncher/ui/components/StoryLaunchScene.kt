@@ -48,12 +48,21 @@ import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StoryLaunchMotion
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
+import kotlin.math.abs
 
 /** One display clock and one source display list, shared by all three skins. */
 internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () -> Float) {
     var viewport by mutableStateOf(Rect.Zero)
     var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
-    var capturedSourceBounds by mutableStateOf(Rect.Zero)
+    var capturedSourceBounds by mutableStateOf(state.sourceBounds)
+    var sourceOwner by mutableStateOf<Any?>(null)
+    var sourceMeasured = false
+
+    fun matchesSourceBounds(bounds: Rect): Boolean {
+        val target = state.sourceBounds
+        return target.width > 1f && target.height > 1f && bounds.overlaps(target) &&
+            abs(bounds.center.y - target.center.y) <= maxOf(bounds.height, target.height) * .51f
+    }
 
     fun isSelected(id: String): Boolean {
         val tile = state.sourceTile ?: return false
@@ -82,24 +91,37 @@ internal fun Modifier.storyLaunchActor(
     val measured = this.onGloballyPositioned {
         bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
     }
-    if (sourceCandidate && scene.isSelected(id) && scene.state.sourceBounds.width > 1f &&
-        scene.state.sourceBounds.height > 1f) {
-        val layer = rememberGraphicsLayer()
+    val potentialSource = sourceCandidate && scene.isSelected(id) &&
+        scene.state.sourceBounds.width > 1f && scene.state.sourceBounds.height > 1f
+    val token = remember(scene, id) { Any() }
+    val layer = if (potentialSource) rememberGraphicsLayer() else null
+    if (layer != null) {
         DisposableEffect(scene, layer) {
-            onDispose { if (scene.sourceLayer === layer) scene.sourceLayer = null }
-        }
-        return measured.drawWithContent {
-            layer.record { this@drawWithContent.drawContent() }
-            if (scene.sourceLayer !== layer) scene.sourceLayer = layer
-            if (bounds.width > 0f && bounds.height > 0f && scene.capturedSourceBounds != bounds) {
-                scene.capturedSourceBounds = bounds
+            onDispose {
+                if (scene.sourceOwner === token) {
+                    scene.sourceLayer = null
+                    scene.sourceOwner = null
+                }
             }
-            // The launch overlay, after all the surrounding actors, draws it.
         }
     }
+    fun ownsSource(): Boolean = layer != null && (scene.sourceOwner === token ||
+        (scene.sourceOwner == null && scene.matchesSourceBounds(bounds)))
     return measured.graphicsLayer {
         val viewport = scene.viewport
-        if (viewport.width > 1f && viewport.height > 1f) {
+        if (ownsSource()) {
+            alpha = 1f
+            translationX = 0f
+            translationY = 0f
+            scaleX = 1f
+            scaleY = 1f
+            rotationX = 0f
+            rotationY = 0f
+        } else if (!sourceCandidate && scene.isSelected(id)) {
+            // Desktop All Apps transfers its icon plate; the title stays on
+            // the row and fades. Keep that row's layout anchor stationary.
+            alpha = 1f - StoryLaunchMotion.ease(.05f, .60f, scene.progress())
+        } else if (viewport.width > 1f && viewport.height > 1f) {
             val motion = StoryLaunchMotion.neighbor(scene.state.masterLaunchAnimation,
                 scene.progress(), bounds, StoryLaunchMotion.source(
                     scene.capturedSourceBounds.takeIf { it.width > 0f } ?: scene.state.sourceBounds, viewport), viewport)
@@ -113,6 +135,18 @@ internal fun Modifier.storyLaunchActor(
             transformOrigin = TransformOrigin(motion.pivotX, motion.pivotY)
             cameraDistance = maxOf(viewport.width * 3f, viewport.height * 2f)
         }
+    }.drawWithContent {
+        if (ownsSource() && layer != null) {
+            layer.record { this@drawWithContent.drawContent() }
+            if (scene.sourceOwner !== token) scene.sourceOwner = token
+            if (scene.sourceLayer !== layer) scene.sourceLayer = layer
+            // Freeze geometry while departing: transformed parent rows must
+            // never feed their moving coordinates back into the source anchor.
+            if (!scene.sourceMeasured && scene.progress() <= .001f && bounds.width > 0f) {
+                scene.capturedSourceBounds = bounds
+                scene.sourceMeasured = true
+            }
+        } else drawContent()
     }
 }
 

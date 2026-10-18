@@ -65,6 +65,7 @@ class StoryLaunchRenderTest {
         context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
             .edit().clear().commit()
         LauncherFeatureStore.setLauncherUiMode(context, mode)
+        LauncherFeatureStore.setShowRecentlyInstalledPhoneApps(context, true)
         val repository = AppsRepository(context)
         val colors = listOf(0xFFE3008C, 0xFF008A00, 0xFF00A4EF, 0xFFF09609)
         val tiles = List(12) { n -> TileModel(id = "story_$n", title = "Story $n",
@@ -95,6 +96,7 @@ class StoryLaunchRenderTest {
                             mode != LauncherUiMode.DESKTOP -> PhoneLauncherSurface(
                                 mode = mode, tiles = tiles, sections = apps, appsRepository = repository,
                                 homeRequest = 0, entranceRequest = 0, launchingTileId = null,
+                                preparedRecentApps = if (mode == LauncherUiMode.MOBILE_10) apps.first().apps.take(1) else emptyList(),
                                 isLaunching = false, interactionEnabled = scene == null, wallpaperStyle = 0,
                                 onLaunch = { _, _, _ -> }, onExitFinished = {}, onOpenSettings = {}, onOpenAppInfo = {})
                             origin == LaunchOrigin.START -> StartScreen(
@@ -121,9 +123,16 @@ class StoryLaunchRenderTest {
             compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().isNotEmpty()
         }
         val baseline = shot()
+        val label = compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha")
+            .fetchSemanticsNodes().first().boundsInRoot.translate(rootBounds.topLeft)
+        val density = context.resources.displayMetrics.density
+        val clickedBounds = if (mode == LauncherUiMode.DESKTOP && origin == LaunchOrigin.ALL_APPS)
+            Rect(label.left - 50f * density, label.center.y - 20f * density,
+                label.left - 10f * density, label.center.y + 20f * density)
+        else label
         for (style in MasterLaunchAnimation.entries.filter { it.isStory }) {
             val state = FlipAnimationState(isRunning = true, sourceTile = selected,
-                sourceBounds = Rect(10f, 10f, 20f, 20f), // Live cell measurement replaces this seed.
+                sourceBounds = clickedBounds,
                 masterLaunchAnimation = style, origin = origin, accentColor = Color(colors.first()))
             val scene = StoryLaunchScene(state) { sample.floatValue }
             compose.runOnIdle {

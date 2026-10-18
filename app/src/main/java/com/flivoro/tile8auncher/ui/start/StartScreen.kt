@@ -1510,7 +1510,8 @@ fun StartScreen(
                                         maxLines = 1,
                                         modifier = Modifier
                                             .offset(x = leadingSpacingDp.dp)
-                                            .height(groupLabelHeightDp.dp),
+                                            .height(groupLabelHeightDp.dp)
+                                            .storyLaunchActor("desktop-group-$bandIndex", LaunchOrigin.START, sourceCandidate = false),
                                     )
                                 }
 
@@ -1982,7 +1983,8 @@ fun StartScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 14.dp),
+                    .padding(bottom = 14.dp)
+                    .storyLaunchActor("desktop-start-footer", LaunchOrigin.START, sourceCandidate = false),
             ) {
                 Box(
                     modifier = Modifier

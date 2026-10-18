@@ -1155,7 +1155,7 @@ fun PhoneLauncherSurface(
                         // an offscreen pane clipped at x=+one viewport. Outside that
                         // short entrance, the second page stays at x=+width and
                         // both panes share the same panorama translation.
-                        val homeTurnRunning = classicForwardEntranceActive &&
+                        val homeTurnRunning = storyScene == null && classicForwardEntranceActive &&
                             !showApps && motionClock.value < duration
                         translationX = if (homeTurnRunning) 0f
                             else paneBounds.width * (1f - panoramaProgress)
@@ -1169,7 +1169,7 @@ fun PhoneLauncherSurface(
                     // ONLY while Start is selected. Previously the projector stayed
                     // enabled after showApps=true, so settled app rows were pushed one
                     // full viewport to the right and the All Apps screen looked black.
-                    val animateHomeAppsPage = classicForwardEntranceActive && !showApps
+                    val animateHomeAppsPage = storyScene == null && classicForwardEntranceActive && !showApps
                     val snapAppsPageAway = mode == LauncherUiMode.PHONE_8 &&
                         suppressReturnPaneTransition && motionUsesBack
                     Box(Modifier.fillMaxSize()
