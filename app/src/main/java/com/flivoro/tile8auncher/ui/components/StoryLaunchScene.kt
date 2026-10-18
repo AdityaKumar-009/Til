@@ -30,6 +30,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -47,6 +48,8 @@ import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StoryLaunchMotion
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.math.abs
 
@@ -54,6 +57,7 @@ import kotlin.math.abs
 internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () -> Float) {
     var viewport by mutableStateOf(Rect.Zero)
     var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
+    var sourceImage by mutableStateOf<ImageBitmap?>(null)
     var capturedSourceBounds by mutableStateOf(state.sourceBounds)
     var sourceOwner by mutableStateOf<Any?>(null)
     var sourceMeasured = false
@@ -75,7 +79,7 @@ internal val LocalStoryLaunchScene = staticCompositionLocalOf<StoryLaunchScene?>
 
 /**
  * Transfer drawing ownership of the selected, REAL tile to the launch plane.
- * It is a reusable GPU display list, not a bitmap copy or another icon decode.
+ * Its drawing is recorded once and cached before travel, with no icon decode.
  * Its original cell draws nothing, so there cannot be a stationary duplicate.
  * Every other physical tile/row samples the same spatial motion in graphicsLayer.
  */
@@ -137,7 +141,10 @@ internal fun Modifier.storyLaunchActor(
         }
     }.drawWithContent {
         if (ownsSource() && layer != null) {
-            layer.record { this@drawWithContent.drawContent() }
+            // Re-recording a hidden source can replace its child RenderNodes
+            // with empty content after their opacity reaches zero. Capture the
+            // actual resting artwork once; the overlay freezes it before travel.
+            if (scene.sourceLayer !== layer) layer.record { this@drawWithContent.drawContent() }
             if (scene.sourceOwner !== token) scene.sourceOwner = token
             if (scene.sourceLayer !== layer) scene.sourceLayer = layer
             // Freeze geometry while departing: transformed parent rows must
@@ -167,6 +174,24 @@ internal fun StoryLaunchOverlay(
     var finalFrameDrawn by remember(scene) { mutableStateOf(false) }
     var firstFrameDrawn by remember(scene) { mutableStateOf(false) }
     var destinationCommitted by remember(scene) { mutableStateOf(false) }
+    suspend fun cacheSourceArtwork() {
+        if (scene.sourceImage != null || state.sourceBounds.width <= 1f ||
+            state.sourceBounds.height <= 1f) return
+        val layer = withTimeoutOrNull(250L) {
+            snapshotFlow { scene.sourceLayer }.first { it != null }
+        } ?: return
+        try {
+            // Exactly one readback before the motion clock. Nested RenderNode
+            // references can disappear when an offscreen/transparent row is
+            // culled; a cached image retains real glyphs, wallpaper and colors.
+            scene.sourceImage = layer.toImageBitmap()
+            withFrameNanos { }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            android.util.Log.w("MosaicStory", "Could not freeze source artwork", failure)
+        }
+    }
     LaunchedEffect(scene, state.direction) {
         val duration = StoryLaunchMotion.duration(state.masterLaunchAnimation)
         if (state.direction == FlipAnimationDirection.FORWARD) {
@@ -175,6 +200,7 @@ internal fun StoryLaunchOverlay(
             // Give the real selected cell one drawing pass to publish its display
             // list. Shortcuts with no visible cell use the cached fallback below.
             withFrameNanos { }
+            cacheSourceArtwork()
             progress.animateTo(1f, tween(duration, easing = LinearEasing))
             snapshotFlow { finalFrameDrawn }.first { it }
             withFrameNanos { }
@@ -183,8 +209,9 @@ internal fun StoryLaunchOverlay(
             finishForward()
         } else {
             firstFrameDrawn = false
+            cacheSourceArtwork()
             val start = StoryLaunchMotion.progress(progress.value)
-            val remaining = (duration * .86f * start).roundToInt()
+            val remaining = (duration * start).roundToInt()
             if (remaining > 0) progress.animateTo(0f,
                 tween(remaining, easing = StoryLaunchMotion.returnEasing(start)))
             else progress.snapTo(0f)
@@ -258,8 +285,10 @@ internal fun StoryLaunchOverlay(
                 scaleY = f.sourceScale * h / f.bounds.height
                 alpha = f.sourceAlpha
             }.drawWithContent {
+                val image = scene.sourceImage
                 val live = scene.sourceLayer
-                if (live != null) drawLayer(live) else drawContent()
+                if (image != null) drawImage(image)
+                else if (live != null) drawLayer(live) else drawContent()
             }.background(state.accentColor), contentAlignment = Alignment.Center) {
             // Only used for a shortcut that has no physical cell on this page.
             if (captured == null) {

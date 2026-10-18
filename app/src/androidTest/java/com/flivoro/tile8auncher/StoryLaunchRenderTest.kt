@@ -150,6 +150,10 @@ class StoryLaunchRenderTest {
                 active.value = scene
             }
             compose.mainClock.advanceTimeBy(48)
+            compose.waitUntil(15_000) {
+                compose.mainClock.advanceTimeByFrame()
+                scene.sourceImage != null
+            }
             val first = shot()
             compose.runOnIdle {
                 assertNotNull("$mode/$origin/$style did not capture its REAL source cell", scene.sourceLayer)
@@ -187,8 +191,13 @@ class StoryLaunchRenderTest {
             compose.mainClock.advanceTimeByFrame()
             assertTrue("$mode/$origin/$style returned through different geometry",
                 difference(middle, shot()) < .006)
-            compose.runOnIdle { sample.floatValue = 0f }
-            compose.mainClock.advanceTimeByFrame()
+            // Render the return, including the point where transparent child
+            // layers become visible again, instead of teleporting past it.
+            for (step in 16 downTo 0) {
+                compose.runOnIdle { sample.floatValue = .52f * step / 16f }
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+            }
             val returned = shot()
             val returnDifference = difference(first, returned)
             if (returnDifference >= .006) {
