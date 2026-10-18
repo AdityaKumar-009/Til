@@ -361,6 +361,7 @@ fun PhoneLauncherSurface(
     interactionEnabled: Boolean,
     wallpaperStyle: Int,
     launchMotionMode: LauncherUiMode? = null,
+    hideOriginalTileId: String? = null,
     onLaunch: (TileModel, Rect, LaunchOrigin) -> Unit,
     onExitFinished: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -930,6 +931,7 @@ fun PhoneLauncherSurface(
                             resumeUsesBackMotion = motionUsesBack,
                             mode = mode,
                             launchMotionMode = exitMotionMode,
+                            hideOriginalTileId = hideOriginalTileId,
                             tileOpacity = tileOpacity,
                             wallpaperStyle = wallpaperStyle,
                             mobileTilePictureMode = phoneTilePictureMode,
@@ -1637,6 +1639,10 @@ fun PhoneLauncherSurface(
                                                 scaleX = scale
                                                 scaleY = scale
                                             } else Modifier)
+                                            .graphicsLayer {
+                                                if (hideOriginalTileId == "phone_app_${app.packageName}" ||
+                                                    hideOriginalTileId == "app_${app.packageName}") alpha = 0f
+                                            }
                                             .combinedClickable(
                                                 enabled = interactionEnabled && !isLaunching,
                                                 onClick = {
@@ -2173,6 +2179,7 @@ private fun PhoneStartGrid(
     resumeUsesBackMotion: Boolean,
     mode: LauncherUiMode,
     launchMotionMode: LauncherUiMode = mode,
+    hideOriginalTileId: String? = null,
     tileOpacity: Float,
     wallpaperStyle: Int,
     mobileTilePictureMode: Boolean,
@@ -2381,6 +2388,7 @@ private fun PhoneStartGrid(
                     PhoneTile(
                         tile = tile, mode = mode,
                         launchMotionMode = launchMotionMode,
+                        hideOriginalForDesktopFlip = tile.id == hideOriginalTileId,
                         visibleRowFraction = rowFraction,
                         animationIndex = if (mode == LauncherUiMode.PHONE_8 &&
                             !isLaunching) {
@@ -2616,6 +2624,7 @@ private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
     launchMotionMode: LauncherUiMode = mode,
+    hideOriginalForDesktopFlip: Boolean = false,
     visibleRowFraction: Float,
     animationIndex: Float,
     viewportHeightCssPx: Float,
@@ -2862,6 +2871,11 @@ private fun PhoneTile(
                 transformOrigin = TransformOrigin(motion.pivotX, .5f)
                 cameraDistance = maxOf(900f, 2f * bounds.width, 2f * bounds.height)
             })
+            // Desktop flip compositor owns the selected physical source.
+            // Hide its original face so there is never a stationary duplicate.
+            .then(if (hideOriginalForDesktopFlip) Modifier.graphicsLayer {
+                alpha = 0f
+            } else Modifier)
             .phoneToolkitTilePress(
                 enabled = interactionEnabled && !exiting,
                 onClick = onClick,
