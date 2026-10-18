@@ -6,7 +6,6 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
@@ -80,12 +79,12 @@ class CrossModeLaunchRenderTest {
         )
         val launching = mutableStateOf(false)
         val selected = mutableStateOf<String?>(null)
-        val sampleMillis = mutableIntStateOf(0)
+        val sampleMillis = mutableStateOf<Int?>(null)
         var finished = 0
         compose.mainClock.autoAdvance = false
         compose.setContent {
             CompositionLocalProvider(
-                LocalPhoneMotionSampleMillis provides { sampleMillis.intValue },
+                LocalPhoneMotionSampleMillis provides { sampleMillis.value },
             ) {
                 MaterialTheme {
                     PhoneLauncherSurface(
@@ -115,15 +114,15 @@ class CrossModeLaunchRenderTest {
         }
         compose.runOnIdle {
             selected.value = if (allApps) "phone_app_com.example.alpha" else "cross_0"
-            sampleMillis.intValue = 0
+            sampleMillis.value = 0
             launching.value = true
         }
         compose.mainClock.advanceTimeByFrame()
         val first = save("${layoutMode.name}-${animationMode.name}-${if (allApps) "apps" else "start"}-000")
-        compose.runOnIdle { sampleMillis.intValue = 240 }
+        compose.runOnIdle { sampleMillis.value = 240 }
         compose.mainClock.advanceTimeByFrame()
         val middle = save("${layoutMode.name}-${animationMode.name}-${if (allApps) "apps" else "start"}-240")
-        compose.runOnIdle { sampleMillis.intValue = 440 }
+        compose.runOnIdle { sampleMillis.value = 440 }
         compose.mainClock.advanceTimeByFrame()
         val late = save("${layoutMode.name}-${animationMode.name}-${if (allApps) "apps" else "start"}-440")
 
