@@ -2,7 +2,6 @@ package com.flivoro.tile8auncher.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -15,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -31,72 +32,111 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
 import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
-import kotlinx.coroutines.delay
+import com.flivoro.tile8auncher.ui.phone.MobileStartMotion
+import com.flivoro.tile8auncher.ui.phone.PhoneStartChoreography
+import com.flivoro.tile8auncher.ui.phone.PhoneStartMotionFrame
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import kotlin.math.roundToInt
 
-/** Exact saved choice is shared by all three launcher skins, never an implicit mode override. */
+/**
+ * An adapter for running the existing phone launch samples over Desktop tiles.
+ * No new motion curve: all rotation, translation, scale and opacity values come
+ * from PhoneStartChoreography (WP8.1) or MobileStartMotion (W10M).
+ * Phone-to-phone overrides run on PhoneLauncherSurface's actual native tile grid.
+ */
 internal data class SharedLaunchFrame(
     val tileAlpha: Float,
     val tileRotationY: Float,
-    val tileExpansion: Float,
+    val tileTranslationX: Float,
+    val tileTranslationY: Float,
+    val tileScale: Float,
+    val tilePivotX: Float,
     val appAlpha: Float,
-    val appRotationY: Float,
-    val appOffsetX: Float,
-    val appScale: Float,
 )
 
 internal object SharedLaunchMotion {
-    fun duration(style: MasterLaunchAnimation): Int = when (style) {
-        MasterLaunchAnimation.DEFAULT -> 500
-        MasterLaunchAnimation.FLIP -> 440
-        MasterLaunchAnimation.TURNSTILE -> 410
-        MasterLaunchAnimation.ZOOM -> 360
-        MasterLaunchAnimation.SLIDE -> 320
-        MasterLaunchAnimation.FADE -> 260
-    }
-
-    fun frame(style: MasterLaunchAnimation, raw: Float): SharedLaunchFrame {
-        val t = FastOutSlowInEasing.transform(raw.coerceIn(0f, 1f))
-        fun phase(a: Float, b: Float): Float = ((t - a) / (b - a)).coerceIn(0f, 1f)
-        return when (style) {
-            MasterLaunchAnimation.DEFAULT, MasterLaunchAnimation.FLIP -> {
-                val leave = phase(0f, .57f)
-                val enter = phase(.38f, 1f)
-                SharedLaunchFrame(1f - leave, -89f * leave, .50f * leave,
-                    enter, 82f * (1f - enter), 0f, 1f)
-            }
-            MasterLaunchAnimation.TURNSTILE -> {
-                val leave = phase(0f, .52f)
-                val enter = phase(.26f, 1f)
-                SharedLaunchFrame(1f - leave, -78f * leave, 0f,
-                    enter, 76f * (1f - enter), 0f, 1f)
-            }
-            MasterLaunchAnimation.ZOOM -> {
-                val appear = phase(.40f, .85f)
-                SharedLaunchFrame(1f - appear, 0f, t,
-                    appear, 0f, 0f, 1f)
-            }
-            MasterLaunchAnimation.SLIDE -> {
-                SharedLaunchFrame(1f - phase(0f, .70f), 0f, 0f,
-                    phase(0f, .25f), 0f, 1f - t, 1f)
-            }
-            MasterLaunchAnimation.FADE -> {
-                SharedLaunchFrame(1f - t, 0f, 0f, t, 0f, 0f, 1f)
-            }
+    fun duration(style: MasterLaunchAnimation, heightCss: Float = 850f, allApps: Boolean = false): Int =
+        when (style) {
+            MasterLaunchAnimation.PHONE_8 -> PhoneStartChoreography.totalMillis(
+                LauncherUiMode.PHONE_8, exiting = true,
+                viewportHeightCssPx = heightCss,
+            )
+            MasterLaunchAnimation.MOBILE_10 -> MobileStartMotion.EXIT_TOTAL_MS
+            MasterLaunchAnimation.DEFAULT, MasterLaunchAnimation.DESKTOP ->
+                WindowsLaunchMotion.DurationMillis
         }
+
+    fun frame(
+        style: MasterLaunchAnimation,
+        raw: Float,
+        source: Rect = Rect(80f, 80f, 200f, 200f),
+        viewportWidth: Float = 400f,
+        viewportHeight: Float = 850f,
+        allApps: Boolean = false,
+    ): SharedLaunchFrame {
+        val p = raw.coerceIn(0f, 1f)
+        val millis = (duration(style, viewportHeight, allApps) * p).roundToInt()
+        val native: PhoneStartMotionFrame = when (style) {
+            MasterLaunchAnimation.PHONE_8 -> {
+                if (allApps) PhoneStartChoreography.sampleAppListExit(
+                    elapsedMillis = millis,
+                    animationIndex = 0f,
+                    viewportHeightCssPx = viewportHeight,
+                    viewportWidthCssPx = viewportWidth,
+                    selected = true,
+                    tileLeftCssPx = source.left,
+                    tileWidthCssPx = source.width,
+                )
+                else PhoneStartChoreography.sample(
+                    mode = LauncherUiMode.PHONE_8,
+                    exiting = true,
+                    elapsedMillis = millis,
+                    mobileRowFraction = (source.center.y / viewportHeight).coerceIn(0f, 1f),
+                    animationIndex = 0f,
+                    viewportHeightCssPx = viewportHeight,
+                    viewportWidthCssPx = viewportWidth,
+                    tileLeftCssPx = source.left,
+                    selected = true,
+                    tileWidthCssPx = source.width,
+                )
+            }
+            MasterLaunchAnimation.MOBILE_10 -> MobileStartMotion.sample(
+                exiting = true,
+                elapsedMillis = millis,
+                row = (source.center.y / viewportHeight).coerceIn(0f, 1f),
+                centerX = source.center.x,
+                centerY = source.center.y,
+                viewportCenterX = viewportWidth * .5f,
+                viewportCenterY = viewportHeight * .5f,
+                selected = true,
+            )
+            else -> PhoneStartMotionFrame(
+                alpha = 1f - p, rotationY = 0f, translationXPx = 0f,
+                translationYPx = 0f, translationZPx = 0f, scale = 1f,
+                pivotX = .5f,
+            )
+        }
+        // These are the pre-existing phone motion samples. The destination
+        // handoff is a still colored frame, not an invented fourth transition.
+        return SharedLaunchFrame(
+            tileAlpha = native.alpha,
+            tileRotationY = native.rotationY,
+            tileTranslationX = native.translationXPx,
+            tileTranslationY = native.translationYPx,
+            tileScale = native.scale,
+            tilePivotX = native.pivotX,
+            appAlpha = if (p >= 1f) 1f else 0f,
+        )
     }
 }
 
-/**
- * Opt-in app-launch overlay. "Default" NEVER comes here: Desktop keeps its fitted
- * original FlipLaunchOverlay and the two phone modes keep their native choreography.
- * For an explicit preset this one overlay owns forward + cancelled reverse motion.
- */
 @Composable
 internal fun SharedLaunchOverlay(
     state: FlipAnimationState,
@@ -111,64 +151,68 @@ internal fun SharedLaunchOverlay(
     val finishForward by rememberUpdatedState(onAnimationEnd)
     val finishReverse by rememberUpdatedState(onReverseAnimationEnd)
     val reverseReason by rememberUpdatedState(state.reverseReason)
-    LaunchedEffect(tile.id, state.sourceBounds, state.direction, style) {
-        val duration = SharedLaunchMotion.duration(style)
-        if (state.direction == FlipAnimationDirection.FORWARD) {
-            progress.snapTo(0f)
-            progress.animateTo(1f, tween(duration, easing = LinearEasing))
-            // Let the terminal frame be submitted before launching another Activity.
-            withFrameNanos { }
-            withFrameNanos { }
-            finishForward()
-        } else {
-            val remaining = (duration * progress.value.coerceIn(0f, 1f)).roundToInt()
-            if (remaining > 0) {
-                progress.animateTo(0f, tween(remaining, easing = LinearEasing))
-            } else progress.snapTo(0f)
-            withFrameNanos { }
-            finishReverse(reverseReason ?: FlipReverseReason.BACK)
-        }
-    }
-
+    var lastFramePresented by remember(tile.id, state.sourceBounds) { mutableStateOf(false) }
+    var firstFramePresented by remember(tile.id, state.sourceBounds) { mutableStateOf(false) }
     val density = LocalDensity.current
     BoxWithConstraints(
-        Modifier.fillMaxSize().clipToBounds()
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
-                    }
+        Modifier.fillMaxSize().clipToBounds().pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
                 }
-            },
+            }
+        },
     ) {
-        // Bounds arrive in window coordinates; layout and graphics transforms are local.
-        // Center fallback preserves behavior for launcher-internal Settings without a tile.
-        val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
-        val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
-        var origin = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Offset.Zero) }
+        val width = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val height = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+        var origin by remember { mutableStateOf(Offset.Zero) }
         val src = WindowsLaunchMotion.sourceBounds(
-            state.sourceBounds.translate(-origin.value), widthPx, heightPx)
-        val sourceWidth = with(density) { src.width.toDp() }
-        val sourceHeight = with(density) { src.height.toDp() }
-        val sourceX = src.left.roundToInt()
-        val sourceY = src.top.roundToInt()
-        val camera = maxOf(1000f, heightPx * 2f)
-
-        Box(Modifier.fillMaxSize().onGloballyPositioned { origin.value = it.positionInWindow() }) {
+            state.sourceBounds.translate(-origin), width, height,
+        )
+        val cssSource = with(density) {
+            Rect(src.left.toDp().value, src.top.toDp().value,
+                src.right.toDp().value, src.bottom.toDp().value)
+        }
+        val viewportWidthCss = with(density) { width.toDp().value }
+        val viewportHeightCss = with(density) { height.toDp().value }
+        fun frame() = SharedLaunchMotion.frame(
+            style, progress.value, cssSource, viewportWidthCss, viewportHeightCss,
+            state.origin == com.flivoro.tile8auncher.ui.animation.LaunchOrigin.ALL_APPS,
+        )
+        val duration = SharedLaunchMotion.duration(style, viewportHeightCss)
+        LaunchedEffect(tile.id, state.sourceBounds, state.direction, style) {
+            if (state.direction == FlipAnimationDirection.FORWARD) {
+                lastFramePresented = false
+                progress.snapTo(0f)
+                progress.animateTo(1f, tween(duration, easing = LinearEasing))
+                snapshotFlow { lastFramePresented }.first { it }
+                withFrameNanos { }
+                finishForward()
+            } else {
+                firstFramePresented = false
+                val backwardsMillis = (duration * progress.value.coerceIn(0f, 1f)).roundToInt()
+                if (backwardsMillis > 0) {
+                    progress.animateTo(0f, tween(backwardsMillis, easing = LinearEasing))
+                } else progress.snapTo(0f)
+                snapshotFlow { firstFramePresented }.first { it }
+                withFrameNanos { }
+                finishReverse(reverseReason ?: FlipReverseReason.BACK)
+            }
+        }
+        Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInWindow() }) {
             Box(
-                Modifier.offset { IntOffset(sourceX, sourceY) }
-                    .size(sourceWidth, sourceHeight)
+                Modifier.offset { IntOffset(src.left.roundToInt(), src.top.roundToInt()) }
+                    .size(with(density) { src.width.toDp() }, with(density) { src.height.toDp() })
                     .graphicsLayer {
-                        val f = SharedLaunchMotion.frame(style, progress.value)
-                        alpha = f.tileAlpha
-                        rotationY = f.tileRotationY
-                        transformOrigin = if (style == MasterLaunchAnimation.TURNSTILE)
-                            TransformOrigin(0f, .5f) else TransformOrigin.Center
-                        scaleX = 1f + (widthPx / src.width - 1f) * f.tileExpansion
-                        scaleY = 1f + (heightPx / src.height - 1f) * f.tileExpansion
-                        translationX = (widthPx * .5f - src.center.x) * f.tileExpansion
-                        translationY = (heightPx * .5f - src.center.y) * f.tileExpansion
-                        cameraDistance = camera
+                        val motion = frame()
+                        alpha = motion.tileAlpha
+                        rotationY = motion.tileRotationY
+                        translationX = with(density) { motion.tileTranslationX.dp.toPx() }
+                        translationY = with(density) { motion.tileTranslationY.dp.toPx() }
+                        scaleX = motion.tileScale
+                        scaleY = motion.tileScale
+                        transformOrigin = TransformOrigin(motion.tilePivotX, .5f)
+                        cameraDistance = maxOf(900f, height * 1.5f)
                     },
             ) {
                 WindowsTileFace(tile, state.appIcon, Modifier.fillMaxSize())
@@ -176,15 +220,7 @@ internal fun SharedLaunchOverlay(
             Box(
                 Modifier.fillMaxSize()
                     .graphicsLayer {
-                        val f = SharedLaunchMotion.frame(style, progress.value)
-                        alpha = f.appAlpha
-                        rotationY = f.appRotationY
-                        translationX = f.appOffsetX * widthPx
-                        scaleX = f.appScale
-                        scaleY = f.appScale
-                        transformOrigin = if (style == MasterLaunchAnimation.TURNSTILE)
-                            TransformOrigin(1f, .5f) else TransformOrigin.Center
-                        cameraDistance = camera
+                        alpha = frame().appAlpha
                     }
                     .background(state.accentColor),
                 contentAlignment = Alignment.Center,
@@ -193,15 +229,27 @@ internal fun SharedLaunchOverlay(
                     destinationContent()
                 } else {
                     when {
-                        tile.iconGlyph.isNotEmpty() -> MetroIcon(tile.iconGlyph,
-                            color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
+                        tile.iconGlyph.isNotEmpty() -> MetroIcon(
+                            tile.iconGlyph, color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
                         state.appIcon != null -> Image(
-                            bitmap = state.appIcon, contentDescription = tile.title,
-                            modifier = Modifier.size(78.dp))
-                        else -> MetroIcon("app",
-                            color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
+                            state.appIcon, tile.title, Modifier.size(78.dp))
+                        else -> MetroIcon(
+                            "app", color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
                     }
                 }
+            }
+            // Prevent beginning the external Activity until the terminal Compose
+            // frame has actually drawn (not just reached a numeric progress=1).
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = 0f }
+                .then(Modifier.onGloballyPositioned {
+                    // onGloballyPositioned alone is insufficient for terminal
+                    // frames; progress is still sampled in graphicsLayer above.
+                }))
+            if (progress.value >= 1f) {
+                androidx.compose.runtime.SideEffect { lastFramePresented = true }
+            }
+            if (progress.value <= 0f) {
+                androidx.compose.runtime.SideEffect { firstFramePresented = true }
             }
         }
     }
