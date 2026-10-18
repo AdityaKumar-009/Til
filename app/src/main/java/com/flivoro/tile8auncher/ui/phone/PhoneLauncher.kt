@@ -149,10 +149,10 @@ private fun projectPlaneMatrix(
     density: Float,
     elementLeftCssPx: Float,
     elementTopCssPx: Float,
-    project: (Float, Float) -> PhoneProjectedPoint,
     reusedMatrix: PlatformMatrix? = null,
     sourceScratch: FloatArray? = null,
     destinationScratch: FloatArray? = null,
+    project: (Float, Float) -> PhoneProjectedPoint,
 ): PlatformMatrix {
     val source = sourceScratch ?: FloatArray(8)
     source[0] = 0f; source[1] = 0f
@@ -2807,6 +2807,9 @@ private fun PhoneTile(
         val cssInner = inner?.copy(translationXPx = inner.translationXPx / density)
         return projectPlaneMatrix(
             widthPx, heightPx, density, leftCss, topCss,
+            reusedMatrix = nativeProjection,
+            sourceScratch = projectionFrom,
+            destinationScratch = projectionTo,
             project = { xCss, yCss ->
                 PhoneStartChoreography.projectPlanePoint(
                     localXPx = xCss,
@@ -2824,9 +2827,6 @@ private fun PhoneTile(
                     } else PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
                 )
             },
-            reusedMatrix = nativeProjection,
-            sourceScratch = projectionFrom,
-            destinationScratch = projectionTo,
         )
     }
 
