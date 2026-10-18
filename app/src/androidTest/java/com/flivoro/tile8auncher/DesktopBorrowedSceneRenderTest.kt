@@ -1,6 +1,9 @@
 package com.flivoro.tile8auncher
 
 import android.graphics.Bitmap
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,10 +75,10 @@ class DesktopBorrowedSceneRenderTest {
         compose.mainClock.advanceTimeBy(1900)
         compose.runOnIdle { chosen.value = profile; progress.floatValue = 0f }
         compose.mainClock.advanceTimeByFrame()
-        val before = image()
+        val before = image("cross-desktop-${profile.name}-start-000")
         compose.runOnIdle { progress.floatValue = .82f }
         compose.mainClock.advanceTimeByFrame()
-        val after = image()
+        val after = image("cross-desktop-${profile.name}-start-082")
         assertTrue("$profile failed to animate the Desktop Start neighboring tiles",
             changed(before, after, .40f, .16f, .94f, .86f) > .002)
     }
@@ -118,17 +121,32 @@ class DesktopBorrowedSceneRenderTest {
         compose.mainClock.advanceTimeBy(1800)
         compose.runOnIdle { chosen.value = profile; progress.floatValue = 0f }
         compose.mainClock.advanceTimeByFrame()
-        val before = image()
+        val before = image("cross-desktop-${profile.name}-apps-000")
         compose.runOnIdle { progress.floatValue = .91f }
         compose.mainClock.advanceTimeByFrame()
-        val after = image()
+        val after = image("cross-desktop-${profile.name}-apps-091")
         assertTrue("$profile failed to animate the Desktop All Apps neighboring rows",
             changed(before, after, .12f, .22f, .94f, .86f) > .002)
     }
 
-    private fun image(): Bitmap {
+    private fun image(name: String): Bitmap {
         compose.waitForIdle()
-        return compose.onRoot().captureToImage().asAndroidBitmap()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Til-motion-frames")
+            }
+            val uri = checkNotNull(context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values,
+            ))
+            checkNotNull(context.contentResolver.openOutputStream(uri)).use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        }
+        return bitmap
     }
 
     private fun changed(
