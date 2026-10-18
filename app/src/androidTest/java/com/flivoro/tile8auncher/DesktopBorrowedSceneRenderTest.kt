@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.data.AppInfo
@@ -119,6 +120,12 @@ class DesktopBorrowedSceneRenderTest {
             }
         }
         compose.mainClock.advanceTimeBy(1800)
+        // All Apps first gathers Android metadata on Dispatchers.IO. Advancing
+        // Compose's virtual clock does not await that independent coroutine:
+        // until rows actually exist, animation comparisons only see wallpaper.
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.runOnIdle { chosen.value = profile; progress.floatValue = 0f }
         compose.mainClock.advanceTimeByFrame()
         val before = image("cross-desktop-${profile.name}-apps-000")
