@@ -81,6 +81,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.userConfirmedAppUninstallIntent
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
@@ -278,6 +279,7 @@ class MainActivity : ComponentActivity() {
                                 appIcon = icon,
                                 accentColor = tile.colorValue.toTileColor(),
                                 animationMode = appsRepository.getFlipAnimationMode(),
+                                masterLaunchAnimation = LauncherFeatureStore.masterLaunchAnimation(this@MainActivity),
                                 timing = appsRepository.getLaunchTiming(allApps = origin == LaunchOrigin.ALL_APPS),
                                 hasInternalWindow = pendingLaunchIntent == null,
                                 origin = origin,
@@ -1097,11 +1099,15 @@ fun Tile8LauncherApp(
         var phoneHandoffHeld by remember(launcherMode, startEntranceRequest, homeRequest) {
             mutableStateOf(false)
         }
-        val phoneLaunchActive = flipState.isRunning &&
+        // Default keeps each phone mode's original measured Start/All Apps exit.
+        // An explicit shared preset owns its frames in FlipLaunchOverlay instead.
+        val usesSharedLaunch = flipState.masterLaunchAnimation != MasterLaunchAnimation.DEFAULT
+        val phoneLaunchActive = flipState.isRunning && !usesSharedLaunch &&
             flipState.direction == FlipAnimationDirection.FORWARD
         val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
         LaunchedEffect(flipState.isRunning, flipState.direction, launcherMode) {
-            if (flipState.isRunning && flipState.direction == FlipAnimationDirection.REVERSE) {
+            if (flipState.isRunning && !usesSharedLaunch &&
+                flipState.direction == FlipAnimationDirection.REVERSE) {
                 phoneHandoffHeld = false
                 onDismissFlip()
                 localStartEntranceRequest++
@@ -1180,6 +1186,36 @@ fun Tile8LauncherApp(
                     onClose = { closeInAppTileAndRetriggerEntrance() },
                     onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
                     onWallpaperStyleChanged = { wallpaperStyle = it },
+                )
+            }
+            if (entranceReady && flipState.isRunning && usesSharedLaunch) {
+                FlipLaunchOverlay(
+                    state = flipState,
+                    progress = flipProgress,
+                    onAnimationEnd = {
+                        if (flipState.isRunning &&
+                            flipState.direction == FlipAnimationDirection.FORWARD &&
+                            !flipLaunchDispatched
+                        ) {
+                            flipLaunchDispatched = true
+                            flipState.sourceTile?.let(onLaunchTile)
+                        }
+                    },
+                    onReverseAnimationEnd = { reason ->
+                        onDismissFlip()
+                        if (reason == FlipReverseReason.HOME) returnToStart()
+                    },
+                    destinationContent = if (flipState.hasInternalWindow) {
+                        {
+                            flipState.sourceTile?.let { tile ->
+                                WindowsAppView(
+                                    tile = tile,
+                                    appsRepository = appsRepository,
+                                    onClose = { closeInAppTileAndRetriggerEntrance() },
+                                )
+                            }
+                        }
+                    } else null,
                 )
             }
             if (entranceReady &&
