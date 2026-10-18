@@ -97,6 +97,7 @@ import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.HostedWidgetTile
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.passiveDoubleTap
 import com.flivoro.tile8auncher.features.performStartDoubleTapAction
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
@@ -105,6 +106,7 @@ import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
+import com.flivoro.tile8auncher.ui.components.borrowedPhoneScene
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberStartAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
@@ -239,6 +241,9 @@ fun StartScreen(
     tileWallpaperStyle: Int = 0,
     modifier: Modifier = Modifier,
     launchingTileId: String? = null,
+    borrowedLaunchStyle: MasterLaunchAnimation? = null,
+    borrowedLaunchSelectedId: String? = null,
+    borrowedLaunchProgress: () -> Float = { 0f },
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
     entranceEnabled: Boolean = true,
@@ -1706,6 +1711,22 @@ fun StartScreen(
                                                         0f
                                                     }
                                                 }
+                                                // The ORIGINAL visible tile owns the borrowed phone
+                                                // exit (not a duplicate overlay). The same clock
+                                                // projects every neighboring tile and live tile.
+                                                .borrowedPhoneScene(
+                                                    style = borrowedLaunchStyle,
+                                                    progress = borrowedLaunchProgress,
+                                                    source = { tileBounds[tile.id] ?: Rect.Zero },
+                                                    viewport = { tileViewportBounds },
+                                                    selected = tile.id == borrowedLaunchSelectedId,
+                                                    stagger = (1f -
+                                                        (placed.row.toFloat() / maxOf(1, metrics.rows)) * .78f -
+                                                        (placed.column.toFloat() / maxOf(1, metrics.columns)) * .22f)
+                                                        .coerceIn(0f, 1f),
+                                                    allApps = false,
+                                                    density = dragDensity.density,
+                                                )
                                                 // During a drag the grid copy is only the live
                                                 // placeholder. A separate absolute proxy follows
                                                 // the finger, so reflow can never tug the held tile.
