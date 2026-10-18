@@ -1119,6 +1119,9 @@ fun Tile8LauncherApp(
         // between PHONE_8/MOBILE_10 selects the source motion curves, not a new
         // approximate overlay. Desktop's original flip uses the desktop compositor.
         val usesDesktopLaunch = chosenLaunch == MasterLaunchAnimation.DESKTOP
+        val desktopOverlayTileId = flipState.sourceTile?.id.takeIf {
+            usesDesktopLaunch && flipState.isRunning
+        }
         val phoneLaunchActive = flipState.isRunning && !usesDesktopLaunch &&
             flipState.direction == FlipAnimationDirection.FORWARD
         val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
@@ -1134,7 +1137,13 @@ fun Tile8LauncherApp(
         }
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = if (entranceReady) 1f else 0f
+                val nativeRetreat = if (usesDesktopLaunch && flipState.isRunning) {
+                    val elapsed = flipProgress.value * flipState.timing.durationMillis.coerceIn(100, 2000)
+                    FastOutSlowInEasing.transform((elapsed / 140f).coerceIn(0f, 1f))
+                } else 0f
+                alpha = if (entranceReady) (1f - nativeRetreat) else 0f
+                scaleX = 1f - .12f * nativeRetreat
+                scaleY = 1f - .12f * nativeRetreat
             }) {
                 // PC Settings loads wallpaper previews and animation tooling. Keeping the
                 // entire phone panorama + lazy app grid alive beneath it can exhaust graphics
@@ -1151,6 +1160,7 @@ fun Tile8LauncherApp(
                         entranceRequest = startEntranceRequest,
                         launchingTileId = if (phoneLaunchActive)
                             flipState.sourceTile?.id else handoffTileId,
+                        hideOriginalTileId = desktopOverlayTileId,
                         launchMotionMode = if (phoneHandoffHeld) handoffAnimationMode
                             else when (chosenLaunch) {
                                 MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
@@ -1312,7 +1322,11 @@ fun Tile8LauncherApp(
                     }
                 }
                 .graphicsLayer {
-                    val retreat = if (flipState.isRunning) {
+                    val borrowingNativePhone = flipState.isRunning &&
+                        (flipState.masterLaunchAnimation == MasterLaunchAnimation.PHONE_8 ||
+                            flipState.masterLaunchAnimation == MasterLaunchAnimation.MOBILE_10)
+                    val retreat = if (borrowingNativePhone) 0f
+                    else if (flipState.isRunning) {
                         val fullDuration = flipState.timing.durationMillis.coerceIn(100, 2000).toFloat()
                         val elapsedMillis = flipProgress.value.coerceIn(0f, 1f) * fullDuration
                         FastOutSlowInEasing.transform((elapsedMillis / 140f).coerceIn(0f, 1f))
@@ -1343,7 +1357,18 @@ fun Tile8LauncherApp(
                     StartScreen(
                         listState = startScroll,
                         tiles = tiles,
-                        launchingTileId = flipState.sourceTile?.id.takeIf { flipState.isRunning },
+                        launchingTileId = flipState.sourceTile?.id.takeIf {
+                            flipState.isRunning &&
+                                flipState.masterLaunchAnimation != MasterLaunchAnimation.PHONE_8 &&
+                                flipState.masterLaunchAnimation != MasterLaunchAnimation.MOBILE_10
+                        },
+                        borrowedLaunchStyle = flipState.masterLaunchAnimation.takeIf {
+                            flipState.isRunning &&
+                                (it == MasterLaunchAnimation.PHONE_8 ||
+                                    it == MasterLaunchAnimation.MOBILE_10)
+                        },
+                        borrowedLaunchSelectedId = flipState.sourceTile?.id,
+                        borrowedLaunchProgress = { flipProgress.value },
                         entranceRequest = startEntranceRequest,
                         entranceKind = startEntranceKind,
                         entranceEnabled = entranceReady && currentScreen == LauncherScreen.START &&
@@ -1418,6 +1443,13 @@ fun Tile8LauncherApp(
                         onOpenAppInfo = { pkg -> if (entranceReady) onOpenAppInfo(pkg) },
                         onUninstallApp = { pkg -> if (entranceReady) onUninstallApp(pkg) },
                         onNavigateToStart = { navigateToStart() },
+                        borrowedLaunchStyle = flipState.masterLaunchAnimation.takeIf {
+                            flipState.isRunning &&
+                                (it == MasterLaunchAnimation.PHONE_8 ||
+                                    it == MasterLaunchAnimation.MOBILE_10)
+                        },
+                        borrowedLaunchPackage = flipState.sourceTile?.packageName,
+                        borrowedLaunchProgress = { flipProgress.value },
                     )
                 },
             )
