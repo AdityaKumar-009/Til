@@ -123,7 +123,8 @@ class StoryLaunchRenderTest {
             compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().isNotEmpty()
         }
         val baseline = shot()
-        val label = compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha")
+        val label = compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha",
+            useUnmergedTree = true)
             .fetchSemanticsNodes().first().boundsInRoot.translate(rootBounds.topLeft)
         val density = context.resources.displayMetrics.density
         val clickedBounds = if (mode == LauncherUiMode.DESKTOP && origin == LaunchOrigin.ALL_APPS)
