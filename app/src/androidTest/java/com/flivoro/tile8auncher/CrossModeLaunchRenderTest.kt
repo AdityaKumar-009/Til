@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher
 
 import android.content.ContentValues
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Build
 import android.provider.MediaStore
@@ -21,6 +22,7 @@ import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.ui.phone.LocalPhoneMotionSampleMillis
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
 import org.junit.Assert.assertTrue
@@ -55,6 +57,14 @@ class CrossModeLaunchRenderTest {
         allApps: Boolean,
     ) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        // The optimized-startup smoke test persists a real Lumia tile order.
+        // These fixtures use ephemeral IDs, so restore a clean workspace before
+        // composing; otherwise no selected or neighboring Start tile exists.
+        context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        LauncherFeatureStore.setPhoneSmallColumns(
+            context, layoutMode, if (layoutMode == LauncherUiMode.PHONE_8) 4 else 6,
+        )
         val repository = AppsRepository(context)
         val shades = listOf(0xFF00A4EF, 0xFFE3008C, 0xFF008A00, 0xFFF09609, 0xFF603CBA)
         val tiles = List(16) { n -> TileModel(
@@ -108,6 +118,11 @@ class CrossModeLaunchRenderTest {
             }
         }
         compose.mainClock.advanceTimeBy(1600)
+        if (!allApps) {
+            val readyFrame = save("${layoutMode.name}-${animationMode.name}-start-ready")
+            assertTrue("Cross-mode Start fixture must render actual pinned tiles before launch",
+                coloredShare(readyFrame) > .02)
+        }
         if (allApps) {
             compose.onRoot().performTouchInput { swipeLeft() }
             compose.mainClock.advanceTimeBy(420)
@@ -152,6 +167,22 @@ class CrossModeLaunchRenderTest {
             }
         }
         return image
+    }
+
+    private fun coloredShare(image: Bitmap): Double {
+        var colored = 0
+        var tested = 0
+        for (y in image.height / 8 until image.height * 7 / 8 step 8) {
+            for (x in image.width / 8 until image.width * 7 / 8 step 8) {
+                val px = image.getPixel(x, y)
+                val r = (px shr 16) and 255
+                val g = (px shr 8) and 255
+                val b = px and 255
+                if (maxOf(r, g, b) - minOf(r, g, b) > 40 && maxOf(r, g, b) > 95) colored++
+                tested++
+            }
+        }
+        return colored.toDouble() / tested.coerceAtLeast(1)
     }
 
     private fun changed(
