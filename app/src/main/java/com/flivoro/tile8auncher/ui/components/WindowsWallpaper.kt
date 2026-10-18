@@ -7,7 +7,6 @@ import android.graphics.BitmapShader
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
-import android.util.LruCache
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -611,35 +610,18 @@ private fun rememberWallpaperBitmap(resourceId: Int): Bitmap? {
 private object WallpaperBitmapCache {
     private const val MAX_CACHE_BYTES = 12 * 1024 * 1024
 
-    private val cache = object : LruCache<Int, Bitmap>(MAX_CACHE_BYTES) {
-        override fun sizeOf(key: Int, value: Bitmap): Int = value.allocationByteCount.coerceAtLeast(1)
-    }
+    private val cache = BitmapDecodeCache<Int>(MAX_CACHE_BYTES)
 
-    fun peek(resourceId: Int): Bitmap? = synchronized(cache) {
-        cache.get(resourceId)
-    }
+    fun peek(resourceId: Int): Bitmap? = cache.peek(resourceId)
 
-    fun getOrDecode(resources: Resources, resourceId: Int): Bitmap? {
-        peek(resourceId)?.let { return it }
-
-        val decoded = BitmapFactory.decodeResource(
+    fun getOrDecode(resources: Resources, resourceId: Int): Bitmap? = cache.getOrDecode(resourceId) {
+        BitmapFactory.decodeResource(
             resources,
             resourceId,
             BitmapFactory.Options().apply {
                 inScaled = false
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             },
-        ) ?: return null
-
-        return synchronized(cache) {
-            val racedBitmap = cache.get(resourceId)
-            if (racedBitmap != null) {
-                decoded.recycle()
-                racedBitmap
-            } else {
-                cache.put(resourceId, decoded)
-                decoded
-            }
-        }
+        )
     }
 }

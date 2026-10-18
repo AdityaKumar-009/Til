@@ -9,6 +9,7 @@ import statistics
 import subprocess
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 PACKAGE = "com.flivoro.tile8auncher"
 COMPONENT = f"{PACKAGE}/{PACKAGE}.MainActivity"
@@ -41,6 +42,30 @@ def fully_drawn_ms(log):
     return sum(int(value) * units[unit] for value, unit in re.findall(r"(\d+)(ms|s|m)", match[1]))
 
 
+def wait_for_phone_render_confirmation(mode):
+    if mode == "DESKTOP":
+        return
+    # On a busy software renderer, the phone's stable-frame confirmation can lag
+    # reportFullyDrawn. Killing it earlier correctly triggers crash recovery on the
+    # next launch. Wait for the real confirmation; never clear the safety marker.
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        try:
+            prefs = ET.fromstring(adb("shell", "cat",
+                f"/data/user/0/{PACKAGE}/shared_prefs/tile8_launcher_prefs_v2.xml"))
+        except (ET.ParseError, subprocess.CalledProcessError):
+            # SharedPreferences may be atomically replacing the file during this read.
+            time.sleep(.1)
+            continue
+        selected = prefs.find("string[@name='launcher_ui_mode']")
+        if selected is None or selected.text != mode:
+            raise RuntimeError(f"Launcher changed mode while settling {mode}")
+        if not any(item.get("name") == "phone_render_pending" for item in prefs):
+            return
+        time.sleep(.1)
+    raise RuntimeError(f"{mode} did not persist its stable-render confirmation")
+
+
 def launch(mode):
     adb("shell", "am", "force-stop", PACKAGE)
     adb("logcat", "-c")
@@ -63,6 +88,7 @@ def launch(mode):
                 raise RuntimeError(log)
             if fully_drawn_ms(log) is None:
                 raise RuntimeError(f"{mode} did not report a fully drawn launcher:\n{log}")
+            wait_for_phone_render_confirmation(mode)
             return {"apps": int(ready[1]), "ready_ms": int(ready[2]),
                     "initial_drawn_ms": int(re.search(r"TotalTime: (\d+)", output)[1]),
                     "fully_drawn_ms": fully_drawn_ms(log), "am_start": output, "log": log}

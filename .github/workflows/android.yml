@@ -55,6 +55,10 @@ jobs:
           COMPARE_PROFILES: ${{ inputs.benchmark_profiles == true || contains(github.event.head_commit.message, '[startup-profile-benchmark]') }}
         run: |
           if [ "$COMPARE_PROFILES" = "true" ]; then
+            if [ ! -f app/src/main/baselineProfiles/baseline-prof.txt ] && [ ! -f app/src/main/baselineProfiles/startup-prof.txt ]; then
+              echo "::error::No candidate app-specific profiles to compare. Capture and review profiles first."
+              exit 1
+            fi
             git worktree add --detach /tmp/til-startup-before HEAD
             # Only the disposable control checkout loses the app-specific profiles.
             rm -f /tmp/til-startup-before/app/src/main/baselineProfiles/{baseline,startup}-prof.txt
@@ -66,7 +70,7 @@ jobs:
           bash gradlew assemblePerformance bundlePerformance --stacktrace
           if [ -f app/src/main/baselineProfiles/startup-prof.txt ]; then
             python3 .github/scripts/verify-startup-profiles.py
-          elif [ -f app/src/main/baselineProfiles/baseline-prof.txt ]; then
+          else
             python3 .github/scripts/verify-startup-profiles.py --without-startup-layout
           fi
       - name: Enable KVM

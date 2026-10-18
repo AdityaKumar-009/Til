@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.util.LruCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,31 +22,30 @@ import kotlin.math.max
  */
 internal object LauncherImageCache {
     private const val MAX_MEMORY_BYTES = 48 * 1024 * 1024
+    private const val MAX_PREVIEW_BYTES = 4 * 1024 * 1024
     private const val PREVIEW_MAX_SIDE = 640
     private const val PREVIEW_QUALITY = 86
     private const val CACHE_DIR_NAME = "wallpaper_previews"
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val memory = object : LruCache<String, Bitmap>(MAX_MEMORY_BYTES) {
-        override fun sizeOf(key: String, value: Bitmap): Int =
-            value.allocationByteCount.coerceAtLeast(1)
-    }
+    private val memory = BitmapDecodeCache<String>(MAX_MEMORY_BYTES)
+    private val previews = BitmapDecodeCache<String>(MAX_PREVIEW_BYTES)
 
-    fun peek(uriString: String): Bitmap? = synchronized(memory) {
-        memory.get(uriString)
-    }
+    fun peek(uriString: String): Bitmap? = memory.peek(uriString)
 
     fun peekOrPreview(context: Context, uriString: String): Bitmap? {
         peek(uriString)?.let { return it }
-        return runCatching {
-            val file = previewFile(context.applicationContext, uriString)
-            if (!file.isFile || file.length() <= 0L) return@runCatching null
-            BitmapFactory.decodeFile(
-                file.absolutePath,
-                BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
-            )
-        }.getOrNull()
+        return previews.getOrDecode(uriString) {
+            runCatching {
+                val file = previewFile(context.applicationContext, uriString)
+                if (!file.isFile || file.length() <= 0L) return@runCatching null
+                BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
+                )
+            }.getOrNull()
+        }
     }
 
     fun preload(context: Context, uriString: String?, maxSide: Int = 2560) {
@@ -60,24 +58,19 @@ internal object LauncherImageCache {
     }
 
     fun getOrDecode(context: Context, uriString: String, maxSide: Int = 2560): Bitmap? {
-        peek(uriString)?.let { return it }
-
-        val decoded = decodeContentUri(context.applicationContext, uriString, maxSide)
-            ?: return peekOrPreview(context, uriString)
-
-        val finalBitmap = synchronized(memory) {
-            memory.get(uriString)?.also {
-                if (it !== decoded && !decoded.isRecycled) decoded.recycle()
-            } ?: decoded.also { memory.put(uriString, it) }
-        }
-
-        ensurePreview(context.applicationContext, uriString, finalBitmap)
-        return finalBitmap
+        var loadedHere = false
+        val bitmap = memory.getOrDecode(uriString) {
+            decodeContentUri(context.applicationContext, uriString, maxSide)?.also { loadedHere = true }
+        } ?: return peekOrPreview(context, uriString)
+        // Publish the full bitmap before saving its preview; other tiles can already use it.
+        if (loadedHere) ensurePreview(context.applicationContext, uriString, bitmap)
+        return bitmap
     }
 
     fun forget(uriString: String?) {
         val safe = uriString?.takeIf(String::isNotBlank) ?: return
-        synchronized(memory) { memory.remove(safe) }
+        memory.remove(safe)
+        previews.remove(safe)
     }
 
     private fun decodeContentUri(
