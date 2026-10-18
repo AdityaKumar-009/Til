@@ -2484,7 +2484,9 @@ private fun PhoneStartGrid(
                                             density * editProgress * .35f
                                     else 0f
                             },
-                        onClick = { rect -> onClick(tile, rect) },
+                        // The launch controller must receive the same artwork/color
+                        // that this physical phone tile resolved, not the desktop seed.
+                        onClick = { renderedTile, rect -> onClick(renderedTile, rect) },
                         onPressStart = if (mode == LauncherUiMode.PHONE_8 &&
                             classicEditing && !isSelectedForEdit) {
                             { onClick(tile, Rect.Zero) }
@@ -2680,7 +2682,7 @@ private fun PhoneTile(
     tilePictureContent: (@Composable (inverseTileProjection: () -> PlatformMatrix?) -> Unit)? = null,
     repository: AppsRepository,
     modifier: Modifier,
-    onClick: (Rect) -> Unit,
+    onClick: (TileModel, Rect) -> Unit,
     onLongClick: () -> Unit,
     onPressStart: (() -> Unit)? = null,
     tiltEnabled: Boolean = true,
@@ -2927,7 +2929,7 @@ private fun PhoneTile(
             } else Modifier)
             .phoneToolkitTilePress(
                 enabled = interactionEnabled && !exiting,
-                onClick = onClick,
+                onClick = { bounds -> onClick(faceTile, bounds) },
                 onLongClick = onLongClick,
                 onPressStart = onPressStart,
                 tiltEnabled = tiltEnabled,
