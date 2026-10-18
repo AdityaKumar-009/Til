@@ -1269,23 +1269,39 @@ fun PhoneLauncherSurface(
                             }
                             .graphicsLayer {
                                 if (isTen && showApps && toolbarBounds.width > 0f) {
-                                    val motion = MobileStartMotion.sample(
-                                        exiting = isLaunching,
-                                        returningFromApp = motionUsesBack && !isLaunching,
-                                        elapsedMillis = if (isLaunching || motionUsesBack) sourceMotionMillis()
-                                            else MobileStartMotion.ENTRY_TOTAL_MS,
-                                        row = 0f,
-                                        centerX = toolbarBounds.center.x,
-                                        centerY = toolbarBounds.center.y,
-                                        viewportCenterX = surfaceBounds.center.x,
-                                        viewportCenterY = surfaceBounds.center.y,
-                                    )
-                                    alpha = motion.alpha
-                                    translationX = motion.translationXPx
-                                    translationY = motion.translationYPx
-                                    scaleX = motion.scale
-                                    scaleY = motion.scale
-                                    transformOrigin = TransformOrigin.Center
+                                    if (isLaunching && exitUsesClassic) {
+                                        val motion = PhoneStartChoreography.sampleAppListExit(
+                                            elapsedMillis = sourceMotionMillis(),
+                                            animationIndex = 0f,
+                                            viewportHeightCssPx = viewportHeightCssPx,
+                                            viewportWidthCssPx = surfaceBounds.width / densityScale,
+                                            tileLeftCssPx = (toolbarBounds.left - paneBounds.left) / densityScale,
+                                            tileWidthCssPx = toolbarBounds.width / densityScale,
+                                        )
+                                        alpha = motion.alpha
+                                        rotationY = motion.rotationY
+                                        translationX = motion.translationXPx * densityScale
+                                        transformOrigin = TransformOrigin(motion.pivotX, .5f)
+                                        cameraDistance = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
+                                    } else {
+                                        val motion = MobileStartMotion.sample(
+                                            exiting = isLaunching,
+                                            returningFromApp = motionUsesBack && !isLaunching,
+                                            elapsedMillis = if (isLaunching || motionUsesBack) sourceMotionMillis()
+                                                else MobileStartMotion.ENTRY_TOTAL_MS,
+                                            row = 0f,
+                                            centerX = toolbarBounds.center.x,
+                                            centerY = toolbarBounds.center.y,
+                                            viewportCenterX = surfaceBounds.center.x,
+                                            viewportCenterY = surfaceBounds.center.y,
+                                        )
+                                        alpha = motion.alpha
+                                        translationX = motion.translationXPx
+                                        translationY = motion.translationYPx
+                                        scaleX = motion.scale
+                                        scaleY = motion.scale
+                                        transformOrigin = TransformOrigin.Center
+                                    }
                                 }
                             }, verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.foundation.text.BasicTextField(
