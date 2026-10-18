@@ -2966,6 +2966,7 @@ internal fun PhoneLaunchSourceFace(
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val visual = rememberWp81TileVisual(
         repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+        refreshInBackground = false,
     )
     val customColor = PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
     val resolvedColor = resolvePhoneTileBackgroundArgb(
@@ -3043,6 +3044,7 @@ internal fun PhoneLaunchDestinationIcon(
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val artwork = rememberWp81TileVisual(
         repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+        refreshInBackground = false,
     )
     val stockGlyph = if (mode == LauncherUiMode.PHONE_8 &&
         tile.id.startsWith("phone_app_") && isPhoneOrMessagesApp(tile.title)) {
