@@ -58,6 +58,8 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
     var viewport by mutableStateOf(Rect.Zero)
     var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
     var sourceImage by mutableStateOf<ImageBitmap?>(null)
+    var sourceDraws by mutableStateOf(0)
+    var sourcePrepared by mutableStateOf(false)
     var capturedSourceBounds by mutableStateOf(state.sourceBounds)
     var sourceOwner by mutableStateOf<Any?>(null)
     var sourceMeasured = false
@@ -141,10 +143,14 @@ internal fun Modifier.storyLaunchActor(
         }
     }.drawWithContent {
         if (ownsSource() && layer != null) {
-            // Re-recording a hidden source can replace its child RenderNodes
-            // with empty content after their opacity reaches zero. Capture the
-            // actual resting artwork once; the overlay freezes it before travel.
-            if (scene.sourceLayer !== layer) layer.record { this@drawWithContent.drawContent() }
+            // Keep the real cell visible during preparation. Nested text/icon
+            // RenderNodes need a completed draw before they can be snapshotted.
+            // Ownership transfers only once the complete image is available.
+            if (scene.sourceImage == null && !scene.sourcePrepared) {
+                layer.record { this@drawWithContent.drawContent() }
+                drawLayer(layer)
+                if (scene.sourceDraws < 2) scene.sourceDraws++
+            }
             if (scene.sourceOwner !== token) scene.sourceOwner = token
             if (scene.sourceLayer !== layer) scene.sourceLayer = layer
             // Freeze geometry while departing: transformed parent rows must
@@ -177,10 +183,13 @@ internal fun StoryLaunchOverlay(
     suspend fun cacheSourceArtwork() {
         if (scene.sourceImage != null || state.sourceBounds.width <= 1f ||
             state.sourceBounds.height <= 1f) return
-        val layer = withTimeoutOrNull(250L) {
-            snapshotFlow { scene.sourceLayer }.first { it != null }
+        val layer = withTimeoutOrNull(500L) {
+            snapshotFlow { scene.sourceLayer.takeIf { scene.sourceDraws >= 2 } }
+                .first { it != null }
         } ?: return
         try {
+            // Complete the window draw that populated the child RenderNodes.
+            withFrameNanos { }
             // Exactly one readback before the motion clock. Nested RenderNode
             // references can disappear when an offscreen/transparent row is
             // culled; a cached image retains real glyphs, wallpaper and colors.
@@ -201,6 +210,7 @@ internal fun StoryLaunchOverlay(
             // list. Shortcuts with no visible cell use the cached fallback below.
             withFrameNanos { }
             cacheSourceArtwork()
+            scene.sourcePrepared = true
             progress.animateTo(1f, tween(duration, easing = LinearEasing))
             snapshotFlow { finalFrameDrawn }.first { it }
             withFrameNanos { }
@@ -210,6 +220,7 @@ internal fun StoryLaunchOverlay(
         } else {
             firstFrameDrawn = false
             cacheSourceArtwork()
+            scene.sourcePrepared = true
             val start = StoryLaunchMotion.progress(progress.value)
             val remaining = (duration * start).roundToInt()
             if (remaining > 0) progress.animateTo(0f,
@@ -258,6 +269,11 @@ internal fun StoryLaunchOverlay(
         // No per-frame relayout, bitmap work, blur, shader, or per-tile Animator.
         Box(Modifier.fillMaxSize().graphicsLayer {
             val f = frame()
+            // During forward preparation the original cell is still drawing.
+            // Publish the foreground face and hide that cell in the same frame.
+            alpha = if (state.direction == FlipAnimationDirection.FORWARD &&
+                state.sourceBounds.width > 1f && state.sourceBounds.height > 1f &&
+                scene.sourceImage == null && !scene.sourcePrepared) 0f else 1f
             transformOrigin = TransformOrigin(f.pivotX, f.pivotY)
             scaleX = f.bounds.width / w
             scaleY = f.bounds.height / h

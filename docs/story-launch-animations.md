@@ -39,7 +39,7 @@ External returns retain a lightweight
 launch description and reacquire the current source artwork. Internal Settings
 mounts after the moving scene has finished, and closes using the same story.
 
-The selected cell records its real drawing commands once. Before the motion
+The selected cell records its real drawing commands during preparation. Before the motion
 clock starts, one cached image freezes that artwork so nested graphics layers
 cannot lose their contents when transparent or offscreen. Its grid location draws
 nothing while the foreground plane owns it. This preserves native glyphs, the
