@@ -3027,6 +3027,45 @@ internal fun PhoneLaunchSourceFace(
     )
 }
 
+/**
+ * The back/destination face of a Desktop-style flip retains the same Lumia
+ * glyph or normalized icon as the phone source tile, not the desktop icon
+ * bitmap loaded by MainActivity. No app lookup is initiated on every frame.
+ */
+@Composable
+internal fun PhoneLaunchDestinationIcon(
+    tile: TileModel,
+    mode: LauncherUiMode,
+    repository: AppsRepository,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
+    val artwork = rememberWp81TileVisual(
+        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+    )
+    val stockGlyph = if (mode == LauncherUiMode.PHONE_8 &&
+        tile.id.startsWith("phone_app_") && isPhoneOrMessagesApp(tile.title)) {
+        if (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true))
+            "wp81_phone" else "wp81_messages"
+    } else null
+    val glyph = stockGlyph ?: tile.iconGlyph
+    Box(modifier, contentAlignment = Alignment.Center) {
+        when {
+            glyph.isNotEmpty() -> com.flivoro.tile8auncher.ui.components.MetroIcon(
+                glyph, color = Color.White, size = 78.dp,
+            )
+            artwork.icon != null -> androidx.compose.foundation.Image(
+                bitmap = artwork.icon, contentDescription = tile.title,
+                modifier = Modifier.size(78.dp),
+            )
+            else -> com.flivoro.tile8auncher.ui.components.MetroIcon(
+                "app", color = Color.White, size = 78.dp,
+            )
+        }
+    }
+}
+
 /** Windows Phone navigation glyphs drawn independently of Android's installed fonts. */
 internal enum class PhoneNavKey { BACK, START, SEARCH }
 
