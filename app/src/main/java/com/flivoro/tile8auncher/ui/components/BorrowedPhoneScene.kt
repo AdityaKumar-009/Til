@@ -2,7 +2,7 @@ package com.flivoro.tile8auncher.ui.components
 
 import android.graphics.Matrix as PlatformMatrix
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
@@ -95,46 +95,60 @@ internal fun Modifier.borrowedPhoneScene(
     // Use the SAME four-corner perspective projection used by real WP8.1 tiles.
     // A generic graphicsLayer rotation misses the shared-page camera and makes
     // the neighboring tiles look independently hinged.
-    return this.graphicsLayer { alpha = sample().alpha }.drawWithContent {
-        val b = source()
-        val vp = viewport()
-        if (b.width <= 1f || b.height <= 1f || vp.width <= 1f || vp.height <= 1f) {
-            drawContent()
-            return@drawWithContent
-        }
-        val m = sample()
-        if (m.alpha <= .001f) return@drawWithContent
-        val l = (b.left - vp.left) / density
-        val t = (b.top - vp.top) / density
+    // The old drawWithContent allocated a Matrix, two FloatArrays and four Pair
+    // objects for EVERY tile on EVERY frame. A full Start/All Apps scene can
+    // easily allocate hundreds of objects per vsync and stall the UI thread.
+    // Cache the transform's scratch storage per physical tile/layer instead.
+    return this.graphicsLayer {
+        alpha = sample().alpha
+    }.drawWithCache {
+        val nativeMatrix = PlatformMatrix()
+        val from = floatArrayOf(0f, 0f, size.width, 0f,
+            size.width, size.height, 0f, size.height)
+        val to = FloatArray(8)
         val w = size.width / density
         val h = size.height / density
-        val pw = vp.width / density
-        val ph = vp.height / density
-        val from = floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height)
-        val to = FloatArray(8)
-        for (i in 0..3) {
-            val point = PhoneStartChoreography.projectPlanePoint(
-                localXPx = from[i * 2] / density,
-                localYPx = from[i * 2 + 1] / density,
-                elementLeftCssPx = l,
-                elementTopCssPx = t,
-                elementWidthCssPx = w,
-                elementHeightCssPx = h,
-                viewportWidthCssPx = pw,
-                viewportHeightCssPx = ph,
-                motion = m,
-                cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
-            )
-            to[i * 2] = (point.xCssPx - l) * density
-            to[i * 2 + 1] = (point.yCssPx - t) * density
+        onDrawWithContent {
+            val b = source()
+            val vp = viewport()
+            if (b.width <= 1f || b.height <= 1f || vp.width <= 1f || vp.height <= 1f) {
+                drawContent()
+            } else {
+                val m = sample()
+                if (m.alpha > .001f) {
+                    val l = (b.left - vp.left) / density
+                    val t = (b.top - vp.top) / density
+                    val pw = vp.width / density
+                    val ph = vp.height / density
+                    // Manual corner iteration avoids Pair creation and temporary
+                    // arrays inside PhoneStartChoreography.projectPlanePoint.
+                    for (i in 0..3) {
+                        val x = if (i == 1 || i == 2) w else 0f
+                        val y = if (i >= 2) h else 0f
+                        val point = PhoneStartChoreography.projectPlanePoint(
+                            localXPx = x,
+                            localYPx = y,
+                            elementLeftCssPx = l,
+                            elementTopCssPx = t,
+                            elementWidthCssPx = w,
+                            elementHeightCssPx = h,
+                            viewportWidthCssPx = pw,
+                            viewportHeightCssPx = ph,
+                            motion = m,
+                            cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+                        )
+                        to[i * 2] = (point.xCssPx - l) * density
+                        to[i * 2 + 1] = (point.yCssPx - t) * density
+                    }
+                    if (nativeMatrix.setPolyToPoly(from, 0, to, 0, 4)) {
+                        val canvas = drawContext.canvas.nativeCanvas
+                        val saveCount = canvas.save()
+                        canvas.concat(nativeMatrix)
+                        drawContent()
+                        canvas.restoreToCount(saveCount)
+                    } else drawContent()
+                }
+            }
         }
-        val matrix = PlatformMatrix()
-        if (matrix.setPolyToPoly(from, 0, to, 0, 4)) {
-            val native = drawContext.canvas.nativeCanvas
-            val save = native.save()
-            native.concat(matrix)
-            drawContent()
-            native.restoreToCount(save)
-        } else drawContent()
     }
 }
