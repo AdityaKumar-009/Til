@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import com.flivoro.tile8auncher.data.FlipAnimationMode
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.LaunchTiming
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 
 enum class LaunchOrigin { START, ALL_APPS }
 
@@ -20,6 +21,7 @@ data class FlipAnimationState(
     val appIcon: ImageBitmap? = null,
     val accentColor: Color = Color(0xFF0078D7),
     val animationMode: FlipAnimationMode = FlipAnimationMode.CLASSIC,
+    val masterLaunchAnimation: MasterLaunchAnimation = MasterLaunchAnimation.DEFAULT,
     val timing: LaunchTiming = LaunchTiming(),
     val hasInternalWindow: Boolean = false,
     val origin: LaunchOrigin = LaunchOrigin.START,
