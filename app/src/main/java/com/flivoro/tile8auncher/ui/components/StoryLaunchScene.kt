@@ -82,7 +82,8 @@ internal fun Modifier.storyLaunchActor(
     val measured = this.onGloballyPositioned {
         bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
     }
-    if (sourceCandidate && scene.isSelected(id)) {
+    if (sourceCandidate && scene.isSelected(id) && scene.state.sourceBounds.width > 1f &&
+        scene.state.sourceBounds.height > 1f) {
         val layer = rememberGraphicsLayer()
         DisposableEffect(scene, layer) {
             onDispose { if (scene.sourceLayer === layer) scene.sourceLayer = null }
@@ -144,6 +145,7 @@ internal fun StoryLaunchOverlay(
             snapshotFlow { finalFrameDrawn }.first { it }
             withFrameNanos { }
             destinationCommitted = true
+            android.util.Log.i("MosaicStory", "${state.masterLaunchAnimation.name} forward complete")
             finishForward()
         } else {
             firstFrameDrawn = false
@@ -152,6 +154,7 @@ internal fun StoryLaunchOverlay(
             else progress.snapTo(0f)
             snapshotFlow { firstFrameDrawn }.first { it }
             withFrameNanos { }
+            android.util.Log.i("MosaicStory", "${state.masterLaunchAnimation.name} reverse complete")
             finishReverse(reverseReason ?: FlipReverseReason.BACK)
         }
     }
@@ -199,26 +202,25 @@ internal fun StoryLaunchOverlay(
             translationY = f.bounds.top - (h - f.bounds.height) * f.pivotY
             rotationX = f.rotationX
             rotationY = f.rotationY
-            alpha = f.surfaceAlpha
             cameraDistance = maxOf(w * 3f, h * 2f)
-        }.background(state.accentColor))
+        }) {
+        // Artwork and destination share ONE perspective plane and hinge. An
+        // independent artwork rotation would visibly detach it from Door/Page.
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = frame().surfaceAlpha }
+            .background(state.accentColor))
 
         val captured = scene.sourceLayer
         val sourceWidth = captured?.size?.width?.toFloat()?.takeIf { it > 0f } ?: source.width
         val sourceHeight = captured?.size?.height?.toFloat()?.takeIf { it > 0f } ?: source.height
         Box(Modifier.size(with(density) { sourceWidth.toDp() }, with(density) { sourceHeight.toDp() })
+            .align(Alignment.Center)
             .graphicsLayer {
                 val f = frame()
                 // Preserve the exact source aspect ratio; icons and labels never
                 // stretch when a wide row becomes a portrait destination window.
-                scaleX = f.sourceScale
-                scaleY = f.sourceScale
-                translationX = f.bounds.center.x - sourceWidth / 2f
-                translationY = f.bounds.center.y - sourceHeight / 2f
-                rotationX = f.rotationX
-                rotationY = f.rotationY
+                scaleX = f.sourceScale * w / f.bounds.width
+                scaleY = f.sourceScale * h / f.bounds.height
                 alpha = f.sourceAlpha
-                cameraDistance = maxOf(w * 3f, h * 2f)
             }.drawWithContent {
                 val live = scene.sourceLayer
                 if (live != null) drawLayer(live) else drawContent()
@@ -232,11 +234,6 @@ internal fun StoryLaunchOverlay(
         Box(Modifier.fillMaxSize().graphicsLayer {
             val f = frame()
             alpha = f.contentAlpha
-            translationX = f.bounds.center.x - w / 2f
-            translationY = f.bounds.center.y - h / 2f
-            rotationX = f.rotationX
-            rotationY = f.rotationY
-            cameraDistance = maxOf(w * 3f, h * 2f)
         }, contentAlignment = Alignment.Center) {
             // Heavy internal apps are mounted once the final frame was submitted,
             // so Settings decoding/composition cannot stall the opening motion.
@@ -245,11 +242,18 @@ internal fun StoryLaunchOverlay(
             }
             if (destinationContent != null && (destinationCommitted || returningContentVisible)) {
                 destinationContent()
-            } else if (tile.iconGlyph.isNotEmpty()) {
-                MetroIcon(tile.iconGlyph, color = Color.White, size = 78.dp)
-            } else if (state.appIcon != null) {
-                Image(state.appIcon, tile.title, Modifier.size(78.dp))
-            } else MetroIcon("app", color = Color.White, size = 78.dp)
+            } else {
+                Box(Modifier.size(78.dp).graphicsLayer {
+                    val f = frame()
+                    scaleX = w / f.bounds.width
+                    scaleY = h / f.bounds.height
+                }, contentAlignment = Alignment.Center) {
+                    if (tile.iconGlyph.isNotEmpty()) MetroIcon(tile.iconGlyph, color = Color.White, size = 78.dp)
+                    else if (state.appIcon != null) Image(state.appIcon, tile.title, Modifier.fillMaxSize())
+                    else MetroIcon("app", color = Color.White, size = 78.dp)
+                }
+            }
+        }
         }
     }
 }

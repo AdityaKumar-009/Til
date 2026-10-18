@@ -123,6 +123,7 @@ class StoryLaunchRenderTest {
         val baseline = shot()
         for (style in MasterLaunchAnimation.entries.filter { it.isStory }) {
             val state = FlipAnimationState(isRunning = true, sourceTile = selected,
+                sourceBounds = Rect(10f, 10f, 20f, 20f), // Live cell measurement replaces this seed.
                 masterLaunchAnimation = style, origin = origin, accentColor = Color(colors.first()))
             val scene = StoryLaunchScene(state) { sample.floatValue }
             compose.runOnIdle {
