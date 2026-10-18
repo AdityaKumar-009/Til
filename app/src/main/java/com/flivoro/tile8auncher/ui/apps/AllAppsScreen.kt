@@ -1234,6 +1234,7 @@ private fun AppListItem(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
                 .onGloballyPositioned { iconCoordinates.coordinates = it }
+                .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS)
                 .background(effectiveTileAccent),
             contentAlignment = Alignment.Center,
         ) {

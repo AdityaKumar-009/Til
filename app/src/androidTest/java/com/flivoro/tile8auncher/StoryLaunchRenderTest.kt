@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
@@ -81,6 +82,8 @@ class StoryLaunchRenderTest {
         val selected = if (origin == LaunchOrigin.START) tiles.first() else TileModel(
             id = if (mode == LauncherUiMode.DESKTOP) "app_com.example.alpha" else "phone_app_com.example.alpha",
             title = "Alpha", packageName = "com.example.alpha", colorValue = colors.first())
+        var clickedTile = selected
+        var clickedBounds = Rect.Zero
         val sample = mutableFloatStateOf(0f)
         val active = mutableStateOf<StoryLaunchScene?>(null)
         val overlay = mutableStateOf(true)
@@ -98,13 +101,16 @@ class StoryLaunchRenderTest {
                                 homeRequest = 0, entranceRequest = 0, launchingTileId = null,
                                 preparedRecentApps = if (mode == LauncherUiMode.MOBILE_10) apps.first().apps.take(1) else emptyList(),
                                 isLaunching = false, interactionEnabled = scene == null, wallpaperStyle = 0,
-                                onLaunch = { _, _, _ -> }, onExitFinished = {}, onOpenSettings = {}, onOpenAppInfo = {})
+                                onLaunch = { tile, bounds, _ -> clickedTile = tile; clickedBounds = bounds },
+                                onExitFinished = {}, onOpenSettings = {}, onOpenAppInfo = {})
                             origin == LaunchOrigin.START -> StartScreen(
-                                tiles = tiles, appsRepository = repository, onTileClick = { _, _ -> },
+                                tiles = tiles, appsRepository = repository,
+                                onTileClick = { tile, bounds -> clickedTile = tile; clickedBounds = bounds },
                                 onTileLongClick = {}, onPowerClick = {}, onSearchClick = {}, onAddAppsClick = {},
                                 onNavigateToAllApps = {})
                             else -> AllAppsScreen(sections = apps, appsRepository = repository,
-                                onAppClick = { _, _ -> }, isAppPinned = { false }, onPinApp = {}, onUnpinApp = {},
+                                onAppClick = { _, bounds -> clickedBounds = bounds },
+                                isAppPinned = { false }, onPinApp = {}, onUnpinApp = {},
                                 onOpenAppInfo = {}, onUninstallApp = {}, onNavigateToStart = {})
                         }
                         if (scene != null && overlay.value) {
@@ -120,21 +126,22 @@ class StoryLaunchRenderTest {
             compose.mainClock.advanceTimeBy(600)
         }
         if (origin == LaunchOrigin.ALL_APPS) compose.waitUntil(15_000) {
+            compose.mainClock.advanceTimeByFrame()
             compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().isNotEmpty()
         }
+        // Exercise the real click callback: Start supplies its full tile;
+        // Desktop Apps supplies the icon plate; phone Apps supplies its row.
+        // Text bounds alone describe none of those launch surfaces correctly.
+        compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha",
+            useUnmergedTree = true)[0].performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(700)
         val baseline = shot()
-        val label = compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha",
-            useUnmergedTree = true)
-            .fetchSemanticsNodes().first().boundsInRoot.translate(rootBounds.topLeft)
-        val density = context.resources.displayMetrics.density
-        val clickedBounds = if (mode == LauncherUiMode.DESKTOP && origin == LaunchOrigin.ALL_APPS)
-            Rect(label.left - 50f * density, label.center.y - 20f * density,
-                label.left - 10f * density, label.center.y + 20f * density)
-        else label
+        assertTrue("$mode/$origin did not deliver its real launch bounds", clickedBounds.width > 1f)
         for (style in MasterLaunchAnimation.entries.filter { it.isStory }) {
-            val state = FlipAnimationState(isRunning = true, sourceTile = selected,
+            val state = FlipAnimationState(isRunning = true, sourceTile = clickedTile,
                 sourceBounds = clickedBounds,
-                masterLaunchAnimation = style, origin = origin, accentColor = Color(colors.first()))
+                masterLaunchAnimation = style, origin = origin,
+                accentColor = Color(clickedTile.colorValue))
             val scene = StoryLaunchScene(state) { sample.floatValue }
             compose.runOnIdle {
                 scene.viewport = rootBounds
@@ -143,13 +150,18 @@ class StoryLaunchRenderTest {
                 active.value = scene
             }
             compose.mainClock.advanceTimeBy(48)
+            val first = shot()
             compose.runOnIdle {
                 assertNotNull("$mode/$origin/$style did not capture its REAL source cell", scene.sourceLayer)
                 assertTrue(scene.capturedSourceBounds.width > 0f)
             }
-            val first = shot()
+            val initialDifference = difference(baseline, first)
+            if (initialDifference >= .04) {
+                save(baseline, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-baseline")
+                save(first, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-first")
+            }
             assertTrue("$mode/$origin/$style changed the source artwork at time zero",
-                difference(baseline, first) < .04)
+                initialDifference < .04)
 
             // Inspect the physical scene WITHOUT its foreground launch plane.
             // This catches a stationary duplicated source or static neighbors.
@@ -177,13 +189,28 @@ class StoryLaunchRenderTest {
                 difference(middle, shot()) < .006)
             compose.runOnIdle { sample.floatValue = 0f }
             compose.mainClock.advanceTimeByFrame()
-            assertTrue("$mode/$origin/$style snapped on return", difference(first, shot()) < .006)
+            val returned = shot()
+            val returnDifference = difference(first, returned)
+            if (returnDifference >= .006) {
+                save(first, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-first")
+                save(returned, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-return")
+            }
+            assertTrue("$mode/$origin/$style snapped on return ($returnDifference)", returnDifference < .006)
             compose.runOnIdle { active.value = null }
             compose.mainClock.advanceTimeByFrame()
         }
     }
 
-    private fun shot(): Bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+    private fun shot(): Bitmap {
+        // A virtual clock advance alone doesn't perform Android drawing. Source
+        // recording publishes its layer/bounds during that draw, so interleave
+        // completed draws and Compose frames before sampling the new pose.
+        repeat(2) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+        }
+        return compose.onRoot().captureToImage().asAndroidBitmap()
+    }
 
     private fun difference(a: Bitmap, b: Bitmap, region: Rect? = null, viewport: Rect? = null): Double {
         val offset = viewport?.topLeft ?: androidx.compose.ui.geometry.Offset.Zero

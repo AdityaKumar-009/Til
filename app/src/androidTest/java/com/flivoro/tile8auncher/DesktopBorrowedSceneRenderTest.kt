@@ -124,6 +124,9 @@ class DesktopBorrowedSceneRenderTest {
         // Compose's virtual clock does not await that independent coroutine:
         // until rows actually exist, animation comparisons only see wallpaper.
         compose.waitUntil(15_000) {
+            // IO can finish after the initial virtual-time advance. Pump a
+            // Compose frame so its published catalog can actually recompose.
+            compose.mainClock.advanceTimeByFrame()
             compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().isNotEmpty()
         }
         compose.runOnIdle { chosen.value = profile; progress.floatValue = 0f }
