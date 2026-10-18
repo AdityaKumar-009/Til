@@ -65,6 +65,7 @@ fun FlipLaunchOverlay(
     destinationContent: (@Composable () -> Unit)? = null,
     /** Optional real source renderer for phone skins borrowing Desktop motion. */
     sourceFace: (@Composable (Modifier) -> Unit)? = null,
+    destinationIcon: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
@@ -218,6 +219,8 @@ fun FlipLaunchOverlay(
             ) {
                 if (destinationContent != null) {
                     destinationContent()
+                } else if (destinationIcon != null) {
+                    destinationIcon(Modifier.size(iconSize))
                 } else if (!sharedLogo) when {
                     tile.iconGlyph.isNotEmpty() -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
                     state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.size(iconSize))
