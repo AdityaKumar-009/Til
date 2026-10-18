@@ -1104,12 +1104,16 @@ fun Tile8LauncherApp(
         }
         // Default keeps each phone mode's original measured Start/All Apps exit.
         // An explicit shared preset owns its frames in FlipLaunchOverlay instead.
-        val usesSharedLaunch = flipState.masterLaunchAnimation != MasterLaunchAnimation.DEFAULT
-        val phoneLaunchActive = flipState.isRunning && !usesSharedLaunch &&
+        val chosenLaunch = flipState.masterLaunchAnimation
+        // Both phone modes share the original native motion engine. Switching
+        // between PHONE_8/MOBILE_10 selects the source motion curves, not a new
+        // approximate overlay. Desktop's original flip uses the desktop compositor.
+        val usesDesktopLaunch = chosenLaunch == MasterLaunchAnimation.DESKTOP
+        val phoneLaunchActive = flipState.isRunning && !usesDesktopLaunch &&
             flipState.direction == FlipAnimationDirection.FORWARD
         val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
         LaunchedEffect(flipState.isRunning, flipState.direction, launcherMode) {
-            if (flipState.isRunning && !usesSharedLaunch &&
+            if (flipState.isRunning && !usesDesktopLaunch &&
                 flipState.direction == FlipAnimationDirection.REVERSE) {
                 phoneHandoffHeld = false
                 onDismissFlip()
@@ -1134,6 +1138,11 @@ fun Tile8LauncherApp(
                         homeRequest = homeRequest,
                         entranceRequest = startEntranceRequest,
                         launchingTileId = flipState.sourceTile?.id.takeIf { phoneLaunchActive },
+                        launchMotionMode = when (chosenLaunch) {
+                            MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
+                            MasterLaunchAnimation.MOBILE_10 -> LauncherUiMode.MOBILE_10
+                            else -> null
+                        },
                         isLaunching = phoneExitActive,
                         interactionEnabled = activeInAppTile == null && entranceReady && !flipState.isRunning,
                         wallpaperStyle = wallpaperStyle,
@@ -1191,9 +1200,14 @@ fun Tile8LauncherApp(
                     onWallpaperStyleChanged = { wallpaperStyle = it },
                 )
             }
-            if (entranceReady && flipState.isRunning && usesSharedLaunch) {
+            if (entranceReady && flipState.isRunning && usesDesktopLaunch) {
                 FlipLaunchOverlay(
-                    state = flipState,
+                    state = flipState.copy(
+                        // Use the genuine Desktop compositor rather than an
+                        // extra preset or the repository's optional MODERN look.
+                        masterLaunchAnimation = MasterLaunchAnimation.DEFAULT,
+                        animationMode = com.flivoro.tile8auncher.data.FlipAnimationMode.CLASSIC,
+                    ),
                     progress = flipProgress,
                     onAnimationEnd = {
                         if (flipState.isRunning &&
