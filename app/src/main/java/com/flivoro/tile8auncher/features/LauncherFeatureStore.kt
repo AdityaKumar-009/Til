@@ -27,12 +27,10 @@ enum class LauncherUiMode(val title: String, val detail: String) {
 
 /** One shared app-launch choice; DEFAULT retains each mode's original motion. */
 enum class MasterLaunchAnimation(val title: String, val detail: String) {
-    DEFAULT("Default (authentic)", "Preserve the currently selected Windows mode's original app launch"),
-    FLIP("Flip", "A tile flips into the opening app"),
-    TURNSTILE("Turnstile", "Windows Phone-style perspective rotation"),
-    ZOOM("Zoom", "Expand the tapped tile into the application"),
-    SLIDE("Slide", "Slide the application across the screen"),
-    FADE("Fade", "A restrained crossfade"),
+    DEFAULT("Default (follow interface)", "Each interface uses its own original animation"),
+    DESKTOP("Windows 8.1 Desktop", "Original Windows 8.1 tile flip and expansion"),
+    PHONE_8("Windows Phone 8.1", "Original Lumia/Disco turnstile exit choreography"),
+    MOBILE_10("Windows 10 Mobile", "Original Windows 10 Mobile spatial zoom"),
 }
 
 enum class AppIconStyle {
