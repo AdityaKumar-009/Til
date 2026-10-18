@@ -164,23 +164,12 @@ internal fun SharedLaunchOverlay(
             }
         },
     ) {
-        val width = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         val height = constraints.maxHeight.toFloat().coerceAtLeast(1f)
-        var origin by remember { mutableStateOf(Offset.Zero) }
-        val src = WindowsLaunchMotion.sourceBounds(
-            state.sourceBounds.translate(-origin), width, height,
-        )
-        val cssSource = with(density) {
-            Rect(src.left.toDp().value, src.top.toDp().value,
-                src.right.toDp().value, src.bottom.toDp().value)
-        }
-        val viewportWidthCss = with(density) { width.toDp().value }
         val viewportHeightCss = with(density) { height.toDp().value }
-        fun frame() = SharedLaunchMotion.frame(
-            style, progress.value, cssSource, viewportWidthCss, viewportHeightCss,
+        val duration = SharedLaunchMotion.duration(
+            style, viewportHeightCss,
             state.origin == com.flivoro.tile8auncher.ui.animation.LaunchOrigin.ALL_APPS,
         )
-        val duration = SharedLaunchMotion.duration(style, viewportHeightCss)
         LaunchedEffect(tile.id, state.sourceBounds, state.direction, style) {
             if (state.direction == FlipAnimationDirection.FORWARD) {
                 lastFramePresented = false
@@ -191,67 +180,46 @@ internal fun SharedLaunchOverlay(
                 finishForward()
             } else {
                 firstFramePresented = false
-                val backwardsMillis = (duration * progress.value.coerceIn(0f, 1f)).roundToInt()
-                if (backwardsMillis > 0) {
-                    progress.animateTo(0f, tween(backwardsMillis, easing = LinearEasing))
+                val remaining = (duration * progress.value.coerceIn(0f, 1f)).roundToInt()
+                if (remaining > 0) {
+                    progress.animateTo(0f, tween(remaining, easing = LinearEasing))
                 } else progress.snapTo(0f)
                 snapshotFlow { firstFramePresented }.first { it }
                 withFrameNanos { }
                 finishReverse(reverseReason ?: FlipReverseReason.BACK)
             }
         }
-        Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInWindow() }) {
-            Box(
-                Modifier.offset { IntOffset(src.left.roundToInt(), src.top.roundToInt()) }
-                    .size(with(density) { src.width.toDp() }, with(density) { src.height.toDp() })
-                    .graphicsLayer {
-                        val motion = frame()
-                        alpha = motion.tileAlpha
-                        rotationY = motion.tileRotationY
-                        translationX = with(density) { motion.tileTranslationX.dp.toPx() }
-                        translationY = with(density) { motion.tileTranslationY.dp.toPx() }
-                        scaleX = motion.tileScale
-                        scaleY = motion.tileScale
-                        transformOrigin = TransformOrigin(motion.tilePivotX, .5f)
-                        cameraDistance = maxOf(900f, height * 1.5f)
-                    },
-            ) {
-                WindowsTileFace(tile, state.appIcon, Modifier.fillMaxSize())
-            }
-            Box(
-                Modifier.fillMaxSize()
-                    .graphicsLayer {
-                        alpha = frame().appAlpha
-                    }
-                    .background(state.accentColor),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (destinationContent != null) {
-                    destinationContent()
-                } else {
-                    when {
-                        tile.iconGlyph.isNotEmpty() -> MetroIcon(
-                            tile.iconGlyph, color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
-                        state.appIcon != null -> Image(
-                            state.appIcon, tile.title, Modifier.size(78.dp))
-                        else -> MetroIcon(
-                            "app", color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
-                    }
+
+        // The real Desktop Start/All Apps tiles are the ONLY launch actors now.
+        // This layer must NEVER draw WindowsTileFace for the selected tile again.
+        // After every real tile has left, hold a solid destination frame through
+        // Android's asynchronous window handoff, eliminating the flash of Start.
+        Box(
+            Modifier.fillMaxSize()
+                .graphicsLayer {
+                    alpha = ((progress.value - .91f) / .09f).coerceIn(0f, 1f)
+                }
+                .background(state.accentColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (destinationContent != null) {
+                destinationContent()
+            } else {
+                when {
+                    tile.iconGlyph.isNotEmpty() -> MetroIcon(
+                        tile.iconGlyph, color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
+                    state.appIcon != null -> Image(
+                        state.appIcon, tile.title, Modifier.size(78.dp))
+                    else -> MetroIcon(
+                        "app", color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
                 }
             }
-            // Prevent beginning the external Activity until the terminal Compose
-            // frame has actually drawn (not just reached a numeric progress=1).
-            Box(Modifier.fillMaxSize().graphicsLayer { alpha = 0f }
-                .then(Modifier.onGloballyPositioned {
-                    // onGloballyPositioned alone is insufficient for terminal
-                    // frames; progress is still sampled in graphicsLayer above.
-                }))
-            if (progress.value >= 1f) {
-                androidx.compose.runtime.SideEffect { lastFramePresented = true }
-            }
-            if (progress.value <= 0f) {
-                androidx.compose.runtime.SideEffect { firstFramePresented = true }
-            }
+        }
+        if (progress.value >= 1f) {
+            androidx.compose.runtime.SideEffect { lastFramePresented = true }
+        }
+        if (progress.value <= 0f) {
+            androidx.compose.runtime.SideEffect { firstFramePresented = true }
         }
     }
 }
