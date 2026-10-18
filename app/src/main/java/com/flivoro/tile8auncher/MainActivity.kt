@@ -278,7 +278,11 @@ class MainActivity : ComponentActivity() {
                                 sourceBounds = bounds,
                                 appIcon = icon,
                                 accentColor = tile.colorValue.toTileColor(),
-                                animationMode = appsRepository.getFlipAnimationMode(),
+                                animationMode = if (
+                                    LauncherFeatureStore.masterLaunchAnimation(this@MainActivity) ==
+                                        MasterLaunchAnimation.DESKTOP
+                                ) com.flivoro.tile8auncher.data.FlipAnimationMode.CLASSIC
+                                else appsRepository.getFlipAnimationMode(),
                                 masterLaunchAnimation = LauncherFeatureStore.masterLaunchAnimation(this@MainActivity),
                                 timing = appsRepository.getLaunchTiming(allApps = origin == LaunchOrigin.ALL_APPS),
                                 hasInternalWindow = pendingLaunchIntent == null,
