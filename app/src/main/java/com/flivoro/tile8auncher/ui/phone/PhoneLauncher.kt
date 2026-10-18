@@ -1686,7 +1686,13 @@ fun PhoneLauncherSurface(
                                                 onClick = {
                                                     // Treat Mosaic Settings exactly like any held
                                                     // app: its real row bounds drive native exit.
-                                                    onLaunch(appTile(app), bounds, LaunchOrigin.ALL_APPS)
+                                                    val launchedApp = appTile(app)
+                                                    onLaunch(
+                                                        if (rowColor != null)
+                                                            launchedApp.copy(colorValue = rowColor)
+                                                        else launchedApp,
+                                                        bounds, LaunchOrigin.ALL_APPS,
+                                                    )
                                                 },
                                                 onLongClick = {
                                                     editing = "app:${app.packageName}"
