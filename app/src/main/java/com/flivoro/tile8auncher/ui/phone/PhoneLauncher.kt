@@ -360,6 +360,7 @@ fun PhoneLauncherSurface(
     isLaunching: Boolean,
     interactionEnabled: Boolean,
     wallpaperStyle: Int,
+    launchMotionMode: LauncherUiMode? = null,
     onLaunch: (TileModel, Rect, LaunchOrigin) -> Unit,
     onExitFinished: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -379,6 +380,9 @@ fun PhoneLauncherSurface(
     val sampledMotionMillis = LocalPhoneMotionSampleMillis.current
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
+    // Keep layout mode separate: only the active APP EXIT may borrow the other
+    // phone's authentic curves. Home/Back and all entrance behavior stays native.
+    val exitMotionMode = if (isLaunching) launchMotionMode ?: mode else mode
     val densityScale = LocalDensity.current.density
     val accent = StartPersonalization.accentColor
     val catalog = remember(sections, tiles) {
@@ -553,13 +557,18 @@ fun PhoneLauncherSurface(
     // The slowed orange-tile footage is used for geometry, not wall-clock delay.
     // One clock owns tiles, wallpaper and completion. A wall-clock delay in MainActivity
     // can expire before Compose has even presented the first animation frame.
-    val duration = if (isLaunching && showApps && mode == LauncherUiMode.PHONE_8) {
+    val duration = if (isLaunching && showApps && exitMotionMode == LauncherUiMode.PHONE_8) {
         PhoneStartChoreography.totalMillis(
-            mode, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
+            LauncherUiMode.PHONE_8, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
         )
     } else if (isLaunching && showApps) {
-        maxOf(PhoneMotionTimeline.totalMillis(mode, listPhase, 6),
-            if (isTen) MobileStartMotion.EXIT_TOTAL_MS else 0)
+        maxOf(PhoneMotionTimeline.totalMillis(exitMotionMode, listPhase, 6),
+            MobileStartMotion.EXIT_TOTAL_MS)
+    } else if (isLaunching) {
+        if (exitMotionMode == LauncherUiMode.MOBILE_10) MobileStartMotion.EXIT_TOTAL_MS
+        else PhoneStartChoreography.totalMillis(
+            LauncherUiMode.PHONE_8, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
+        )
     } else if (isTen && motionUsesBack && !isLaunching) {
         MobileStartMotion.BACK_TOTAL_MS
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
@@ -585,7 +594,9 @@ fun PhoneLauncherSurface(
     // cascade delay is calibrated inside the classic choreography.
     fun sourceMotionMillis(): Int = sampledMotionMillis?.invoke() ?: motionClock.value.roundToInt()
     val classicAppsReturning = isClassicPhone && showApps && motionUsesBack && !isLaunching
-    val classicAppsMotionActive = isClassicPhone && showApps && (isLaunching || motionUsesBack)
+    val classicAppsMotionActive = showApps &&
+        ((isLaunching && exitMotionMode == LauncherUiMode.PHONE_8) ||
+            (!isLaunching && isClassicPhone && motionUsesBack))
     fun classicAppsCameraDistance(): Float = if (classicAppsReturning)
         PhoneStartChoreography.appListReturnCameraDistance(surfaceBounds.width / densityScale)
         else PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX
@@ -918,6 +929,7 @@ fun PhoneLauncherSurface(
                             isLaunching = isLaunching,
                             resumeUsesBackMotion = motionUsesBack,
                             mode = mode,
+                            launchMotionMode = exitMotionMode,
                             tileOpacity = tileOpacity,
                             wallpaperStyle = wallpaperStyle,
                             mobileTilePictureMode = phoneTilePictureMode,
@@ -1561,7 +1573,9 @@ fun PhoneLauncherSurface(
                                                     Size(it.size.width.toFloat(), it.size.height.toFloat()),
                                                 )
                                             }
-                                            .then(if (mode == LauncherUiMode.PHONE_8) {
+                                            .then(if (if (isLaunching)
+                                                exitMotionMode == LauncherUiMode.PHONE_8
+                                            else mode == LauncherUiMode.PHONE_8) {
                                                 // Project the faded layer, not the drawing inside
                                                 // its untransformed offscreen bounds. Otherwise
                                                 // alpha < 1 clips the turning icon, then its edge
@@ -1583,7 +1597,8 @@ fun PhoneLauncherSurface(
                                                     alpha = if (classicAppsMotionActive) appRowMotion().alpha else 1f
                                                 }
                                             } else Modifier.graphicsLayer {
-                                                if (isTen && showApps && mobileBounds.width > 0f) {
+                                                if ((if (isLaunching) exitMotionMode == LauncherUiMode.MOBILE_10 else isTen) &&
+                                                    showApps && mobileBounds.width > 0f) {
                                                     val motion = mobileAppsMotion(
                                                         mobileBounds,
                                                         exiting = isLaunching,
@@ -2157,6 +2172,7 @@ private fun PhoneStartGrid(
     isLaunching: Boolean,
     resumeUsesBackMotion: Boolean,
     mode: LauncherUiMode,
+    launchMotionMode: LauncherUiMode = mode,
     tileOpacity: Float,
     wallpaperStyle: Int,
     mobileTilePictureMode: Boolean,
@@ -2364,6 +2380,7 @@ private fun PhoneStartGrid(
                     )
                     PhoneTile(
                         tile = tile, mode = mode,
+                        launchMotionMode = launchMotionMode,
                         visibleRowFraction = rowFraction,
                         animationIndex = if (mode == LauncherUiMode.PHONE_8 &&
                             !isLaunching) {
@@ -2598,6 +2615,7 @@ private fun PhoneStartGrid(
 private fun PhoneTile(
     tile: TileModel,
     mode: LauncherUiMode,
+    launchMotionMode: LauncherUiMode = mode,
     visibleRowFraction: Float,
     animationIndex: Float,
     viewportHeightCssPx: Float,
@@ -2669,7 +2687,9 @@ private fun PhoneTile(
         !userChoseColor && tilePictureContent == null && layered)
         visual.richBackground else null
 
-    fun currentMotion(): PhoneStartMotionFrame = if (mode == LauncherUiMode.MOBILE_10) {
+    fun currentMotion(): PhoneStartMotionFrame = if (exiting &&
+        launchMotionMode == LauncherUiMode.MOBILE_10 ||
+        !exiting && mode == LauncherUiMode.MOBILE_10) {
         val mobile = MobileStartMotion.sample(
             exiting = exiting,
             elapsedMillis = elapsedMillis(),
@@ -2689,7 +2709,7 @@ private fun PhoneTile(
             pivotX = mobile.pivotX,
         )
     } else PhoneStartChoreography.sample(
-        mode = mode, exiting = exiting, elapsedMillis = elapsedMillis(),
+        mode = LauncherUiMode.PHONE_8, exiting = exiting, elapsedMillis = elapsedMillis(),
         mobileRowFraction = visibleRowFraction,
         animationIndex = animationIndex,
         viewportHeightCssPx = viewportHeightCssPx,
@@ -2768,7 +2788,10 @@ private fun PhoneTile(
                     // tile's clip. Icons, text and outer tile keep their
                     // existing launch/return choreography completely unchanged.
                     val motion = currentMotion()
-                    val forward = if (mode == LauncherUiMode.PHONE_8) {
+                    val forward = if (
+                        if (exiting) launchMotionMode == LauncherUiMode.PHONE_8
+                        else mode == LauncherUiMode.PHONE_8
+                    ) {
                         tileProjectionMatrix(
                             bounds.width.coerceAtLeast(1f),
                             bounds.height.coerceAtLeast(1f),
@@ -2810,7 +2833,8 @@ private fun PhoneTile(
                 // The zoom anchor must use the full, untransformed tile geometry.
                 bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
             }
-            .then(if (mode == LauncherUiMode.PHONE_8) {
+            .then(if (if (exiting) launchMotionMode == LauncherUiMode.PHONE_8
+                else mode == LauncherUiMode.PHONE_8) {
                 Modifier.graphicsLayer {
                     alpha = currentMotion().alpha
                     rotationY = 0f
