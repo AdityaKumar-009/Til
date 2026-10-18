@@ -877,9 +877,12 @@ fun Tile8LauncherApp(
         // Keep non-tile phone shortcuts on the native exit timeline too.
         // Desktop's existing direct Settings opening is unchanged.
         LauncherFeatureStore.beginPhoneSettings(context)
-        if (LauncherFeatureStore.launcherUiMode(context) == LauncherUiMode.DESKTOP) {
+        if (LauncherFeatureStore.launcherUiMode(context) == LauncherUiMode.DESKTOP &&
+            LauncherFeatureStore.masterLaunchAnimation(context) == MasterLaunchAnimation.DEFAULT
+        ) {
             onOpenInAppTile(settingsTile)
         } else {
+            // Internal launcher apps honor an explicitly selected master preset too.
             onTriggerFlip(settingsTile, Rect.Zero, LaunchOrigin.START)
         }
     }
