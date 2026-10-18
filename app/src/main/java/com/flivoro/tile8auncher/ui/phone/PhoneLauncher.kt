@@ -384,6 +384,9 @@ fun PhoneLauncherSurface(
     // Keep layout mode separate: only the active APP EXIT may borrow the other
     // phone's authentic curves. Home/Back and all entrance behavior stays native.
     val exitMotionMode = if (isLaunching) launchMotionMode ?: mode else mode
+    val exitUsesMobile = if (isLaunching) exitMotionMode == LauncherUiMode.MOBILE_10 else isTen
+    val exitUsesClassic = if (isLaunching) exitMotionMode == LauncherUiMode.PHONE_8
+        else mode == LauncherUiMode.PHONE_8
     val densityScale = LocalDensity.current.density
     val accent = StartPersonalization.accentColor
     val catalog = remember(sections, tiles) {
@@ -616,7 +619,8 @@ fun PhoneLauncherSurface(
         sourceMotionMillis(), animationIndex, viewportHeightCssPx,
         surfaceBounds.width / densityScale, selected, letter, tileLeftCssPx, tileWidthCssPx,
     )
-    fun mobileWallpaperAlpha(): Float = MobileStartMotion.wallpaperAlpha(
+    fun mobileWallpaperAlpha(): Float = if (isLaunching && !exitUsesMobile) 1f
+    else MobileStartMotion.wallpaperAlpha(
         exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
         returningFromApp = motionUsesBack && !isLaunching,
     )
@@ -866,7 +870,7 @@ fun PhoneLauncherSurface(
         .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
         if (!phoneTilePictureMode) {
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = if (isTen) mobileWallpaperAlpha() else 1f
+                alpha = if (exitUsesMobile) mobileWallpaperAlpha() else 1f
             }) {
                 WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
                 if (isTen) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
@@ -1028,7 +1032,7 @@ fun PhoneLauncherSurface(
                                 (homeBannerBounds.left - paneBounds.left) / densityScale
                             } else widthCss - 54f
                             return PhoneStartChoreography.sample(
-                                mode = mode,
+                                mode = exitMotionMode,
                                 exiting = isLaunching,
                                 elapsedMillis = sourceMotionMillis(),
                                 mobileRowFraction = 0f,
@@ -1050,7 +1054,7 @@ fun PhoneLauncherSurface(
                                 end = if (isClassicPhone) (25f * classicUnit).dp else 20.dp,
                             )
                                 .onGloballyPositioned { homeBannerBounds = it.boundsInWindow() }
-                                .then(if (mode == LauncherUiMode.PHONE_8) {
+                                .then(if (exitUsesClassic) {
                                     Modifier.graphicsLayer {
                                         alpha = bannerMotion().alpha
                                         rotationY = 0f
@@ -1088,8 +1092,25 @@ fun PhoneLauncherSurface(
                                         canvas.restoreToCount(saveCount)
                                     }
                                 } else Modifier.graphicsLayer {
-                                    alpha = if (isTen) mobileWallpaperAlpha()
-                                    else if (isLaunching && motionClock.value >= duration) 0f else 1f
+                                    if (isLaunching && exitUsesMobile && homeBannerBounds.width > 0f) {
+                                        val m = MobileStartMotion.sample(
+                                            exiting = true,
+                                            elapsedMillis = sourceMotionMillis(),
+                                            row = 1f,
+                                            centerX = homeBannerBounds.center.x,
+                                            centerY = homeBannerBounds.center.y,
+                                            viewportCenterX = surfaceBounds.center.x,
+                                            viewportCenterY = surfaceBounds.center.y,
+                                        )
+                                        alpha = m.alpha
+                                        translationX = m.translationXPx
+                                        translationY = m.translationYPx
+                                        scaleX = m.scale
+                                        scaleY = m.scale
+                                    } else {
+                                        alpha = if (isTen) mobileWallpaperAlpha()
+                                        else if (isLaunching && motionClock.value >= duration) 0f else 1f
+                                    }
                                 }),
                             horizontalArrangement = Arrangement.End,
                         ) {
@@ -1147,8 +1168,8 @@ fun PhoneLauncherSurface(
                     Box(Modifier.fillMaxSize()
                         .graphicsLayer {
                             val listExitEnd = when {
-                                isClassicPhone -> duration
-                                isTen -> MobileStartMotion.EXIT_TOTAL_MS
+                                exitUsesClassic -> duration
+                                exitUsesMobile -> MobileStartMotion.EXIT_TOTAL_MS
                                 else -> PhoneMotionTimeline.totalMillis(mode, listPhase, 6)
                             }
                             if (animateHomeAppsPage) {
@@ -1438,7 +1459,7 @@ fun PhoneLauncherSurface(
                                         } else Modifier)
                                         .then(if (isClassicPhone) Modifier.height((64f * classicUnit).dp)
                                             .padding(bottom = 0.dp) else Modifier)
-                                        .then(if (mode == LauncherUiMode.PHONE_8) {
+                                        .then(if (exitUsesClassic) {
                                             Modifier.onGloballyPositioned { headerBounds = it.boundsInWindow() }
                                                 .drawWithContent {
                                                     if (!classicAppsMotionActive || headerBounds.width <= 0f) {
@@ -1455,7 +1476,7 @@ fun PhoneLauncherSurface(
                                                     }
                                                 }
                                                 .graphicsLayer { alpha = if (classicAppsMotionActive) headerMotion().alpha else 1f }
-                                        } else if (isTen) {
+                                        } else if (exitUsesMobile) {
                                             Modifier.onGloballyPositioned {
                                                 headerBounds = Rect(it.positionInWindow(),
                                                     Size(it.size.width.toFloat(), it.size.height.toFloat()))
