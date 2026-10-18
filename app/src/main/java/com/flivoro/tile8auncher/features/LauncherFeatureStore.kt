@@ -25,6 +25,16 @@ enum class LauncherUiMode(val title: String, val detail: String) {
     MOBILE_10("Windows 10 Mobile", "Phone Start, translucent tiles and modern motion"),
 }
 
+/** One shared app-launch choice; DEFAULT retains each mode's original motion. */
+enum class MasterLaunchAnimation(val title: String, val detail: String) {
+    DEFAULT("Default (authentic)", "Preserve the currently selected Windows mode's original app launch"),
+    FLIP("Flip", "A tile flips into the opening app"),
+    TURNSTILE("Turnstile", "Windows Phone-style perspective rotation"),
+    ZOOM("Zoom", "Expand the tapped tile into the application"),
+    SLIDE("Slide", "Slide the application across the screen"),
+    FADE("Fade", "A restrained crossfade"),
+}
+
 enum class AppIconStyle {
     DISCO_LAYERED,
     DEFAULT,
@@ -89,6 +99,7 @@ object LauncherFeatureStore {
     const val PREFS_NAME = "tile8_launcher_prefs_v2"
 
     private const val LAUNCHER_UI_MODE = "launcher_ui_mode"
+    private const val MASTER_LAUNCH_ANIMATION = "master_app_launch_animation"
     private const val PHONE_RENDER_PENDING = "phone_render_pending"
     private const val PHONE_RENDER_ATTEMPTED = "phone_render_attempted"
     private const val PHONE_RENDER_PROCESS_ID = "phone_render_process_id"
@@ -116,6 +127,19 @@ object LauncherFeatureStore {
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** One preference for Desktop, Windows Phone 8.1 and Windows 10 Mobile. */
+    fun masterLaunchAnimation(context: Context): MasterLaunchAnimation {
+        val stored = prefs(context).getString(
+            MASTER_LAUNCH_ANIMATION, MasterLaunchAnimation.DEFAULT.name)
+        return MasterLaunchAnimation.entries.firstOrNull { it.name == stored }
+            ?: MasterLaunchAnimation.DEFAULT
+    }
+
+    fun setMasterLaunchAnimation(context: Context, animation: MasterLaunchAnimation) {
+        prefs(context).edit { putString(MASTER_LAUNCH_ANIMATION, animation.name) }
+        LauncherFeatureRuntime.notifyLauncherModeChanged()
+    }
 
     fun launcherUiMode(context: Context): LauncherUiMode {
         val saved = prefs(context).getString(LAUNCHER_UI_MODE, LauncherUiMode.DESKTOP.name)
