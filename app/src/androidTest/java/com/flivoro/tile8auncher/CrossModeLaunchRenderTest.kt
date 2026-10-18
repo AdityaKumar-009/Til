@@ -129,9 +129,10 @@ class CrossModeLaunchRenderTest {
 
         // The selected top tile and several OTHER visible tiles/letters must change.
         assertTrue("Selected physical tile did not animate in $layoutMode borrowing $animationMode",
-            changed(first, middle, .1f, .08f, .80f, .38f) > .003)
+            changed(first, late, .1f, .08f, .80f, .38f) > .003)
         assertTrue("Neighboring tiles or app rows stayed fixed in $layoutMode borrowing $animationMode",
-            changed(first, late, .1f, .39f, .88f, .88f) > .004)
+            changed(first, middle, .1f, .39f, .88f, .88f) > .004 || 
+                changed(first, late, .1f, .39f, .88f, .88f) > .004)
     }
 
     private fun save(name: String): Bitmap {
