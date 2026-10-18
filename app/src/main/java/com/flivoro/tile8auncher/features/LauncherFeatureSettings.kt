@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -405,7 +407,8 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     }
     if (showMasterLaunchPicker) {
         Dialog(onDismissRequest = { showMasterLaunchPicker = false }) {
-            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+            Column(Modifier.fillMaxWidth().background(Color.White)
+                .verticalScroll(rememberScrollState()).padding(20.dp)) {
                 Text("App launch animation", fontSize = 22.sp, color = settingsPurple)
                 Spacer(Modifier.height(8.dp))
                 Text("One animation for Desktop, WP8.1 and Windows 10 Mobile. Default keeps each original animation.",
