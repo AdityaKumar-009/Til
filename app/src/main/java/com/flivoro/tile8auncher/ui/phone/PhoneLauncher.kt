@@ -2938,6 +2938,89 @@ private fun PhoneTile(
 }
 
 
+/**
+ * Real Windows Phone tile face reused by the Desktop launch compositor.
+ *
+ * Rendering a generic WindowsTileFace with the desktop cached app icon is
+ * visually WRONG for phone skins: phone colors, normalized layered artwork,
+ * Lumia-native dialer/messages glyphs, and stock icon scaling differ. Keep
+ * this renderer sourced from exactly the same WP8.1 visual/color policy as
+ * PhoneTile above. Only the source-face drawing is shared; timing remains the
+ * authentic Desktop animation when that master choice is selected.
+ */
+@Composable
+internal fun PhoneLaunchSourceFace(
+    tile: TileModel,
+    mode: LauncherUiMode,
+    repository: AppsRepository,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current.density
+    val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
+    val visual = rememberWp81TileVisual(
+        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+    )
+    val customColor = PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
+    val resolvedColor = resolvePhoneTileBackgroundArgb(
+        tile.id, tile.title, tile.colorValue,
+        visual.accent.takeIf { !tile.packageName.isNullOrBlank() },
+        customColor, layered,
+    )
+    val primaryPhoneApp = tile.id.startsWith("phone_app_") &&
+        isPhoneOrMessagesApp(tile.title)
+    val nativeGlyph = if (mode == LauncherUiMode.PHONE_8 && primaryPhoneApp) {
+        if (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true))
+            "wp81_phone" else "wp81_messages"
+    } else null
+    val faceTile = tile.copy(
+        colorValue = resolvedColor,
+        iconGlyph = nativeGlyph ?: tile.iconGlyph,
+    )
+    val classicScale = when {
+        mode != LauncherUiMode.PHONE_8 -> 1f
+        nativeGlyph == "wp81_phone" -> 1f
+        tile.id.startsWith("tile_") -> 1.5f
+        else -> 1.22f
+    }
+    val richBackground = if (
+        canUsePhoneBrandColor(tile.id, tile.title, customColor, layered) &&
+        !customColor && layered
+    ) visual.richBackground else null
+    val opacity = if (mode == LauncherUiMode.MOBILE_10)
+        LauncherFeatureStore.phoneTileOpacity(context) else 1f
+
+    WindowsTileFace(
+        tile = faceTile,
+        appIcon = visual.icon,
+        modifier = modifier,
+        allowAppDerivedBackground = false,
+        backgroundAlpha = opacity,
+        logoModifier = if (nativeGlyph == "wp81_phone") Modifier.graphicsLayer {
+            translationX = -.19f * density
+            translationY = 5.41f * density
+        } else if (classicScale != 1f) Modifier.graphicsLayer {
+            scaleX = classicScale
+            scaleY = classicScale
+        } else Modifier,
+        backgroundContent = if (richBackground != null) {
+            {
+                androidx.compose.foundation.Image(
+                    bitmap = richBackground,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+                Box(Modifier.fillMaxSize().background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = .18f)),
+                    ),
+                ))
+            }
+        } else null,
+    )
+}
+
 /** Windows Phone navigation glyphs drawn independently of Android's installed fonts. */
 internal enum class PhoneNavKey { BACK, START, SEARCH }
 
