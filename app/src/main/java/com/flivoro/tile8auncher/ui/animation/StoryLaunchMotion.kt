@@ -1,5 +1,7 @@
 package com.flivoro.tile8auncher.ui.animation
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import kotlin.math.PI
@@ -7,8 +9,8 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Five optional, physical launch stories. Progress is a single linear clock;
- * playing it backwards retraces every actor, including an interrupted launch.
+ * Five optional, physical launch stories. A shared clock drives every actor;
+ * returning retraces the same poses with its own quick, decelerating timing.
  * These samples never modify any of the three original Windows compositors.
  *
  * Design references: Microsoft Connected animation, Directionality and gravity,
@@ -17,19 +19,51 @@ import kotlin.math.sin
  */
 internal object StoryLaunchMotion {
     fun duration(style: MasterLaunchAnimation): Int = when (style) {
-        MasterLaunchAnimation.LIFT -> 520
-        MasterLaunchAnimation.DOOR -> 560
-        MasterLaunchAnimation.RIPPLE -> 560
-        MasterLaunchAnimation.PAGE_TURN -> 600
-        MasterLaunchAnimation.GLIDE -> 520
+        MasterLaunchAnimation.LIFT -> 420
+        MasterLaunchAnimation.DOOR -> 440
+        MasterLaunchAnimation.RIPPLE -> 430
+        MasterLaunchAnimation.PAGE_TURN -> 460
+        MasterLaunchAnimation.GLIDE -> 400
         else -> error("Not a story animation: $style")
     }
 
-    // Quintic easing has zero velocity AND acceleration at either end. The
-    // overlapping tracks therefore join without a pause, snap, or spring wobble.
+    // Alpha/pressure envelopes join gently. Spatial travel uses a DIFFERENT
+    // curve below: a decisive release followed by a long, calm deceleration.
     fun ease(start: Float, end: Float, progress: Float): Float {
         val x = ((progress - start) / (end - start)).coerceIn(0f, 1f)
         return (x * x * x * (10f + x * (-15f + 6f * x))).coerceIn(0f, 1f)
+    }
+
+    private val release = CubicBezierEasing(.16f, 1f, .30f, 1f)
+
+    fun settle(start: Float, end: Float, raw: Float): Float {
+        val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
+        return release.transform(p).coerceIn(0f, 1f)
+    }
+
+    /**
+     * Retrace the SAME spatial poses with a fast return and a soft landing.
+     * Reversing a front-loaded linear clock directly would do the opposite:
+     * hesitate at first, then slam into the source. Invert the lead curve once
+     * per display tick, never once per tile, to preserve both path and pacing.
+     */
+    fun returnEasing(startProgress: Float): Easing {
+        val start = progress(startProgress)
+        if (start <= 0f) return Easing { it }
+        val distance = settle(0f, 1f, start)
+        return Easing { raw ->
+            val t = progress(raw)
+            if (t <= 0f) 0f else if (t >= 1f) 1f else {
+                val target = distance * (1f - settle(0f, 1f, t))
+                var low = 0f
+                var high = start
+                repeat(18) {
+                    val mid = (low + high) * .5f
+                    if (settle(0f, 1f, mid) < target) low = mid else high = mid
+                }
+                (1f - (low + high) * .5f / start).coerceIn(0f, 1f)
+            }
+        }
     }
 
     fun progress(raw: Float): Float = if (raw.isFinite()) raw.coerceIn(0f, 1f) else 0f
@@ -46,7 +80,7 @@ internal object StoryLaunchMotion {
 
     fun panel(style: MasterLaunchAnimation, raw: Float, source: Rect, viewport: Rect): StoryPanelFrame {
         val p = progress(raw)
-        val travel = ease(.08f, 1f, p)
+        val travel = settle(0f, 1f, p)
         val arc = if (travel > 0f && travel < 1f) sin(PI * travel).toFloat() else 0f
         val lift = viewport.height * .045f
         var widthProgress = travel
@@ -57,7 +91,7 @@ internal object StoryLaunchMotion {
         var ry = 0f
         var pivotX = .5f
         var pivotY = .5f
-        val press = ease(0f, .12f, p) * (1f - ease(.12f, .30f, p))
+        val press = ease(0f, .06f, p) * (1f - ease(.06f, .18f, p))
         when (style) {
             MasterLaunchAnimation.LIFT -> {
                 // A small gravity dip resolves into a lift, then a broad landing.
@@ -65,27 +99,27 @@ internal object StoryLaunchMotion {
                 rx = -9f * arc
             }
             MasterLaunchAnimation.DOOR -> {
-                widthProgress = ease(.10f, .92f, p)
-                heightProgress = ease(.20f, 1f, p)
+                widthProgress = settle(0f, .94f, p)
+                heightProgress = settle(.04f, 1f, p)
                 ry = -64f * arc
                 pivotX = 0f
                 dx = -viewport.width * .055f * arc
             }
             MasterLaunchAnimation.RIPPLE -> {
-                widthProgress = ease(.13f, 1f, p)
+                widthProgress = settle(.025f, 1f, p)
                 heightProgress = widthProgress
                 dy = lift * .12f * press
             }
             MasterLaunchAnimation.PAGE_TURN -> {
-                widthProgress = ease(.23f, 1f, p)
-                heightProgress = ease(.10f, .90f, p)
+                widthProgress = settle(.06f, 1f, p)
+                heightProgress = settle(0f, .96f, p)
                 rx = 58f * arc
                 pivotY = 0f
                 dy = -lift * 1.25f * arc
             }
             MasterLaunchAnimation.GLIDE -> {
-                widthProgress = ease(.08f, .82f, p)
-                heightProgress = ease(.20f, 1f, p)
+                widthProgress = settle(0f, .92f, p)
+                heightProgress = settle(.04f, 1f, p)
                 dx = viewport.width * (.055f * arc - .025f * press)
                 dy = -lift * .35f * arc
             }
@@ -99,11 +133,11 @@ internal object StoryLaunchMotion {
         return StoryPanelFrame(
             bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
             rotationX = rx, rotationY = ry, pivotX = pivotX, pivotY = pivotY,
-            sourceAlpha = 1f - ease(.30f, .68f, p),
-            surfaceAlpha = ease(.08f, .34f, p),
-            contentAlpha = ease(.66f, .96f, p),
+            sourceAlpha = 1f - ease(.12f, .40f, p),
+            surfaceAlpha = ease(0f, .24f, p),
+            contentAlpha = ease(.30f, .80f, p),
             sourceScale = compression * mix(1f, 1.30f, travel),
-            backdropAlpha = .50f * ease(.04f, .90f, p),
+            backdropAlpha = .50f * ease(0f, .72f, p),
         )
     }
 
@@ -116,13 +150,13 @@ internal object StoryLaunchMotion {
         val dy = (bounds.center.y - source.center.y) / h
         val distance = hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceIn(0f, 1f)
         val delay = when (style) {
-            MasterLaunchAnimation.RIPPLE -> .035f + distance * .23f
-            MasterLaunchAnimation.PAGE_TURN -> .03f +
-                ((bounds.center.y - viewport.top) / h).coerceIn(0f, 1f) * .15f
-            else -> .025f + distance * .10f
+            MasterLaunchAnimation.RIPPLE -> .012f + distance * .15f
+            MasterLaunchAnimation.PAGE_TURN -> .01f +
+                ((bounds.center.y - viewport.top) / h).coerceIn(0f, 1f) * .10f
+            else -> .008f + distance * .065f
         }
-        val move = ease(delay, .88f, p)
-        val fade = 1f - ease(delay + .10f, .94f, p)
+        val move = settle(delay, .94f, p)
+        val fade = 1f - ease(delay + .055f, .72f, p)
         val side = if (bounds.center.x < source.center.x) -1f else 1f
         return when (style) {
             MasterLaunchAnimation.LIFT -> StoryNeighborFrame(fade,

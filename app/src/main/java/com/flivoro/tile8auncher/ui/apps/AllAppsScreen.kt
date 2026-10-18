@@ -182,17 +182,11 @@ fun AllAppsScreen(
         privateUnlocked = result.resultCode == Activity.RESULT_OK
     }
 
-    val liveSections by produceState(
-        initialValue = sections,
-        sections,
-        packageCatalogRevision,
-    ) {
-        value = if (packageCatalogRevision == 0) sections else withContext(Dispatchers.IO) {
-            AppsRepository(context.applicationContext).getCategorizedApps()
-        }
-    }
-
-    val allApps = remember(liveSections) { liveSections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
+    // The root already reconciles package changes and supplies its prepared
+    // catalog. A second repository scan here replaced that input after any
+    // package event, raced the shared workspace, and invalidated isolated
+    // drawer scenes. Keep one catalog owner and only enrich its metadata below.
+    val allApps = remember(sections) { sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) {
         LauncherFeatureStore.appIconStyle(context)
@@ -715,7 +709,8 @@ private fun UniversalSearchPanel(
                     "Apps",
                     color = WindowsColors.Magenta.toTileColor(),
                     style = WindowsTypography.titleMedium.copy(fontSize = 17.sp),
-                    modifier = Modifier.padding(vertical = 7.dp),
+                    modifier = Modifier.padding(vertical = 7.dp)
+                        .storyLaunchActor("desktop-search-apps-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false),
                 )
             }
             items(matchingApps, key = { "search-app:${it.packageName}" }) { app ->
@@ -738,7 +733,8 @@ private fun UniversalSearchPanel(
                     "Results",
                     color = WindowsColors.Magenta.toTileColor(),
                     style = WindowsTypography.titleMedium.copy(fontSize = 17.sp),
-                    modifier = Modifier.padding(top = 10.dp, bottom = 7.dp),
+                    modifier = Modifier.padding(top = 10.dp, bottom = 7.dp)
+                        .storyLaunchActor("desktop-search-results-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false),
                 )
             }
             items(universalResults, key = { "universal:${it::class.simpleName}:${it.title}:${it.subtitle}" }) { result ->
@@ -754,6 +750,7 @@ private fun UniversalResultRow(result: UniversalSearchResult, onClick: () -> Uni
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
+            .storyLaunchActor("universal-${result.title}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
             .clickable(onClick = onClick)
             .padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -849,8 +846,9 @@ private fun AllAppsColumn(
                 var originalBounds by remember(item.key) { mutableStateOf(Rect.Zero) }
                 Box(Modifier.fillMaxWidth()
                     .onGloballyPositioned { originalBounds = it.boundsInWindow() }
-                    .storyLaunchActor(if (item is AllAppsColumnItem.App) "app_${item.app.packageName}"
-                        else "desktop-row-${item.key}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+                    .then(if (item is AllAppsColumnItem.LetterHeader)
+                        Modifier.storyLaunchActor("desktop-row-${item.key}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+                        else Modifier)
                     .borrowedPhoneScene(
                         style = borrowedLaunchStyle,
                         progress = borrowedLaunchProgress,
@@ -1222,6 +1220,7 @@ private fun AppListItem(
         modifier = Modifier
             .fillMaxWidth()
             .height(rowHeight)
+            .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
             .combinedClickable(
                 onClick = {
                     val bounds = iconCoordinates.coordinates?.takeIf { it.isAttached }?.boundsInWindow() ?: Rect.Zero

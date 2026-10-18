@@ -1554,7 +1554,9 @@ fun PhoneLauncherSurface(
                                             ))
                                     }
                                 }
-                                itemsIndexed(groupApps, key = { _, app -> app.packageName }) { appIndex, app ->
+                                // The same app can appear in Recently installed and
+                                // its alphabet section. LazyColumn keys are global.
+                                itemsIndexed(groupApps, key = { _, app -> "$letter:${app.packageName}" }) { appIndex, app ->
                                     val discoLayered = LauncherFeatureStore.appIconStyle(context) ==
                                         AppIconStyle.DISCO_LAYERED
                                     // Share WP8.1's normalized layered artwork,

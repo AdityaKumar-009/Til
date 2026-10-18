@@ -6,11 +6,11 @@ choice is shared across Desktop, Windows Phone 8.1, and Windows 10 Mobile.
 
 | Story | Physical idea | Surrounding scene | Duration |
 |---|---|---|---|
-| Lift | A tile leaves the mosaic with a slight gravity dip and rises into an app | Neighbors recede to give it depth | 520 ms |
-| Door | A hinged tile opens into another space | Tiles part to either side | 560 ms |
-| Ripple | A touch propagates through the mosaic before opening the app | Distance controls when each neighbor reacts | 560 ms |
-| Page turn | A sheet lifts from its top edge and unfolds | Rows lift away in sequence | 600 ms |
-| Glide | A sheet travels on a continuous sliding track | The old scene slides aside | 520 ms |
+| Lift | A tile leaves the mosaic with a slight gravity dip and rises into an app | Neighbors recede to give it depth | 420 ms |
+| Door | A hinged tile opens into another space | Tiles part to either side | 440 ms |
+| Ripple | A touch propagates through the mosaic before opening the app | Distance controls when each neighbor reacts | 430 ms |
+| Page turn | A sheet lifts from its top edge and unfolds | Rows lift away in sequence | 460 ms |
+| Glide | A sheet travels on a continuous sliding track | The old scene slides aside | 400 ms |
 
 These are original adaptations of physical motion principles, not claims to
 reproduce an additional historical Windows animation.
@@ -25,10 +25,15 @@ reproduce an additional historical Windows animation.
 
 ## Implementation and boundaries
 
-One linear display clock drives the selected surface and every surrounding tile,
-row, letter, and participating toolbar. Each effect uses overlapping quintic
-tracks with continuous velocity and acceleration. Back retraces the current
-progress, including an interrupted opening. External returns retain a lightweight
+One shared display clock drives the selected surface and every surrounding tile,
+row, letter, and participating toolbar. Spatial travel uses a front-loaded cubic
+Bezier curve `(0.16, 1, 0.30, 1)`: over three quarters of the distance happens in
+the first quarter of the time, followed by a long, quiet deceleration. Tighter
+neighbor delays keep each story connected to the touch. Quintic envelopes blend
+pressure and opacity while the surface moves. Back retraces the same spatial
+poses, including an interrupted opening, but remaps the clock to respond quickly
+and settle gently at the source. A full return takes 86% of the opening duration.
+External returns retain a lightweight
 launch description and reacquire the current source artwork. Internal Settings
 mounts after the moving scene has finished, and closes using the same story.
 
@@ -47,7 +52,7 @@ process death falls back to the normal startup path rather than retaining a
 stale view or task snapshot.
 
 `StoryLaunchMotionTest` checks source/destination endpoints, all neighbor motion,
-distance-based wave timing, numerical continuity, and wide/partially visible
+distance-based wave timing, fast release and calm return timing, numerical continuity, and wide/partially visible
 sources. `StoryLaunchRenderTest` checks all five choices on the six real public
 surfaces, including absence of a duplicate source, actual neighbor motion, exact
 artwork at time zero, matching return poses, and compact emulator captures.

@@ -183,8 +183,10 @@ internal fun StoryLaunchOverlay(
             finishForward()
         } else {
             firstFrameDrawn = false
-            val remaining = (duration * StoryLaunchMotion.progress(progress.value)).roundToInt()
-            if (remaining > 0) progress.animateTo(0f, tween(remaining, easing = LinearEasing))
+            val start = StoryLaunchMotion.progress(progress.value)
+            val remaining = (duration * .86f * start).roundToInt()
+            if (remaining > 0) progress.animateTo(0f,
+                tween(remaining, easing = StoryLaunchMotion.returnEasing(start)))
             else progress.snapTo(0f)
             snapshotFlow { firstFrameDrawn }.first { it }
             withFrameNanos { }

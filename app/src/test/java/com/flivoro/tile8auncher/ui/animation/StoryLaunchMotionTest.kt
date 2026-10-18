@@ -47,10 +47,43 @@ class StoryLaunchMotionTest {
     @Test fun rippleReachesNearTilesBeforeDistantTiles() {
         val near = Rect(185f, 145f, 250f, 210f)
         val far = Rect(300f, 700f, 390f, 790f)
-        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .16f, near, source, viewport)
-        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .16f, far, source, viewport)
+        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .10f, near, source, viewport)
+        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .10f, far, source, viewport)
         assertTrue(abs(a.x) + abs(a.y) > .01f)
         assertEquals(0f, abs(b.x) + abs(b.y), .00001f)
+    }
+
+    @Test fun travelIsDecisiveEarlyAndCalmAtTheEnd() {
+        val quarter = StoryLaunchMotion.settle(0f, 1f, .25f)
+        val threeQuarters = StoryLaunchMotion.settle(0f, 1f, .75f)
+        assertTrue("Opening must respond immediately", quarter > .75f)
+        assertTrue("The last quarter should only settle", threeQuarters > .98f)
+        var previous = 0f
+        for (sample in 0..100) {
+            val distance = StoryLaunchMotion.settle(0f, 1f, sample / 100f)
+            assertTrue(distance in previous..1f)
+            previous = distance
+        }
+        assertTrue(styles.all { StoryLaunchMotion.duration(it) in 400..460 })
+    }
+
+    @Test fun fullAndInterruptedReturnsKeepThePathButDecelerateIntoTheSource() {
+        for (start in listOf(1f, .413f, .08f)) {
+            val easing = StoryLaunchMotion.returnEasing(start)
+            val startingDistance = StoryLaunchMotion.settle(0f, 1f, start)
+            assertEquals(0f, easing.transform(0f), 0f)
+            assertEquals(1f, easing.transform(1f), 0f)
+            var previous = startingDistance
+            for (sample in 0..100) {
+                val time = sample / 100f
+                val raw = start * (1f - easing.transform(time))
+                val distance = StoryLaunchMotion.settle(0f, 1f, raw)
+                assertTrue("Return must not reverse direction", distance <= previous + .0001f)
+                assertEquals("Return must retrace the lead curve with a soft landing",
+                    startingDistance * (1f - StoryLaunchMotion.settle(0f, 1f, time)), distance, .0001f)
+                previous = distance
+            }
+        }
     }
 
     @Test fun allSamplesStayFiniteAndContinuousIncludingWideRowsAndLandscape() {
@@ -85,7 +118,7 @@ class StoryLaunchMotionTest {
             val interruption = .413f
             val outgoing = StoryLaunchMotion.panel(style, interruption, source, viewport)
             // Reversal starts at the exact current time; it never jumps to a full
-            // window, another preset, or an independently restarted easing curve.
+            // window or another preset when the return clock changes its pacing.
             val returning = StoryLaunchMotion.panel(style, interruption, source, viewport)
             assertEquals(outgoing, returning)
             val preceding = StoryLaunchMotion.panel(style, interruption - .001f, source, viewport)
