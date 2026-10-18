@@ -150,24 +150,25 @@ private fun projectPlaneMatrix(
     elementLeftCssPx: Float,
     elementTopCssPx: Float,
     project: (Float, Float) -> PhoneProjectedPoint,
+    reusedMatrix: PlatformMatrix? = null,
+    sourceScratch: FloatArray? = null,
+    destinationScratch: FloatArray? = null,
 ): PlatformMatrix {
-    val source = floatArrayOf(0f, 0f, widthPx, 0f, widthPx, heightPx, 0f, heightPx)
-    val destination = FloatArray(8)
-    val corners = arrayOf(
-        0f to 0f,
-        widthPx to 0f,
-        widthPx to heightPx,
-        0f to heightPx,
-    )
-    corners.forEachIndexed { index, (xPx, yPx) ->
-        val point = project(xPx / density, yPx / density)
+    val source = sourceScratch ?: FloatArray(8)
+    source[0] = 0f; source[1] = 0f
+    source[2] = widthPx; source[3] = 0f
+    source[4] = widthPx; source[5] = heightPx
+    source[6] = 0f; source[7] = heightPx
+    val destination = destinationScratch ?: FloatArray(8)
+    for (index in 0..3) {
+        val x = if (index == 1 || index == 2) widthPx else 0f
+        val y = if (index >= 2) heightPx else 0f
+        val point = project(x / density, y / density)
         destination[index * 2] = (point.xCssPx - elementLeftCssPx) * density
         destination[index * 2 + 1] = (point.yCssPx - elementTopCssPx) * density
     }
-    return PlatformMatrix().also { matrix ->
-        if (!matrix.setPolyToPoly(source, 0, destination, 0, 4)) {
-            matrix.reset()
-        }
+    return (reusedMatrix ?: PlatformMatrix()).also { matrix ->
+        if (!matrix.setPolyToPoly(source, 0, destination, 0, 4)) matrix.reset()
     }
 }
 
@@ -2687,6 +2688,11 @@ private fun PhoneTile(
     // Read the master timebase during graphics rendering, not during composition.
     // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
     var bounds by remember(tile.id) { mutableStateOf(Rect.Zero) }
+    // Reuse these only in this tile's UI-thread drawing callbacks. Each tile has
+    // its own set, so sibling projections cannot clobber one another.
+    val nativeProjection = remember(tile.id) { PlatformMatrix() }
+    val projectionFrom = remember(tile.id) { FloatArray(8) }
+    val projectionTo = remember(tile.id) { FloatArray(8) }
     val density = LocalDensity.current.density
     val context = LocalContext.current
     val layered = LauncherFeatureStore.appIconStyle(context) ==
@@ -2791,23 +2797,29 @@ private fun PhoneTile(
         val pageHeightCss = (viewportBounds.height / density)
             .takeIf { it > 0f } ?: viewportHeightCssPx
         val cssInner = inner?.copy(translationXPx = inner.translationXPx / density)
-        return projectPlaneMatrix(widthPx, heightPx, density, leftCss, topCss) { xCss, yCss ->
-            PhoneStartChoreography.projectPlanePoint(
-                localXPx = xCss,
-                localYPx = yCss,
-                elementLeftCssPx = leftCss,
-                elementTopCssPx = topCss,
-                elementWidthCssPx = widthCss,
-                elementHeightCssPx = heightCss,
-                viewportWidthCssPx = pageWidthCss,
-                viewportHeightCssPx = pageHeightCss,
-                motion = motion,
-                inner = cssInner,
-                cameraDistanceCssPx = if (!exiting) {
-                    PhoneStartChoreography.nativeCameraDistance(pageWidthCss)
-                } else PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
-            )
-        }
+        return projectPlaneMatrix(
+            widthPx, heightPx, density, leftCss, topCss,
+            project = { xCss, yCss ->
+                PhoneStartChoreography.projectPlanePoint(
+                    localXPx = xCss,
+                    localYPx = yCss,
+                    elementLeftCssPx = leftCss,
+                    elementTopCssPx = topCss,
+                    elementWidthCssPx = widthCss,
+                    elementHeightCssPx = heightCss,
+                    viewportWidthCssPx = pageWidthCss,
+                    viewportHeightCssPx = pageHeightCss,
+                    motion = motion,
+                    inner = cssInner,
+                    cameraDistanceCssPx = if (!exiting) {
+                        PhoneStartChoreography.nativeCameraDistance(pageWidthCss)
+                    } else PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+                )
+            },
+            reusedMatrix = nativeProjection,
+            sourceScratch = projectionFrom,
+            destinationScratch = projectionTo,
+        )
     }
 
     WindowsTileFace(
