@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.flivoro.tile8auncher.data.FlipAnimationMode
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.data.TimeCurve
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
@@ -65,6 +66,16 @@ fun FlipLaunchOverlay(
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
+    if (state.masterLaunchAnimation != MasterLaunchAnimation.DEFAULT) {
+        SharedLaunchOverlay(
+            state = state,
+            progress = progress,
+            onAnimationEnd = onAnimationEnd,
+            onReverseAnimationEnd = onReverseAnimationEnd,
+            destinationContent = destinationContent,
+        )
+        return
+    }
     val modern = state.animationMode == FlipAnimationMode.MODERN
     val allApps = state.origin == LaunchOrigin.ALL_APPS
     val finishForward by rememberUpdatedState(onAnimationEnd)
