@@ -26,6 +26,7 @@ internal fun rememberWp81TileVisual(
     repository: AppsRepository,
     packageName: String?,
     enabled: Boolean,
+    refreshInBackground: Boolean = true,
 ): Wp81TileVisual {
     val fallback = rememberAppIcon(repository, packageName)
     val cachedIcon = remember(repository, packageName, fallback, enabled) {
@@ -46,8 +47,11 @@ internal fun rememberWp81TileVisual(
     // A successful decode changes fallback's state; then normalize once,
     // off the UI thread. Full legacy icons and sparse foreground glyphs get
     // the same *visible* artwork size.
-    LaunchedEffect(repository, packageName, fallback, enabled) {
-        if (enabled && packageName != null) {
+    LaunchedEffect(repository, packageName, fallback, enabled, refreshInBackground) {
+        // During a borrowed launch, the visible phone tile has already warmed
+        // the same repository cache. Never schedule new bitmap decoding halfway
+        // through a 400ms transition; it competes with the render thread.
+        if (refreshInBackground && enabled && packageName != null) {
             fittedIcon = repository.loadWp81NormalizedIcon(packageName)
             richBackground = repository.loadRichDiscoBackground(packageName)
         }
