@@ -95,7 +95,7 @@ internal fun Modifier.borrowedPhoneScene(
     // Use the SAME four-corner perspective projection used by real WP8.1 tiles.
     // A generic graphicsLayer rotation misses the shared-page camera and makes
     // the neighboring tiles look independently hinged.
-    return this.drawWithContent {
+    return this.graphicsLayer { alpha = sample().alpha }.drawWithContent {
         val b = source()
         val vp = viewport()
         if (b.width <= 1f || b.height <= 1f || vp.width <= 1f || vp.height <= 1f) {
@@ -131,10 +131,7 @@ internal fun Modifier.borrowedPhoneScene(
         val matrix = PlatformMatrix()
         if (matrix.setPolyToPoly(from, 0, to, 0, 4)) {
             val native = drawContext.canvas.nativeCanvas
-            val save = native.saveLayerAlpha(
-                0f, 0f, size.width, size.height,
-                (m.alpha.coerceIn(0f, 1f) * 255f).roundToInt(),
-            )
+            val save = native.save()
             native.concat(matrix)
             drawContent()
             native.restoreToCount(save)
