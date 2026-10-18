@@ -107,6 +107,8 @@ import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
 import com.flivoro.tile8auncher.ui.components.borrowedPhoneScene
+import com.flivoro.tile8auncher.ui.components.storyLaunchActor
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberStartAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
@@ -1006,6 +1008,7 @@ fun StartScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
+                    .storyLaunchActor("desktop-start-heading", LaunchOrigin.START, sourceCandidate = false)
                     .graphicsLayer { alpha = StartEntranceMotion.headerAlpha(entranceProgress, playingKind) },
             ) {
                 val availableWidth = maxWidth

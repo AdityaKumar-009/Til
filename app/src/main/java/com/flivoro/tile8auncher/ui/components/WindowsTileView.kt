@@ -82,6 +82,7 @@ fun WindowsTileView(
         appIcon = appIcon,
         backgroundContent = backgroundContent,
         modifier = modifier
+            .storyLaunchActor(tile.id, com.flivoro.tile8auncher.ui.animation.LaunchOrigin.START)
             .metroTilePress(
                 tileSize = tile.size,
                 onClick = onClick,

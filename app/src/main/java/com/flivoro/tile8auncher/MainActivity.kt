@@ -92,6 +92,8 @@ import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
+import com.flivoro.tile8auncher.ui.components.LocalStoryLaunchScene
+import com.flivoro.tile8auncher.ui.components.StoryLaunchScene
 import com.flivoro.tile8auncher.ui.phone.PhoneLaunchSourceFace
 import com.flivoro.tile8auncher.ui.phone.PhoneLaunchDestinationIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
@@ -130,6 +132,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var appsRepository: AppsRepository
     private var flipState by mutableStateOf(FlipAnimationState())
+    // Retain only the lightweight launch description across an external task.
+    // On return the selected cell republishes its live display list; no bitmap
+    // or Activity is retained in the background.
+    private var pendingStoryReturn: FlipAnimationState? = null
     private var activeInAppTile by mutableStateOf<TileModel?>(null)
     private var homeRequest by mutableIntStateOf(0)
     private var entranceRequest by mutableIntStateOf(0)
@@ -381,6 +387,7 @@ class MainActivity : ComponentActivity() {
         val gatedBySystem = deviceRequiresEntranceGate()
         waitingForUserPresent = gatedBySystem
         if (gatedBySystem) {
+            pendingStoryReturn = null
             phoneResumeUsesBackMotion = false
             startupEntrancePending = true
             entranceReady = false
@@ -388,6 +395,19 @@ class MainActivity : ComponentActivity() {
         } else if (startupEntrancePending) {
             phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
+        } else if (pendingStoryReturn != null ||
+            (flipState.isRunning && flipState.masterLaunchAnimation.isStory &&
+                flipState.direction == FlipAnimationDirection.REVERSE)) {
+            entranceReady = true
+            pendingStoryReturn?.let {
+                flipState = it.copy(direction = FlipAnimationDirection.REVERSE,
+                    reverseReason = if (homeWasPending) FlipReverseReason.HOME else FlipReverseReason.BACK)
+            }
+            pendingStoryReturn = null
+            classicExternalAppLaunched = false
+            mobileExternalAppLaunched = false
+            phoneResumeUsesBackMotion = false
+            pendingClassicHomeReturn = false
         } else {
             val mode = LauncherFeatureStore.launcherUiMode(this)
             if (mode == LauncherUiMode.PHONE_8) {
@@ -426,6 +446,10 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            if (pendingStoryReturn != null && !launcherResumed) {
+                homeIntentPending = true
+                return
+            }
             // Android routinely redelivers HOME to the already-visible launcher.
             // A settled phone Start must not reset the animation clock at all.
             if (LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP &&
@@ -519,6 +543,7 @@ class MainActivity : ComponentActivity() {
 
     private fun requestFlipReverse(reason: FlipReverseReason) {
         if (!flipState.isRunning) return
+        pendingStoryReturn = null
         pendingLaunchIntent = null
         launchHandoffPending = false
         when {
@@ -621,11 +646,12 @@ class MainActivity : ComponentActivity() {
         pendingLaunchIntent = null
         if (preparedIntent == null) {
             activeInAppTile = tile
-            flipState = FlipAnimationState()
+            if (!flipState.masterLaunchAnimation.isStory) flipState = FlipAnimationState()
             return
         }
         try {
             launchHandoffPending = true
+            pendingStoryReturn = flipState.takeIf { it.masterLaunchAnimation.isStory }
             when (LauncherFeatureStore.launcherUiMode(this)) {
                 LauncherUiMode.PHONE_8 -> {
                     classicExternalAppLaunched = true
@@ -639,12 +665,13 @@ class MainActivity : ComponentActivity() {
             }
             startActivityWithCustomAnim(preparedIntent)
         } catch (_: Exception) {
+            pendingStoryReturn = null
             classicExternalAppLaunched = false
             mobileExternalAppLaunched = false
             phoneReturnSourceTileId = null
             launchHandoffPending = false
             activeInAppTile = tile
-            flipState = FlipAnimationState()
+            if (!flipState.masterLaunchAnimation.isStory) flipState = FlipAnimationState()
         }
     }
 
@@ -708,7 +735,16 @@ fun Tile8LauncherApp(
     var flipLaunchDispatched by remember(flipState.sourceTile?.id, flipState.sourceBounds) {
         mutableStateOf(false)
     }
-    val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) { Animatable(0f) }
+    val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) {
+        Animatable(if (flipState.masterLaunchAnimation.isStory &&
+            flipState.direction == FlipAnimationDirection.REVERSE) 1f else 0f)
+    }
+    val storyRunning = flipState.isRunning && flipState.masterLaunchAnimation.isStory
+    val storyScene = remember(flipState.sourceTile?.id, flipState.sourceBounds,
+        flipState.masterLaunchAnimation, storyRunning) {
+        if (storyRunning) StoryLaunchScene(flipState) { flipProgress.value } else null
+    }
+    CompositionLocalProvider(LocalStoryLaunchScene provides storyScene) {
     var localStartEntranceRequest by remember { mutableIntStateOf(0) }
     var startEntranceKind by remember(entranceRequest, homeRequest) { mutableStateOf(entranceKind) }
     var localPhoneResumeUsesBackMotion by remember(entranceRequest, homeRequest) {
@@ -933,6 +969,10 @@ fun Tile8LauncherApp(
     }
 
     fun closeInAppTileAndRetriggerEntrance() {
+        if (storyRunning) {
+            onRequestFlipReverse(FlipReverseReason.BACK)
+            return
+        }
         val wasOpen = activeInAppTile != null
         onCloseInAppTile()
         if (wasOpen && entranceReady) {
@@ -1100,7 +1140,7 @@ fun Tile8LauncherApp(
     if (!launcherPrepared && activeInAppTile == null) {
         if (showInitialLoading) LauncherStartupSplash(message = "Loading Start")
         else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black))
-        return
+        return@CompositionLocalProvider
     }
     if (launcherMode != LauncherUiMode.DESKTOP) {
         // Keep the completed exit drawn while Android asynchronously starts the target app.
@@ -1121,14 +1161,15 @@ fun Tile8LauncherApp(
         // between PHONE_8/MOBILE_10 selects the source motion curves, not a new
         // approximate overlay. Desktop's original flip uses the desktop compositor.
         val usesDesktopLaunch = chosenLaunch == MasterLaunchAnimation.DESKTOP
+        val usesOverlayLaunch = usesDesktopLaunch || chosenLaunch.isStory
         val desktopOverlayTileId = flipState.sourceTile?.id.takeIf {
             usesDesktopLaunch && flipState.isRunning
         }
-        val phoneLaunchActive = flipState.isRunning && !usesDesktopLaunch &&
+        val phoneLaunchActive = flipState.isRunning && !usesOverlayLaunch &&
             flipState.direction == FlipAnimationDirection.FORWARD
         val phoneExitActive = phoneLaunchActive || phoneHandoffHeld
         LaunchedEffect(flipState.isRunning, flipState.direction, launcherMode) {
-            if (flipState.isRunning && !usesDesktopLaunch &&
+            if (flipState.isRunning && !usesOverlayLaunch &&
                 flipState.direction == FlipAnimationDirection.REVERSE) {
                 phoneHandoffHeld = false
                 handoffTileId = null
@@ -1150,7 +1191,8 @@ fun Tile8LauncherApp(
                 // PC Settings loads wallpaper previews and animation tooling. Keeping the
                 // entire phone panorama + lazy app grid alive beneath it can exhaust graphics
                 // memory on physical devices. Save navigation state and unmount it while open.
-                if (tilesLoaded && activeInAppTile == null) {
+                if (tilesLoaded && (activeInAppTile == null ||
+                        (storyRunning && flipState.direction == FlipAnimationDirection.REVERSE))) {
                     phoneSurfaceStates.SaveableStateProvider(launcherMode.name) {
                         PhoneLauncherSurface(
                         mode = launcherMode,
@@ -1223,7 +1265,7 @@ fun Tile8LauncherApp(
                     }
                 }
             }
-            if (entranceReady && activeInAppTile != null) {
+            if (entranceReady && activeInAppTile != null && !storyRunning) {
                 WindowsAppView(
                     tile = activeInAppTile,
                     appsRepository = appsRepository,
@@ -1232,14 +1274,14 @@ fun Tile8LauncherApp(
                     onWallpaperStyleChanged = { wallpaperStyle = it },
                 )
             }
-            if (entranceReady && flipState.isRunning && usesDesktopLaunch) {
+            if (entranceReady && flipState.isRunning && usesOverlayLaunch) {
                 FlipLaunchOverlay(
-                    state = flipState.copy(
+                    state = if (usesDesktopLaunch) flipState.copy(
                         // Use the genuine Desktop compositor rather than an
                         // extra preset or the repository's optional MODERN look.
                         masterLaunchAnimation = MasterLaunchAnimation.DEFAULT,
                         animationMode = com.flivoro.tile8auncher.data.FlipAnimationMode.CLASSIC,
-                    ),
+                    ) else flipState,
                     progress = flipProgress,
                     onAnimationEnd = {
                         if (flipState.isRunning &&
@@ -1251,6 +1293,7 @@ fun Tile8LauncherApp(
                         }
                     },
                     onReverseAnimationEnd = { reason ->
+                        if (storyRunning && activeInAppTile != null) onCloseInAppTile()
                         onDismissFlip()
                         if (reason == FlipReverseReason.HOME) returnToStart()
                     },
@@ -1297,7 +1340,7 @@ fun Tile8LauncherApp(
                 )
             }
         }
-        return
+        return@CompositionLocalProvider
     }
 
     Box(modifier = Modifier.fillMaxSize()
@@ -1347,7 +1390,7 @@ fun Tile8LauncherApp(
                     val borrowingNativePhone = flipState.isRunning &&
                         (flipState.masterLaunchAnimation == MasterLaunchAnimation.PHONE_8 ||
                             flipState.masterLaunchAnimation == MasterLaunchAnimation.MOBILE_10)
-                    val retreat = if (borrowingNativePhone) 0f
+                    val retreat = if (borrowingNativePhone || storyRunning) 0f
                     else if (flipState.isRunning) {
                         val fullDuration = flipState.timing.durationMillis.coerceIn(100, 2000).toFloat()
                         val elapsedMillis = flipProgress.value.coerceIn(0f, 1f) * fullDuration
@@ -1381,6 +1424,7 @@ fun Tile8LauncherApp(
                         tiles = tiles,
                         launchingTileId = flipState.sourceTile?.id.takeIf {
                             flipState.isRunning &&
+                                !flipState.masterLaunchAnimation.isStory &&
                                 flipState.masterLaunchAnimation != MasterLaunchAnimation.PHONE_8 &&
                                 flipState.masterLaunchAnimation != MasterLaunchAnimation.MOBILE_10
                         },
@@ -1477,7 +1521,7 @@ fun Tile8LauncherApp(
             )
         }
 
-        if (entranceReady && activeInAppTile != null) {
+        if (entranceReady && activeInAppTile != null && !storyRunning) {
             Box(Modifier.fillMaxSize().then(if (showCharms) Modifier.clearAndSetSemantics {} else Modifier)) {
                 WindowsAppView(
                     onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
@@ -1533,6 +1577,7 @@ fun Tile8LauncherApp(
                     }
                 },
                 onReverseAnimationEnd = { reason ->
+                    if (storyRunning && activeInAppTile != null) onCloseInAppTile()
                     onDismissFlip()
                     if (reason == FlipReverseReason.HOME) {
                         returnToStart()
@@ -1639,4 +1684,5 @@ fun Tile8LauncherApp(
             )
         }
     }
+    } // Shared story scene; original compositors see a null provider.
 }

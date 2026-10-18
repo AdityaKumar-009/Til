@@ -105,6 +105,8 @@ import com.flivoro.tile8auncher.features.usageAccessSettingsIntent
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.borrowedPhoneScene
+import com.flivoro.tile8auncher.ui.components.storyLaunchActor
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.highlightedAppLabel
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
@@ -296,7 +298,8 @@ fun AllAppsScreen(
 
                 Column(Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth()
+                            .storyLaunchActor("desktop-apps-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         Text(
@@ -795,7 +798,9 @@ private fun SearchField(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.background(Color(0x33000000)).border(1.dp, Color(0x66FFFFFF)).padding(horizontal = 8.dp),
+        modifier = modifier
+            .storyLaunchActor("desktop-app-search", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+            .background(Color(0x33000000)).border(1.dp, Color(0x66FFFFFF)).padding(horizontal = 8.dp),
     ) {
         BasicTextField(
             value = query,
@@ -845,6 +850,7 @@ private fun AllAppsColumn(
                 var originalBounds by remember(item.key) { mutableStateOf(Rect.Zero) }
                 Box(Modifier.fillMaxWidth()
                     .onGloballyPositioned { originalBounds = it.boundsInWindow() }
+                    .storyLaunchActor("desktop-row-${item.key}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
                     .borrowedPhoneScene(
                         style = borrowedLaunchStyle,
                         progress = borrowedLaunchProgress,
@@ -1126,6 +1132,7 @@ private fun SemanticAllAppsRow(
         Box(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
+                .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS)
                 .background(tileColor),
             contentAlignment = Alignment.Center,
         ) {

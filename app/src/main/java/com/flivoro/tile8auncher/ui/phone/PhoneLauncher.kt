@@ -52,6 +52,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.flivoro.tile8auncher.ui.components.LocalStoryLaunchScene
+import com.flivoro.tile8auncher.ui.components.storyLaunchActor
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -380,6 +382,7 @@ fun PhoneLauncherSurface(
     val motionHomeRequest = homeRequest + classicHomeTap
     val motionUsesBack = resumeUsesBackMotion && classicHomeEntrance != entranceRequest
     val sampledMotionMillis = LocalPhoneMotionSampleMillis.current
+    val storyScene = LocalStoryLaunchScene.current
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
     // Keep layout mode separate: only the active APP EXIT may borrow the other
@@ -597,7 +600,8 @@ fun PhoneLauncherSurface(
     }
     // Every layer shares one display-synchronized timeline. Relative tile
     // cascade delay is calibrated inside the classic choreography.
-    fun sourceMotionMillis(): Int = sampledMotionMillis?.invoke() ?: motionClock.value.roundToInt()
+    fun sourceMotionMillis(): Int = if (storyScene != null) 2000
+        else sampledMotionMillis?.invoke() ?: motionClock.value.roundToInt()
     val classicAppsReturning = isClassicPhone && showApps && motionUsesBack && !isLaunching
     val classicAppsMotionActive = showApps &&
         ((isLaunching && exitMotionMode == LauncherUiMode.PHONE_8) ||
@@ -882,6 +886,7 @@ fun PhoneLauncherSurface(
             // Do not draw invented signal icons immediately beneath those real indicators.
             if (isTen) {
                 Row(Modifier.fillMaxWidth().height(22.dp).padding(end = 18.dp)
+                    .storyLaunchActor("phone-status", LaunchOrigin.START, sourceCandidate = false)
                     .graphicsLayer {
                         alpha = mobileWallpaperAlpha()
                     },
@@ -1055,6 +1060,7 @@ fun PhoneLauncherSurface(
                                 end = if (isClassicPhone) (25f * classicUnit).dp else 20.dp,
                             )
                                 .onGloballyPositioned { homeBannerBounds = it.boundsInWindow() }
+                                .storyLaunchActor("phone-all-apps-banner", LaunchOrigin.START, sourceCandidate = false)
                                 .then(if (exitUsesClassic) {
                                     Modifier.graphicsLayer {
                                         alpha = bannerMotion().alpha
@@ -1264,6 +1270,7 @@ fun PhoneLauncherSurface(
                         var toolbarBounds by remember { mutableStateOf(Rect.Zero) }
                         Row(Modifier.fillMaxWidth().padding(top = 8.dp)
                             .testTag("phone-apps-toolbar")
+                            .storyLaunchActor("phone-apps-toolbar", LaunchOrigin.ALL_APPS, sourceCandidate = false)
                             .onGloballyPositioned {
                                 toolbarBounds = Rect(it.positionInWindow(),
                                     Size(it.size.width.toFloat(), it.size.height.toFloat()))
@@ -1469,6 +1476,7 @@ fun PhoneLauncherSurface(
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
                                     val letterModifier = Modifier.fillMaxWidth()
+                                        .storyLaunchActor("phone-letter-$letter", LaunchOrigin.ALL_APPS, sourceCandidate = false)
                                         .then(if (isClassicPhone) Modifier.graphicsLayer {
                                             alpha = 1f - .5f * classicAppMenuDepth
                                             scaleX = 1f - .02f * classicAppMenuDepth
@@ -1605,6 +1613,7 @@ fun PhoneLauncherSurface(
                                     Row(
                                         Modifier.fillMaxWidth()
                                             .height(if (isClassicPhone) (64f * classicUnit).dp else 60.dp)
+                                            .storyLaunchActor("phone_app_${app.packageName}", LaunchOrigin.ALL_APPS)
                                             .padding(bottom = 0.dp)
                                             .onGloballyPositioned {
                                                 bounds = it.boundsInWindow()
@@ -1855,6 +1864,7 @@ fun PhoneLauncherSurface(
                                         scaleY = 1f - .02f * classicAppMenuDepth
                                     }
                                     .testTag("classic-sticky-letter")
+                                    .storyLaunchActor("phone-sticky-letter", LaunchOrigin.ALL_APPS, sourceCandidate = false)
                                     .clickable(enabled = interactionEnabled) {
                                         alphabetOpen = true
                                     },
@@ -1933,6 +1943,7 @@ fun PhoneLauncherSurface(
                                 }
                                 .border((2.5f * classicUnit).dp, Color.White, CircleShape)
                                 .testTag("phone-app-search-toggle")
+                                .storyLaunchActor("phone-search-toggle", LaunchOrigin.ALL_APPS, sourceCandidate = false)
                                 .clickable(enabled = interactionEnabled && !isLaunching && !phone8SearchVisible) {
                                     phone8SearchVisible = true
                                     panoramaScope.launch { appsState.scrollToItem(0) }
@@ -2894,6 +2905,7 @@ private fun PhoneTile(
         // Native glyphs and labels remain attached to the tile face throughout its turn.
         innerModifier = Modifier,
         modifier = modifier
+            .storyLaunchActor(tile.id, LaunchOrigin.START)
             .onGloballyPositioned {
                 // boundsInWindow clips partially visible tiles, moving their apparent centre.
                 // The zoom anchor must use the full, untransformed tile geometry.

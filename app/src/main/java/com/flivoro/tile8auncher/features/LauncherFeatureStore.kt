@@ -31,6 +31,17 @@ enum class MasterLaunchAnimation(val title: String, val detail: String) {
     DESKTOP("Windows 8.1 Desktop", "Original Windows 8.1 tile flip and expansion"),
     PHONE_8("Windows Phone 8.1", "Original Lumia/Disco turnstile exit choreography"),
     MOBILE_10("Windows 10 Mobile", "Original Windows 10 Mobile spatial zoom"),
+    LIFT("Lift", "Lift a tile out of the mosaic and step into its space"),
+    DOOR("Door", "Open a hinged tile as the surrounding mosaic parts"),
+    RIPPLE("Ripple", "A touch sends a wave through nearby tiles and opens the app"),
+    PAGE_TURN("Page turn", "Lift a page from the mosaic and unfold it into the app"),
+    GLIDE("Glide", "Draw the app forward on a smooth, sliding sheet"),
+
+    ;
+
+    val isStory: Boolean
+        get() = this == LIFT || this == DOOR || this == RIPPLE ||
+            this == PAGE_TURN || this == GLIDE
 }
 
 enum class AppIconStyle {

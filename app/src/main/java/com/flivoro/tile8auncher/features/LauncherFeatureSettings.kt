@@ -411,7 +411,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                 .verticalScroll(rememberScrollState()).padding(20.dp)) {
                 Text("App launch animation", fontSize = 22.sp, color = settingsPurple)
                 Spacer(Modifier.height(8.dp))
-                Text("One animation for Desktop, WP8.1 and Windows 10 Mobile. Default keeps each original animation.",
+                Text("Choose an original Windows animation or a new motion story. Opening and returning share the same motion in Desktop, WP8.1 and Windows 10 Mobile.",
                     fontSize = 14.sp, color = Color.DarkGray)
                 Spacer(Modifier.height(12.dp))
                 MasterLaunchAnimation.entries.forEach { animation ->

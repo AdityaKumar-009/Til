@@ -72,6 +72,7 @@ internal object SharedLaunchMotion {
             MasterLaunchAnimation.MOBILE_10 -> MobileStartMotion.EXIT_TOTAL_MS
             MasterLaunchAnimation.DEFAULT, MasterLaunchAnimation.DESKTOP ->
                 WindowsLaunchMotion.DurationMillis
+            else -> com.flivoro.tile8auncher.ui.animation.StoryLaunchMotion.duration(style)
         }
 
     fun frame(
