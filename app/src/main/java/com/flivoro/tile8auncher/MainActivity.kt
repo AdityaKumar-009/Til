@@ -92,6 +92,7 @@ import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.FingerFollowingVerticalNavigation
 import com.flivoro.tile8auncher.ui.components.FlipLaunchOverlay
+import com.flivoro.tile8auncher.ui.phone.PhoneLaunchSourceFace
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
@@ -1263,6 +1264,18 @@ fun Tile8LauncherApp(
                             }
                         }
                     } else null,
+                    sourceFace = { faceModifier ->
+                        flipState.sourceTile?.let { phoneTile ->
+                            // Exact same colors and icon treatment as this mode's
+                            // real Start tile. The Desktop flip only borrows MOTION.
+                            PhoneLaunchSourceFace(
+                                tile = phoneTile,
+                                mode = launcherMode,
+                                repository = appsRepository,
+                                modifier = faceModifier,
+                            )
+                        }
+                    },
                 )
             }
             if (entranceReady &&
