@@ -93,6 +93,7 @@ import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.UniversalSearchResult
 import com.flivoro.tile8auncher.features.hasUsageAccess
 import com.flivoro.tile8auncher.features.launchUniversalResult
@@ -103,6 +104,7 @@ import com.flivoro.tile8auncher.features.universalNonAppResults
 import com.flivoro.tile8auncher.features.usageAccessSettingsIntent
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.borrowedPhoneScene
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.highlightedAppLabel
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
@@ -147,6 +149,9 @@ fun AllAppsScreen(
     listState: LazyListState = rememberLazyListState(),
     searchFocusRequest: Int = 0,
     searchFocusEnabled: Boolean = true,
+    borrowedLaunchStyle: MasterLaunchAnimation? = null,
+    borrowedLaunchPackage: String? = null,
+    borrowedLaunchProgress: () -> Float = { 0f },
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
@@ -156,6 +161,8 @@ fun AllAppsScreen(
     var alphabetZoomAnchorLetter by remember { mutableStateOf<String?>(null) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val borrowedDensity = LocalDensity.current.density
+    var borrowedViewportBounds by remember { mutableStateOf(Rect.Zero) }
     val appTileAccent = StartPersonalization.wallpaperAccentColor
     val allAppsAppearanceRevision = LauncherFeatureRuntime.allAppsAppearanceRevision
     val useAppAccentColors = remember(allAppsAppearanceRevision) {
@@ -482,7 +489,8 @@ fun AllAppsScreen(
                         }
                     }
 
-                    Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize()
+                        .onGloballyPositioned { borrowedViewportBounds = it.boundsInWindow() }) {
                         LazyRow(
                             state = listState,
                             userScrollEnabled = !alphabetSemanticActive,
@@ -518,6 +526,12 @@ fun AllAppsScreen(
                                     useAppAccentColors = useAppAccentColors,
                                     letterColor = appTileAccent,
                                     showLetterHeader = !alphabetSemanticActive,
+                                    borrowedLaunchStyle = borrowedLaunchStyle,
+                                    borrowedLaunchPackage = borrowedLaunchPackage,
+                                    borrowedLaunchProgress = borrowedLaunchProgress,
+                                    borrowedViewport = { borrowedViewportBounds },
+                                    borrowedDensity = borrowedDensity,
+                                    borrowedColumnOrdinal = columns.indexOf(column),
                                     onLetterClick = { letter ->
                                         if (sortMode == AppSortMode.NAME) {
                                             selectedAppForAction = null
@@ -812,6 +826,12 @@ private fun AllAppsColumn(
     useAppAccentColors: Boolean,
     letterColor: Color,
     showLetterHeader: Boolean,
+    borrowedLaunchStyle: MasterLaunchAnimation? = null,
+    borrowedLaunchPackage: String? = null,
+    borrowedLaunchProgress: () -> Float = { 0f },
+    borrowedViewport: () -> Rect = { Rect.Zero },
+    borrowedDensity: Float = 1f,
+    borrowedColumnOrdinal: Int = 0,
     onLetterClick: (String) -> Unit,
     onAppClick: (app: AppInfo, bounds: Rect) -> Unit,
     onLongClick: (app: AppInfo) -> Unit,
@@ -820,9 +840,24 @@ private fun AllAppsColumn(
         modifier = Modifier.width(columnWidth).height(rowHeight * column.items.size),
         verticalArrangement = Arrangement.Top,
     ) {
-        column.items.forEach { item ->
+        column.items.forEachIndexed { index, item ->
             key(item.key) {
-                when (item) {
+                var originalBounds by remember(item.key) { mutableStateOf(Rect.Zero) }
+                Box(Modifier.fillMaxWidth()
+                    .onGloballyPositioned { originalBounds = it.boundsInWindow() }
+                    .borrowedPhoneScene(
+                        style = borrowedLaunchStyle,
+                        progress = borrowedLaunchProgress,
+                        source = { originalBounds },
+                        viewport = borrowedViewport,
+                        selected = item is AllAppsColumnItem.App &&
+                            item.app.packageName == borrowedLaunchPackage,
+                        stagger = ((index.toFloat() / maxOf(1, column.items.size)) * .65f +
+                            ((borrowedColumnOrdinal % 6).toFloat() / 6f) * .35f).coerceIn(0f, 1f),
+                        allApps = true,
+                        density = borrowedDensity,
+                    )) {
+                    when (item) {
                     is AllAppsColumnItem.LetterHeader -> LetterHeader(
                         letter = item.letter,
                         rowHeight = rowHeight,
@@ -840,6 +875,7 @@ private fun AllAppsColumn(
                         onClick = { onAppClick(item.app, it) },
                         onLongClick = { onLongClick(item.app) },
                     )
+                    }
                 }
             }
         }
