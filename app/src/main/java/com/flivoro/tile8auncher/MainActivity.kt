@@ -1409,9 +1409,9 @@ fun Tile8LauncherApp(
                 })
             }
         }) {
+        // The generated purple ribbons are valid tile artwork too, not only JPEGs.
         val desktopTilePictureMode = LauncherFeatureStore.backgroundStyle(
-            context, LauncherUiMode.DESKTOP) == PhoneBackgroundStyle.TILE_PICTURE &&
-            StartPersonalization.hasPictureSource(wallpaperStyle)
+            context, LauncherUiMode.DESKTOP) == PhoneBackgroundStyle.TILE_PICTURE
         if (!desktopTilePictureMode) WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
             enabled = wallpaperParallaxEnabled,
