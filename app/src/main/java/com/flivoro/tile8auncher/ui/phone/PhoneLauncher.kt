@@ -2732,7 +2732,7 @@ private fun PhoneTile(
     val resolvedColor = resolvePhoneTileBackgroundArgb(
         tile.id, tile.title, tile.colorValue,
         visual.accent.takeIf { !tile.packageName.isNullOrBlank() },
-        userChoseColor, layered,
+        userChoseColor, layered, StartPersonalization.wallpaperAccentArgb,
     )
     val resolvedTile = if (resolvedColor != tile.colorValue)
         tile.copy(colorValue = resolvedColor) else tile
@@ -2984,7 +2984,7 @@ internal fun PhoneLaunchSourceFace(
     val resolvedColor = resolvePhoneTileBackgroundArgb(
         tile.id, tile.title, tile.colorValue,
         visual.accent.takeIf { !tile.packageName.isNullOrBlank() },
-        customColor, layered,
+        customColor, layered, StartPersonalization.wallpaperAccentArgb,
     )
     val primaryPhoneApp = tile.id.startsWith("phone_app_") &&
         isPhoneOrMessagesApp(tile.title)
