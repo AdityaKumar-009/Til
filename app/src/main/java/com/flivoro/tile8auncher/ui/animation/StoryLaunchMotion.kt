@@ -35,15 +35,41 @@ internal object StoryLaunchMotion {
         return (x * x * x * (10f + x * (-15f + 6f * x))).coerceIn(0f, 1f)
     }
 
-    // Use the *actual* fitted time-to-expansion curve of Windows 8.1 Desktop's
-    // All Apps app-opening animation, rather than a similar-looking Bézier.
-    // Normalize its 0.50 -> 1.00 window scale to 0 -> 1 while retaining the
-    // sampled fast departure and progressively calmer landing. Each story's
-    // panel, neighbors, source artwork and return use this same traveled phase.
-    // Their distinct geometry and existing durations are intentionally unchanged.
+    // Desktop All Apps opens briskly and settles softly. Its reference samples,
+    // however, reaccelerate during the last ~17 ms (633 -> 650), creating a
+    // visibly jerky final snap when reused by the optional story animations.
+    // Keep the original, fitted opening up to 367 ms, then replace ONLY the
+    // story animations' tail with a monotone Hermite landing. Match position
+    // and velocity at the splice and arrive at 1 with zero velocity.
+    // The three native Windows compositors retain their untouched source data.
+    private const val TAIL_JOIN_MS = 367f
+    private val tailJoin = TAIL_JOIN_MS / AllAppsLaunchMotion.DurationMillis
+    private val tailPosition = AllAppsLaunchMotion.expansionFraction(tailJoin)
+    private val tailTangent = (
+        AllAppsLaunchMotion.expansionFraction(
+            (TAIL_JOIN_MS + 1f) / AllAppsLaunchMotion.DurationMillis,
+        ) - AllAppsLaunchMotion.expansionFraction(
+            (TAIL_JOIN_MS - 1f) / AllAppsLaunchMotion.DurationMillis,
+        )
+    ) * ((AllAppsLaunchMotion.DurationMillis - TAIL_JOIN_MS) / 2f)
+
+    private fun smoothDesktopAllAppsTravel(phase: Float): Float {
+        if (phase <= tailJoin) return AllAppsLaunchMotion.expansionFraction(phase)
+        val u = ((phase - tailJoin) / (1f - tailJoin)).coerceIn(0f, 1f)
+        val u2 = u * u
+        val u3 = u2 * u
+        return (
+            (2f * u3 - 3f * u2 + 1f) * tailPosition +
+            (u3 - 2f * u2 + u) * tailTangent +
+            (-2f * u3 + 3f * u2)
+        ).coerceIn(0f, 1f)
+    }
+
+    // All story channels (selected surface, neighbors, fades, reverse) sample
+    // exactly this one monotone phase. Individual geometries and durations stay.
     fun settle(start: Float, end: Float, raw: Float): Float {
         val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
-        return AllAppsLaunchMotion.expansionFraction(p)
+        return smoothDesktopAllAppsTravel(p)
     }
 
     /**
