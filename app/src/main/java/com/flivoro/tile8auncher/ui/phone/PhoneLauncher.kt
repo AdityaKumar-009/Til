@@ -2340,8 +2340,8 @@ private fun PhoneStartGrid(
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         val gridWidthForPhoto = maxWidth
-        val tilePicture = mobileTilePictureMode &&
-            (StartPersonalization.customWallpaperUri != null || wallpaperStyle > 0)
+        // Generated wallpaper (style 0) must also render inside every tile.
+        val tilePicture = mobileTilePictureMode
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
             .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
                 onClick = onExitEdit)) {
@@ -2465,10 +2465,8 @@ private fun PhoneStartGrid(
                         exiting = isLaunching,
                         elapsedMillis = elapsedMillis,
                         selectedTile = launchingTileId == tile.id,
-                        tileOpacity = if (tilePicture &&
-                            tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) 0f else tileOpacity,
-                        tilePictureContent = if (tilePicture &&
-                            tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) {
+                        tileOpacity = if (tilePicture) 0f else tileOpacity,
+                        tilePictureContent = if (tilePicture) {
                             { inverseTileProjection ->
                                 com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
                                     modifier = Modifier.fillMaxSize(),
