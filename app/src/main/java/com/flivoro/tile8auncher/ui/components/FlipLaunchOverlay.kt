@@ -51,6 +51,7 @@ import com.flivoro.tile8auncher.ui.animation.Quad
 import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.AllAppsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
+import com.flivoro.tile8auncher.ui.phone.sourceColorArrival
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
@@ -224,6 +225,22 @@ fun FlipLaunchOverlay(
             } else {
                 WindowsTileFace(tile, state.appIcon,
                     physicalSource,
+                    backgroundAlpha = if (state.sourcePictureMode)
+                        sourceColorArrival(progress.value) else 1f,
+                    backgroundContent = if (state.sourcePictureMode) {
+                        {
+                            PhoneTilePicture(
+                                modifier = Modifier.fillMaxSize().graphicsLayer {
+                                    alpha = 1f - sourceColorArrival(progress.value)
+                                },
+                                wallpaperStyle = state.sourceWallpaperStyle,
+                                tileLeftPx = state.sourceBounds.left - windowOrigin.x,
+                                tileTopPx = state.sourceBounds.top - windowOrigin.y,
+                                gridWidthPx = width,
+                                gridHeightPx = height,
+                            )
+                        }
+                    } else null,
                     logoModifier = if (sharedLogo) Modifier
                         .onGloballyPositioned {
                             sourceLogo = it.boundsInWindow().translate(-windowOrigin)
