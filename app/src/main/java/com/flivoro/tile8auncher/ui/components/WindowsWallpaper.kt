@@ -591,13 +591,20 @@ private fun wallpaperResourceId(style: Int): Int = when (style) {
 @Composable
 private fun rememberCustomWallpaperBitmap(uriString: String): Bitmap? {
     val context = LocalContext.current
+    // Reading a cached bitmap is immediate; disk-preview decode must not run
+    // in a Compose initializer on the main thread.
     val initial = remember(context, uriString) {
-        LauncherImageCache.peekOrPreview(context, uriString)
+        LauncherImageCache.peek(uriString)
     }
     return produceState<Bitmap?>(initial, context, uriString) {
-        value = withContext(Dispatchers.IO) {
-            LauncherImageCache.getOrDecode(context, uriString, maxSide = 2560)
+        if (initial == null) {
+            withContext(Dispatchers.IO) {
+                LauncherImageCache.peekOrPreview(context, uriString)
+            }?.let { value = it }
         }
+        withContext(Dispatchers.IO) {
+            LauncherImageCache.getOrDecode(context, uriString, maxSide = 2560)
+        }?.let { value = it }
     }.value
 }
 

@@ -1080,6 +1080,11 @@ fun Tile8LauncherApp(
     }
 
     val pinnedTiles = tiles.toList()
+    // A tile's location, label or color is not a reason to warm every icon again.
+    // Stable package membership preserves the existing behavior for new pins/apps.
+    val artworkPackages = remember(pinnedTiles) {
+        pinnedTiles.mapNotNull(TileModel::packageName).distinct().sorted()
+    }
     var sharedPinsRevision by remember { mutableIntStateOf(0) }
     val phonePinnedTiles = remember(pinnedTiles, categorizedApps, externalPinnedRevision, sharedPinsRevision) {
         SharedStartWorkspace.phoneTiles(context, pinnedTiles, categorizedApps.flatMap(AppSection::apps))
@@ -1092,7 +1097,7 @@ fun Tile8LauncherApp(
         tiles.addAll(updated)
         sharedPinsRevision++
     }
-    LaunchedEffect(launcherPrepared, launcherMode, iconsRevision, categorizedApps, pinnedTiles) {
+    LaunchedEffect(launcherPrepared, launcherMode, iconsRevision, categorizedApps, artworkPackages) {
         if (launcherPrepared) {
             withFrameNanos { }
             withFrameNanos { }

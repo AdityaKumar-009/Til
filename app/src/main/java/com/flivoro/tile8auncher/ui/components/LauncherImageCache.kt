@@ -26,6 +26,8 @@ internal object LauncherImageCache {
     private const val MAX_PREVIEW_BYTES = 4 * 1024 * 1024
     private const val PREVIEW_MAX_SIDE = 640
     private const val PREVIEW_QUALITY = 86
+    private const val FULL_IMAGE_SIDE = 2560
+    private const val ACCENT_IMAGE_SIDE = 720
     private const val CACHE_DIR_NAME = "wallpaper_previews"
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -33,7 +35,12 @@ internal object LauncherImageCache {
     private val memory = BitmapDecodeCache<String>(MAX_MEMORY_BYTES)
     private val previews = BitmapDecodeCache<String>(MAX_PREVIEW_BYTES)
 
-    fun peek(uriString: String): Bitmap? = memory.peek(uriString)
+    // Cache accent sampling and full wallpaper artwork at distinct resolutions.
+    private fun cacheKey(uriString: String, maxSide: Int): String = "$maxSide|$uriString"
+
+    fun peek(uriString: String): Bitmap? =
+        memory.peek(cacheKey(uriString, FULL_IMAGE_SIDE))
+            ?: memory.peek(cacheKey(uriString, ACCENT_IMAGE_SIDE))
 
     fun peekOrPreview(context: Context, uriString: String): Bitmap? {
         peek(uriString)?.let { return it }
@@ -51,7 +58,7 @@ internal object LauncherImageCache {
 
     fun preload(context: Context, uriString: String?, maxSide: Int = 2560) {
         val safe = uriString?.takeIf(String::isNotBlank) ?: return
-        if (peek(safe) != null) return
+        if (memory.peek(cacheKey(safe, maxSide)) != null) return
         val appContext = context.applicationContext
         ioScope.launch {
             getOrDecode(appContext, safe, maxSide)
@@ -60,7 +67,11 @@ internal object LauncherImageCache {
 
     fun getOrDecode(context: Context, uriString: String, maxSide: Int = 2560): Bitmap? {
         var loadedHere = false
-        val bitmap = memory.getOrDecode(uriString) {
+        // A full decode may supply the accent sampler, never the reverse.
+        if (maxSide <= ACCENT_IMAGE_SIDE) {
+            memory.peek(cacheKey(uriString, FULL_IMAGE_SIDE))?.let { return it }
+        }
+        val bitmap = memory.getOrDecode(cacheKey(uriString, maxSide)) {
             decodeContentUri(context.applicationContext, uriString, maxSide)?.also { loadedHere = true }
         } ?: return peekOrPreview(context, uriString)
         // Publish the full bitmap before saving its preview; other tiles can already use it.
@@ -70,7 +81,8 @@ internal object LauncherImageCache {
 
     fun forget(uriString: String?) {
         val safe = uriString?.takeIf(String::isNotBlank) ?: return
-        memory.remove(safe)
+        memory.remove(cacheKey(safe, FULL_IMAGE_SIDE))
+        memory.remove(cacheKey(safe, ACCENT_IMAGE_SIDE))
         previews.remove(safe)
     }
 

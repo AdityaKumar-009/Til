@@ -252,6 +252,17 @@ internal fun packPhoneTiles(sizes: List<TileSize>, columns: Int): List<PhoneTile
     return result
 }
 
+/**
+ * Keep a viewport-sized overscan on both sides of the visible phone Start grid.
+ * The underlying grid geometry never changes; only offscreen tile composition is skipped.
+ */
+internal fun shouldComposePhoneStartTile(
+    topPx: Float, bottomPx: Float, viewportHeightPx: Float,
+): Boolean {
+    if (viewportHeightPx <= 0f) return true
+    return bottomPx >= -viewportHeightPx && topPx <= viewportHeightPx * 2f
+}
+
 /** The per-phone layout, size and color keys are exported by Til's existing feature backup. */
 internal object PhoneLayoutStore {
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(
@@ -2358,12 +2369,25 @@ private fun PhoneStartGrid(
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         val gridWidthForPhoto = maxWidth
         val tilePicture = mobileTilePictureMode
+        // Preserve the entire choreography during launch, return-source selection,
+        // editing, or deletion; idle scrolling can safely cull distant actors.
+        val keepAllActors = isLaunching || editingTileId != null || deletingTileId != null
+        val composedIndices = if (keepAllActors || viewportHeightPx <= 0f) {
+            slots.indices.toList()
+        } else slots.indices.filter { index ->
+            val slot = slots[index]
+            val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
+            val height = (cell * slot.rows + gap * (slot.rows - 1)).value * density
+            shouldComposePhoneStartTile(top, top + height, viewportHeightPx) ||
+                tiles[index].id == launchingTileId
+        }
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
             .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
                 onClick = onExitEdit)) {
             // Picture pixels are part of each tile's transformed face below.
             // The empty grid and gutters remain black without a detached mask.
-            tiles.forEachIndexed { index, tile ->
+            composedIndices.forEach { index ->
+                val tile = tiles[index]
                 val pos = slots[index]
                 val rowFraction = MobileStartMotion.rowFraction(
                     topInsetPx + pos.row * cellStepPx - scrollOffsetPx,
