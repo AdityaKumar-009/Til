@@ -20,6 +20,10 @@ data class FlipAnimationState(
     val sourceBounds: Rect = Rect.Zero,
     val appIcon: ImageBitmap? = null,
     val accentColor: Color = Color(0xFF0078D7),
+    /** A translucent/photo source becomes its resolved solid color by the midpoint. */
+    val sourceInitialOpacity: Float = 1f,
+    val sourcePictureMode: Boolean = false,
+    val sourceWallpaperStyle: Int = 0,
     val animationMode: FlipAnimationMode = FlipAnimationMode.CLASSIC,
     val masterLaunchAnimation: MasterLaunchAnimation = MasterLaunchAnimation.DEFAULT,
     val timing: LaunchTiming = LaunchTiming(),
