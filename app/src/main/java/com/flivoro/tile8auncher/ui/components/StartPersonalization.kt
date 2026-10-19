@@ -36,6 +36,14 @@ internal object StartPersonalization {
     val customWallpaperUri: String? get() = customWallpaperUriState.value
     val customWallpaperOverlay: Float get() = customWallpaperOverlayState.value
 
+    /**
+     * The original purple ribbon background (style 0) is procedural artwork,
+     * not a photo. Route it through the native wallpaper compositor, never
+     * through tiled bitmap sampling or launch-source picture transitions.
+     */
+    fun hasPictureSource(wallpaperStyle: Int): Boolean =
+        wallpaperStyle > 0 || customWallpaperUri != null
+
     fun ensureLoaded(context: Context) {
         if (initialized) return
         synchronized(this) {
