@@ -456,7 +456,7 @@ private fun PCSettingsAppContent(
             color = Color(0xFF666666), fontSize = 13.sp, lineHeight = 18.sp)
         Spacer(Modifier.height(20.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Appearance", "Motion", "Launcher").forEachIndexed { index, title ->
+            listOf("Launcher", "Appearance", "Motion").forEachIndexed { index, title ->
                 Text(title,
                     color = if (settingsPage == index) Color.White else Color(0xFF313131),
                     fontSize = 13.sp, maxLines = 1,
@@ -470,7 +470,7 @@ private fun PCSettingsAppContent(
         }
         Spacer(Modifier.height(20.dp))
         when (settingsPage) {
-            0 -> {
+            1 -> {
                 Text("Start wallpaper & tiles", color = Color(0xFF5133AB), fontSize = 21.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("Background placement • ${appearanceMode.title}",
@@ -579,7 +579,7 @@ private fun PCSettingsAppContent(
 
 
             }
-            1 -> {
+            2 -> {
                 Text("Global app-opening style", color = Color(0xFF5133AB), fontSize = 21.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("Your chosen animation is shared across all three interfaces.",
