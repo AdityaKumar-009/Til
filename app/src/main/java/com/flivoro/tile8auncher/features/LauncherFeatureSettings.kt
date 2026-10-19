@@ -67,7 +67,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var showLauncherModePicker by remember { mutableStateOf(false) }
     var showPhoneColumnsPicker by remember { mutableStateOf(false) }
     var showPhoneTransparencyPicker by remember { mutableStateOf(false) }
-    var showPhoneBackgroundStylePicker by remember { mutableStateOf(false) }
     val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
     val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
@@ -184,13 +183,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         glyph = "app",
     ) { showLauncherModePicker = true }
 
-    if (launcherMode == LauncherUiMode.DESKTOP) {
-        SettingsActionRow(
-            title = "Start background picture style",
-            description = LauncherFeatureStore.backgroundStyle(context, launcherMode).displayName,
-            glyph = "photos",
-        ) { showPhoneBackgroundStylePicker = true }
-    }
 
     if (launcherMode != LauncherUiMode.DESKTOP) {
         SettingsCategoryHeader("Phone Start screen")
@@ -207,12 +199,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             PhoneLayoutStore.resetOrder(context, launcherMode)
             (context as? Activity)?.recreate()
         }
-
-        SettingsActionRow(
-            title = "Start background picture style",
-            description = LauncherFeatureStore.backgroundStyle(context, launcherMode).displayName,
-            glyph = "photos",
-        ) { showPhoneBackgroundStylePicker = true }
 
         if (launcherMode == LauncherUiMode.MOBILE_10) {
             SettingsToggleRow(
@@ -409,26 +395,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                         onClick = {
                             LauncherFeatureStore.setPhoneSmallColumns(context, launcherMode, n)
                             showPhoneColumnsPicker = false
-                        },
-                    )
-                }
-            }
-        }
-    }
-
-    if (showPhoneBackgroundStylePicker) {
-        Dialog(onDismissRequest = { showPhoneBackgroundStylePicker = false }) {
-            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
-                Text("Start background picture style", fontSize = 20.sp,
-                    color = settingsPurple)
-                PhoneBackgroundStyle.entries.forEach { style ->
-                    ChoiceRow(
-                        label = style.displayName,
-                        selected = LauncherFeatureStore.backgroundStyle(context, launcherMode) == style,
-                        lightSurface = true,
-                        onClick = {
-                            LauncherFeatureStore.setBackgroundStyle(context, launcherMode, style)
-                            showPhoneBackgroundStylePicker = false
                         },
                     )
                 }
