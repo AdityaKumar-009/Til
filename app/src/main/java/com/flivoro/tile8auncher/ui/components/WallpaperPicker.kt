@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.AppsRepository
-import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -178,7 +177,7 @@ internal fun WallpaperPicker(
                         Modifier
                             .weight(1f)
                             .selectable(
-                                selected = selected == index,
+                                selected = customStartWallpaperUri == null && selected == index,
                                 role = Role.RadioButton,
                                 onClick = {
                                     StartPersonalization.setCustomWallpaperUri(context, null)
@@ -186,8 +185,8 @@ internal fun WallpaperPicker(
                                 },
                             )
                             .border(
-                                if (selected == index) 3.dp else 1.dp,
-                                if (selected == index) Color(0xFF5133AB) else Color(0xFFCCCCCC),
+                                if (customStartWallpaperUri == null && selected == index) 3.dp else 1.dp,
+                                if (customStartWallpaperUri == null && selected == index) Color(0xFF5133AB) else Color(0xFFCCCCCC),
                             )
                             .padding(4.dp),
                     ) {
@@ -347,7 +346,6 @@ internal fun WallpaperPicker(
         )
     }
 
-    LauncherFeatureSettings(appsRepository = appsRepository)
 }
 
 @Composable
