@@ -1355,6 +1355,11 @@ fun Tile8LauncherApp(
                                 mode = launcherMode,
                                 repository = appsRepository,
                                 modifier = faceModifier,
+                                sourceBounds = flipState.sourceBounds,
+                                sourceInitialOpacity = flipState.sourceInitialOpacity,
+                                sourcePictureMode = flipState.sourcePictureMode,
+                                wallpaperStyle = flipState.sourceWallpaperStyle,
+                                launchProgress = { flipProgress.value },
                             )
                         }
                     },
