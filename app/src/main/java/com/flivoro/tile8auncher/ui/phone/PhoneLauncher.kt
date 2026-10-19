@@ -3061,9 +3061,10 @@ internal fun PhoneLaunchSourceFace(
             // tile color, not a stale wallpaper or stock accent at t=0.
             Box(
                 Modifier.fillMaxSize().graphicsLayer {
-                    alpha = sourceInitialOpacity.coerceIn(0f, 1f) +
-                        (1f - sourceInitialOpacity.coerceIn(0f, 1f)) *
-                        sourceColorArrival(launchProgress())
+                    val initialSolidOpacity = if (sourcePictureMode || richBackground != null)
+                        0f else sourceInitialOpacity.coerceIn(0f, 1f)
+                    alpha = initialSolidOpacity +
+                        (1f - initialSolidOpacity) * sourceColorArrival(launchProgress())
                 }.background(Color(resolvedColor)),
             )
         },
