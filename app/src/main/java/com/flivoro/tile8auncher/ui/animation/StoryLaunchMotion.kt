@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.ui.animation
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
@@ -35,41 +36,17 @@ internal object StoryLaunchMotion {
         return (x * x * x * (10f + x * (-15f + 6f * x))).coerceIn(0f, 1f)
     }
 
-    // Desktop All Apps opens briskly and settles softly. Its reference samples,
-    // however, reaccelerate during the last ~17 ms (633 -> 650), creating a
-    // visibly jerky final snap when reused by the optional story animations.
-    // Keep the original, fitted opening up to 367 ms, then replace ONLY the
-    // story animations' tail with a monotone Hermite landing. Match position
-    // and velocity at the splice and arrive at 1 with zero velocity.
-    // The three native Windows compositors retain their untouched source data.
-    private const val TAIL_JOIN_MS = 367f
-    private val tailJoin = TAIL_JOIN_MS / AllAppsLaunchMotion.DurationMillis
-    private val tailPosition = AllAppsLaunchMotion.expansionFraction(tailJoin)
-    private val tailTangent = (
-        AllAppsLaunchMotion.expansionFraction(
-            (TAIL_JOIN_MS + 1f) / AllAppsLaunchMotion.DurationMillis,
-        ) - AllAppsLaunchMotion.expansionFraction(
-            (TAIL_JOIN_MS - 1f) / AllAppsLaunchMotion.DurationMillis,
-        )
-    ) * ((AllAppsLaunchMotion.DurationMillis - TAIL_JOIN_MS) / 2f)
+    // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
+    // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
+    // A single continuous easing replaces the stitched Desktop sample data,
+    // with no late reacceleration or join point. Preserve each story's duration,
+    // geometry, neighbor choreography, and the three native Windows animations.
+    private val emphasizedDecelerate = CubicBezierEasing(.05f, .70f, .10f, 1f)
 
-    private fun smoothDesktopAllAppsTravel(phase: Float): Float {
-        if (phase <= tailJoin) return AllAppsLaunchMotion.expansionFraction(phase)
-        val u = ((phase - tailJoin) / (1f - tailJoin)).coerceIn(0f, 1f)
-        val u2 = u * u
-        val u3 = u2 * u
-        return (
-            (2f * u3 - 3f * u2 + 1f) * tailPosition +
-            (u3 - 2f * u2 + u) * tailTangent +
-            (-2f * u3 + 3f * u2)
-        ).coerceIn(0f, 1f)
-    }
-
-    // All story channels (selected surface, neighbors, fades, reverse) sample
-    // exactly this one monotone phase. Individual geometries and durations stay.
+    // All actors and fades use the same traveled phase, including during return.
     fun settle(start: Float, end: Float, raw: Float): Float {
         val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
-        return smoothDesktopAllAppsTravel(p)
+        return emphasizedDecelerate.transform(p).coerceIn(0f, 1f)
     }
 
     /**
