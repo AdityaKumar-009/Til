@@ -101,6 +101,7 @@ import com.flivoro.tile8auncher.ui.components.WindowsAppView
 import com.flivoro.tile8auncher.ui.components.cachedAllAppsIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.cachedAppIconForCurrentStyle
 import com.flivoro.tile8auncher.ui.components.LauncherStartupSplash
+import com.flivoro.tile8auncher.ui.components.LightweightSettingsLaunchPreview
 import com.flivoro.tile8auncher.ui.components.WindowsWallpaper
 import com.flivoro.tile8auncher.ui.components.Windows81LockScreen
 import com.flivoro.tile8auncher.ui.components.WindowsCharmsOverlay
@@ -132,10 +133,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var appsRepository: AppsRepository
     private var flipState by mutableStateOf(FlipAnimationState())
-    // Retain the lightweight selected-overlay launch description across an
-    // external task. Desktop motion borrowed by phone modes also needs to retrace
-    // its overlay on Back; starting the native phone entrance at the same time
-    // would produce two opposing animations and extra rendering load.
+    // Only story presets replay a full overlay after returning from an external
+    // activity. A phone borrowing Desktop 8.1 plays the Desktop OPEN only;
+    // normal Back/Home returns use the phone mode's original entrance.
     private var pendingStoryReturn: FlipAnimationState? = null
     private var activeInAppTile by mutableStateOf<TileModel?>(null)
     private var homeRequest by mutableIntStateOf(0)
@@ -432,9 +432,7 @@ class MainActivity : ComponentActivity() {
             finishStartupEntranceGate()
         } else if (pendingStoryReturn != null ||
             (flipState.isRunning && (
-                flipState.masterLaunchAnimation.isStory ||
-                (flipState.masterLaunchAnimation == MasterLaunchAnimation.DESKTOP &&
-                    LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP)
+                flipState.masterLaunchAnimation.isStory
             ) && flipState.direction == FlipAnimationDirection.REVERSE)) {
             entranceReady = true
             pendingStoryReturn?.let {
@@ -689,11 +687,10 @@ class MainActivity : ComponentActivity() {
         }
         try {
             launchHandoffPending = true
-            pendingStoryReturn = flipState.takeIf {
-                it.masterLaunchAnimation.isStory ||
-                    (it.masterLaunchAnimation == MasterLaunchAnimation.DESKTOP &&
-                        LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP)
-            }
+            // Borrowed Desktop motion never comes back from an external app:
+            // onResume runs the native WP8.1/W10M entrance instead. A quick Back
+            // DURING the unfinished forward flip still reverses in-place.
+            pendingStoryReturn = flipState.takeIf { it.masterLaunchAnimation.isStory }
             when (LauncherFeatureStore.launcherUiMode(this)) {
                 LauncherUiMode.PHONE_8 -> {
                     classicExternalAppLaunched = true
@@ -961,7 +958,11 @@ fun Tile8LauncherApp(
                 iconGlyph = "settings")
         // Keep non-tile phone shortcuts on the native exit timeline too.
         // Desktop's existing direct Settings opening is unchanged.
-        LauncherFeatureStore.beginPhoneSettings(context)
+        // Crash-loop bookkeeping must not synchronously fsync SharedPreferences
+        // on the tap frame of a physics-heavy Desktop flip.
+        scope.launch(Dispatchers.IO) {
+            LauncherFeatureStore.beginPhoneSettings(context.applicationContext)
+        }
         if (LauncherFeatureStore.launcherUiMode(context) == LauncherUiMode.DESKTOP &&
             LauncherFeatureStore.masterLaunchAnimation(context) == MasterLaunchAnimation.DEFAULT
         ) {
@@ -1275,7 +1276,11 @@ fun Tile8LauncherApp(
                             ) {
                                 if (nativeSettings) {
                                     // Preserve phone Settings crash-loop recovery.
-                                    LauncherFeatureStore.beginPhoneSettings(context)
+                                    // Preserve crash-loop detection without blocking the first
+                                    // animation frame on a synchronous preferences commit.
+                                    scope.launch(Dispatchers.IO) {
+                                        LauncherFeatureStore.beginPhoneSettings(context.applicationContext)
+                                    }
                                 }
                                 onTriggerFlip(tile, bounds, origin)
                             }
@@ -1349,13 +1354,21 @@ fun Tile8LauncherApp(
                     destinationContent = if (flipState.hasInternalWindow) {
                         {
                             flipState.sourceTile?.let { tile ->
-                                WindowsAppView(
-                                    tile = tile,
-                                    appsRepository = appsRepository,
-                                    onClose = { closeInAppTileAndRetriggerEntrance() },
-                                    onWallpaperStyleChanged = { wallpaperStyle = it },
-                                    onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
-                                )
+                                // Compose expensive settings controls only AFTER the
+                                // moving Desktop destination stops. Rendering every
+                                // wallpaper preview and settings group inside a 3D
+                                // matrix was dropping frames on physical phones.
+                                if (usesDesktopLaunch && tile.tileType == TileType.SETTINGS) {
+                                    LightweightSettingsLaunchPreview(tile)
+                                } else {
+                                    WindowsAppView(
+                                        tile = tile,
+                                        appsRepository = appsRepository,
+                                        onClose = { closeInAppTileAndRetriggerEntrance() },
+                                        onWallpaperStyleChanged = { wallpaperStyle = it },
+                                        onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
+                                    )
+                                }
                             }
                         }
                     } else null,
