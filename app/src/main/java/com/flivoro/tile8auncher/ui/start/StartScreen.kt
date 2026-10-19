@@ -1775,8 +1775,7 @@ fun StartScreen(
                                                 WindowsTileView(
                                                     tile = tile,
                                                     appIcon = appIcon,
-                                                    backgroundContent = if (tilePictureMode &&
-                                                        tile.tileType != com.flivoro.tile8auncher.data.TileType.PHOTOS) {
+                                                    backgroundContent = if (tilePictureMode) {
                                                         {
                                                             com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
                                                                 modifier = Modifier.fillMaxSize(),
