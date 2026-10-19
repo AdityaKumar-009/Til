@@ -365,6 +365,8 @@ fun PhoneLauncherSurface(
     wallpaperStyle: Int,
     launchMotionMode: LauncherUiMode? = null,
     hideOriginalTileId: String? = null,
+    borrowedDesktopRetreat: () -> Float = { 0f },
+    borrowedDesktopOrigin: LaunchOrigin? = null,
     onLaunch: (TileModel, Rect, LaunchOrigin) -> Unit,
     onExitFinished: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -481,10 +483,9 @@ fun PhoneLauncherSurface(
         LauncherFeatureStore.backgroundStyle(context, mode) ==
             PhoneBackgroundStyle.TILE_PICTURE
     }
-    // Bitmap tiles only exist for a selected photo. The procedural purple
-    // default must stay on the original phone wallpaper/solid-tile renderer.
-    val effectiveTilePictureMode = phoneTilePictureMode &&
-        StartPersonalization.hasPictureSource(wallpaperStyle)
+    // Every wallpaper style, including procedural purple (0), supports tile pictures.
+    // The cached procedural raster is supplied by PhoneTilePicture for style 0.
+    val effectiveTilePictureMode = phoneTilePictureMode
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
     val tileOpacity = remember(mode, densityRevision) {
         if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
@@ -879,7 +880,8 @@ fun PhoneLauncherSurface(
         .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
         if (!effectiveTilePictureMode) {
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = if (exitUsesMobile) mobileWallpaperAlpha() else 1f
+                alpha = (if (exitUsesMobile) mobileWallpaperAlpha() else 1f) *
+                    (1f - borrowedDesktopRetreat().coerceIn(0f, 1f))
             }) {
                 WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
                 if (isTen) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
@@ -923,6 +925,11 @@ fun PhoneLauncherSurface(
                         // smaller returning Start tile must not extend past
                         // that offscreen page into the visible All Apps pane.
                         clip = isTen
+                        val retreat = if (borrowedDesktopOrigin == LaunchOrigin.START)
+                            borrowedDesktopRetreat().coerceIn(0f, 1f) else 0f
+                        alpha = 1f - retreat
+                        scaleX = 1f - .12f * retreat
+                        scaleY = 1f - .12f * retreat
                     },
                 ) {
                     Column(Modifier.fillMaxSize().elasticVerticalScroll(
@@ -1163,6 +1170,12 @@ fun PhoneLauncherSurface(
                             !showApps && motionClock.value < duration
                         translationX = if (homeTurnRunning) 0f
                             else paneBounds.width * (1f - panoramaProgress)
+                        // Desktop's Start launch must leave this sibling page untouched.
+                        val retreat = if (borrowedDesktopOrigin == LaunchOrigin.ALL_APPS)
+                            borrowedDesktopRetreat().coerceIn(0f, 1f) else 0f
+                        alpha = 1f - retreat
+                        scaleX = 1f - .12f * retreat
+                        scaleY = 1f - .12f * retreat
                     },
                 ) {
                     // Play Disco's forward second-page entry on first launcher
@@ -2344,8 +2357,7 @@ private fun PhoneStartGrid(
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         val gridWidthForPhoto = maxWidth
-        val tilePicture = mobileTilePictureMode &&
-            StartPersonalization.hasPictureSource(wallpaperStyle)
+        val tilePicture = mobileTilePictureMode
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
             .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
                 onClick = onExitEdit)) {
