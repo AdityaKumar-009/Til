@@ -20,10 +20,14 @@ internal object ProceduralPurpleWallpaper {
 
     @Synchronized
     fun bitmap(gridWidthPx: Float, gridHeightPx: Float): Bitmap {
-        // Source aspect is preserved on drawing to the logical grid; cap the backing texture
-        // so very long Start lists never produce an unbounded GPU allocation.
-        val w = gridWidthPx.roundToInt().coerceIn(1, 960)
-        val h = gridHeightPx.roundToInt().coerceIn(1, 1920)
+        // PhoneTilePicture center-crops its source using a uniform scale. Reduce *both*
+        // dimensions by the same factor or the taller generated grid would crop off ribbons.
+        // Keep a bounded texture even for very long vertically scrolling Start lists.
+        val logicalWidth = gridWidthPx.coerceAtLeast(1f)
+        val logicalHeight = gridHeightPx.coerceAtLeast(1f)
+        val reduction = minOf(1f, 960f / logicalWidth, 1920f / logicalHeight)
+        val w = (logicalWidth * reduction).roundToInt().coerceIn(1, 960)
+        val h = (logicalHeight * reduction).roundToInt().coerceIn(1, 1920)
         val key = w to h
         cached?.takeIf { dimensions == key && !it.isRecycled }?.let { return it }
         val image = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
