@@ -3022,7 +3022,9 @@ internal fun PhoneLaunchSourceFace(
         appIcon = visual.icon,
         modifier = modifier,
         allowAppDerivedBackground = false,
-        backgroundAlpha = 1f,
+        // Background is painted exactly once below from the source opacity/photo
+        // to the resolved solid color; an opaque base would defeat transparency.
+        backgroundAlpha = 0f,
         innerModifier = Modifier,
         logoModifier = if (nativeGlyph == "wp81_phone") Modifier.graphicsLayer {
             translationX = -.19f * density
