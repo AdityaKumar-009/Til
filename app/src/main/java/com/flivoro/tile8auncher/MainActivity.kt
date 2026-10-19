@@ -281,12 +281,41 @@ class MainActivity : ComponentActivity() {
                                     packageName = tile.packageName,
                                 )
                             }
+                            val uiMode = LauncherFeatureStore.launcherUiMode(this@MainActivity)
+                            val isPhone = uiMode != LauncherUiMode.DESKTOP
+                            val phonePicture = isPhone && origin == LaunchOrigin.START &&
+                                LauncherFeatureStore.backgroundStyle(this@MainActivity, uiMode) ==
+                                    PhoneBackgroundStyle.TILE_PICTURE
+                            val initialOpacity = if (!isPhone || origin != LaunchOrigin.START) 1f
+                                else if (phonePicture) 0f
+                                else if (uiMode == LauncherUiMode.MOBILE_10)
+                                    LauncherFeatureStore.phoneTileOpacity(this@MainActivity)
+                                else 1f
+                            // Resolve the *same* tile color as the phone Start renderer;
+                            // a borrowed Desktop destination must not fall back to the
+                            // tile's old, pre-wallpaper accent color.
+                            val launchColor = if (isPhone) {
+                                com.flivoro.tile8auncher.ui.phone.resolvePhoneTileBackgroundArgb(
+                                    tile.id, tile.title, tile.colorValue,
+                                    tile.packageName?.let(appsRepository::getDiscoTileAccentColor),
+                                    com.flivoro.tile8auncher.ui.phone.PhoneLayoutStore
+                                        .hasCustomColor(this@MainActivity, uiMode, tile.id),
+                                    LauncherFeatureStore.appIconStyle(this@MainActivity) ==
+                                        com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED,
+                                    StartPersonalization.wallpaperAccentArgb,
+                                )
+                            } else tile.colorValue
+                            val launchTile = if (launchColor != tile.colorValue)
+                                tile.copy(colorValue = launchColor) else tile
                             flipState = FlipAnimationState(
                                 isRunning = true,
-                                sourceTile = tile,
+                                sourceTile = launchTile,
                                 sourceBounds = bounds,
                                 appIcon = icon,
-                                accentColor = tile.colorValue.toTileColor(),
+                                accentColor = launchColor.toTileColor(),
+                                sourceInitialOpacity = initialOpacity,
+                                sourcePictureMode = phonePicture,
+                                sourceWallpaperStyle = appsRepository.getWallpaperStyle(),
                                 animationMode = if (
                                     LauncherFeatureStore.masterLaunchAnimation(this@MainActivity) ==
                                         MasterLaunchAnimation.DESKTOP
@@ -744,8 +773,9 @@ fun Tile8LauncherApp(
         mutableStateOf(false)
     }
     val flipProgress = remember(flipState.sourceTile?.id, flipState.sourceBounds) {
-        Animatable(if (flipState.masterLaunchAnimation.isStory &&
-            flipState.direction == FlipAnimationDirection.REVERSE) 1f else 0f)
+        Animatable(if (flipState.direction == FlipAnimationDirection.REVERSE &&
+            (flipState.masterLaunchAnimation.isStory ||
+                flipState.masterLaunchAnimation == MasterLaunchAnimation.DESKTOP)) 1f else 0f)
     }
     val storyRunning = flipState.isRunning && flipState.masterLaunchAnimation.isStory
     val storyScene = remember(flipState.sourceTile?.id, flipState.sourceBounds,
