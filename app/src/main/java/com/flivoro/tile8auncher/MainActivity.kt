@@ -132,9 +132,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var appsRepository: AppsRepository
     private var flipState by mutableStateOf(FlipAnimationState())
-    // Retain only the lightweight launch description across an external task.
-    // On return the selected cell republishes its live display list; no bitmap
-    // or Activity is retained in the background.
+    // Retain the lightweight selected-overlay launch description across an
+    // external task. Desktop motion borrowed by phone modes also needs to retrace
+    // its overlay on Back; starting the native phone entrance at the same time
+    // would produce two opposing animations and extra rendering load.
     private var pendingStoryReturn: FlipAnimationState? = null
     private var activeInAppTile by mutableStateOf<TileModel?>(null)
     private var homeRequest by mutableIntStateOf(0)
@@ -396,8 +397,11 @@ class MainActivity : ComponentActivity() {
             phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
         } else if (pendingStoryReturn != null ||
-            (flipState.isRunning && flipState.masterLaunchAnimation.isStory &&
-                flipState.direction == FlipAnimationDirection.REVERSE)) {
+            (flipState.isRunning && (
+                flipState.masterLaunchAnimation.isStory ||
+                (flipState.masterLaunchAnimation == MasterLaunchAnimation.DESKTOP &&
+                    LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP)
+            ) && flipState.direction == FlipAnimationDirection.REVERSE)) {
             entranceReady = true
             pendingStoryReturn?.let {
                 flipState = it.copy(direction = FlipAnimationDirection.REVERSE,
@@ -651,7 +655,11 @@ class MainActivity : ComponentActivity() {
         }
         try {
             launchHandoffPending = true
-            pendingStoryReturn = flipState.takeIf { it.masterLaunchAnimation.isStory }
+            pendingStoryReturn = flipState.takeIf {
+                it.masterLaunchAnimation.isStory ||
+                    (it.masterLaunchAnimation == MasterLaunchAnimation.DESKTOP &&
+                        LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP)
+            }
             when (LauncherFeatureStore.launcherUiMode(this)) {
                 LauncherUiMode.PHONE_8 -> {
                     classicExternalAppLaunched = true
