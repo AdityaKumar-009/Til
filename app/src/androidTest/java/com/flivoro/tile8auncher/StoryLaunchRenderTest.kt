@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationState
+import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.apps.AllAppsScreen
 import com.flivoro.tile8auncher.ui.components.LocalStoryLaunchScene
@@ -60,6 +62,51 @@ class StoryLaunchRenderTest {
     @Test fun wp81Apps() = verify(LauncherUiMode.PHONE_8, LaunchOrigin.ALL_APPS)
     @Test fun w10mStart() = verify(LauncherUiMode.MOBILE_10, LaunchOrigin.START)
     @Test fun w10mApps() = verify(LauncherUiMode.MOBILE_10, LaunchOrigin.ALL_APPS)
+
+    @Test fun internalWindowStaysMountedThroughOpeningAndBack() {
+        val state = mutableStateOf(FlipAnimationState(isRunning = true,
+            sourceTile = TileModel(id = "settings", title = "Settings"),
+            masterLaunchAnimation = MasterLaunchAnimation.LIFT))
+        val clock = Animatable(0f)
+        val scene = StoryLaunchScene(state.value) { clock.value }
+        var mounts = 0
+        var disposals = 0
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            CompositionLocalProvider(LocalStoryLaunchScene provides scene) {
+                StoryLaunchOverlay(state.value, clock, {}, {}, destinationContent = {
+                    DisposableEffect(Unit) {
+                        mounts++
+                        onDispose { disposals++ }
+                    }
+                    Box(Modifier.fillMaxSize().background(Color.Blue))
+                })
+            }
+        }
+        compose.mainClock.advanceTimeBy(160)
+        compose.runOnIdle {
+            assertTrue("The real window must exist during travel", clock.value in .01f.. .99f)
+            assertEquals(1, mounts)
+            assertEquals(0, disposals)
+        }
+        compose.mainClock.advanceTimeBy(600)
+        compose.runOnIdle {
+            assertEquals(1f, clock.value, .00001f)
+            state.value = state.value.copy(direction = FlipAnimationDirection.REVERSE)
+        }
+        compose.mainClock.advanceTimeBy(200)
+        compose.runOnIdle {
+            assertTrue(clock.value in .01f.. .99f)
+            assertEquals("Back must keep the very same window", 1, mounts)
+            assertEquals(0, disposals)
+        }
+        compose.mainClock.advanceTimeBy(600)
+        compose.runOnIdle {
+            assertEquals(0f, clock.value, .00001f)
+            assertEquals(1, mounts)
+            assertEquals(0, disposals)
+        }
+    }
 
     private fun verify(mode: LauncherUiMode, origin: LaunchOrigin) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -174,6 +221,17 @@ class StoryLaunchRenderTest {
             val hidden = shot()
             assertTrue("$mode/$origin/$style left a duplicate source at its original location",
                 difference(first, hidden, scene.capturedSourceBounds, rootBounds) > .06)
+            if (mode == LauncherUiMode.MOBILE_10) {
+                // Review early acceleration and the connected handoff, rather
+                // than judging continuity from a single midpoint screenshot.
+                compose.runOnIdle { overlay.value = true }
+                save(first, "cross-story-sequence-${origin.name}-${style.name}-000")
+                for (time in listOf(.08f, .24f, .40f)) {
+                    compose.runOnIdle { sample.floatValue = time }
+                    save(shot(), "cross-story-sequence-${origin.name}-${style.name}-${(time * 1000).toInt()}")
+                }
+                compose.runOnIdle { overlay.value = false }
+            }
             compose.runOnIdle { sample.floatValue = .52f }
             compose.mainClock.advanceTimeByFrame()
             val neighbors = shot()

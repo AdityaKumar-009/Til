@@ -52,7 +52,7 @@ for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE"):
     adb("shell", "input", "tap", "540", "108")  # Existing Action Center shortcut.
     wait_for(tap_settings, f"{style} All settings shortcut")
     wait_for(lambda: f"{style} forward complete" in adb("logcat", "-d", "-s", "MosaicStory:I"), f"{style} forward")
-    # The internal screen mounts after travel; allow its first layout before Back.
+    # Hold the completed internal window briefly before exercising Back.
     time.sleep(.8)
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: f"{style} reverse complete" in adb("logcat", "-d", "-s", "MosaicStory:I"), f"{style} reverse")

@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -126,7 +125,8 @@ internal fun Modifier.storyLaunchActor(
         } else if (!sourceCandidate && scene.isSelected(id)) {
             // Desktop All Apps transfers its icon plate; the title stays on
             // the row and fades. Keep that row's layout anchor stationary.
-            alpha = 1f - StoryLaunchMotion.ease(.05f, .60f, scene.progress())
+            alpha = 1f - StoryLaunchMotion.ease(.05f, .60f,
+                StoryLaunchMotion.settle(0f, 1f, scene.progress()))
         } else if (viewport.width > 1f && viewport.height > 1f) {
             val motion = StoryLaunchMotion.neighbor(scene.state.masterLaunchAnimation,
                 scene.progress(), bounds, StoryLaunchMotion.source(
@@ -179,7 +179,6 @@ internal fun StoryLaunchOverlay(
     val reverseReason by rememberUpdatedState(state.reverseReason)
     var finalFrameDrawn by remember(scene) { mutableStateOf(false) }
     var firstFrameDrawn by remember(scene) { mutableStateOf(false) }
-    var destinationCommitted by remember(scene) { mutableStateOf(false) }
     suspend fun cacheSourceArtwork() {
         if (scene.sourceImage != null || state.sourceBounds.width <= 1f ||
             state.sourceBounds.height <= 1f) return
@@ -214,7 +213,6 @@ internal fun StoryLaunchOverlay(
             progress.animateTo(1f, tween(duration, easing = LinearEasing))
             snapshotFlow { finalFrameDrawn }.first { it }
             withFrameNanos { }
-            destinationCommitted = true
             android.util.Log.i("MosaicStory", "${state.masterLaunchAnimation.name} forward complete")
             finishForward()
         } else {
@@ -316,12 +314,10 @@ internal fun StoryLaunchOverlay(
             val f = frame()
             alpha = f.contentAlpha
         }, contentAlignment = Alignment.Center) {
-            // Heavy internal apps are mounted once the final frame was submitted,
-            // so Settings decoding/composition cannot stall the opening motion.
-            val returningContentVisible by remember(scene, state.direction) {
-                derivedStateOf { state.direction == FlipAnimationDirection.REVERSE && progress.value > .64f }
-            }
-            if (destinationContent != null && (destinationCommitted || returningContentVisible)) {
+            // Compose the real internal window during source preparation, before
+            // the motion clock starts. Keep that same subtree through opening
+            // and Back: replacing a splash glyph at the endpoint creates a cut.
+            if (destinationContent != null) {
                 destinationContent()
             } else {
                 Box(Modifier.size(78.dp).graphicsLayer {

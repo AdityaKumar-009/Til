@@ -27,16 +27,16 @@ internal object StoryLaunchMotion {
         else -> error("Not a story animation: $style")
     }
 
-    // Alpha/pressure envelopes join gently. Spatial travel uses a DIFFERENT
-    // curve below: a measured release followed by a long, calm deceleration.
+    // Smooth envelopes join with zero velocity and acceleration at either end.
     fun ease(start: Float, end: Float, progress: Float): Float {
         val x = ((progress - start) / (end - start)).coerceIn(0f, 1f)
         return (x * x * x * (10f + x * (-15f + 6f * x))).coerceIn(0f, 1f)
     }
 
-    // Keep the original duration/choreography. Redistribute velocity rather
-    // than rushing the story: moderate early momentum, no overshoot, soft rest.
-    private val release = CubicBezierEasing(.22f, .70f, .30f, 1f)
+    // Accelerate out of the resting tile, then coast into the app. Starting at
+    // zero velocity avoids the old instantaneous kick. All other channels are
+    // functions of this ONE traveled phase, including during the return.
+    private val release = CubicBezierEasing(.16f, 0f, .18f, 1f)
 
     fun settle(start: Float, end: Float, raw: Float): Float {
         val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
@@ -81,8 +81,7 @@ internal object StoryLaunchMotion {
     }
 
     fun panel(style: MasterLaunchAnimation, raw: Float, source: Rect, viewport: Rect): StoryPanelFrame {
-        val p = progress(raw)
-        val travel = settle(0f, 1f, p)
+        val travel = settle(0f, 1f, raw)
         val arc = if (travel > 0f && travel < 1f) sin(PI * travel).toFloat() else 0f
         val lift = viewport.height * .045f
         var widthProgress = travel
@@ -93,7 +92,7 @@ internal object StoryLaunchMotion {
         var ry = 0f
         var pivotX = .5f
         var pivotY = .5f
-        val press = ease(0f, .12f, p) * (1f - ease(.12f, .30f, p))
+        val press = (256f / 27f) * travel * (1f - travel) * (1f - travel) * (1f - travel)
         when (style) {
             MasterLaunchAnimation.LIFT -> {
                 // A pressed tile lifts and opens into a broad landing.
@@ -101,27 +100,25 @@ internal object StoryLaunchMotion {
                 rx = -9f * arc
             }
             MasterLaunchAnimation.DOOR -> {
-                widthProgress = settle(.10f, .92f, p)
-                heightProgress = settle(.20f, 1f, p)
+                widthProgress = shape(travel, -.16f)
+                heightProgress = shape(travel, -.24f)
                 ry = -64f * arc
                 pivotX = 0f
                 dx = -viewport.width * .055f * arc
             }
             MasterLaunchAnimation.RIPPLE -> {
-                widthProgress = settle(.13f, 1f, p)
-                heightProgress = widthProgress
                 dy = lift * .12f * press
             }
             MasterLaunchAnimation.PAGE_TURN -> {
-                widthProgress = settle(.23f, 1f, p)
-                heightProgress = settle(.10f, .90f, p)
+                widthProgress = shape(travel, -.32f)
+                heightProgress = shape(travel, .12f)
                 rx = 58f * arc
                 pivotY = 0f
                 dy = -lift * 1.25f * arc
             }
             MasterLaunchAnimation.GLIDE -> {
-                widthProgress = settle(.08f, .82f, p)
-                heightProgress = settle(.20f, 1f, p)
+                widthProgress = shape(travel, .12f)
+                heightProgress = shape(travel, -.16f)
                 dx = viewport.width * (.055f * arc - .025f * press)
                 dy = -lift * .35f * arc
             }
@@ -132,20 +129,24 @@ internal object StoryLaunchMotion {
         val height = mix(source.height * compression, viewport.height, heightProgress)
         val cx = mix(source.center.x, viewport.center.x, travel) + dx
         val cy = mix(source.center.y, viewport.center.y, travel) + dy
+        val reveal = ease(.38f, 1f, travel)
+        // A full-width app row must not grow its leading glyph offscreen.
+        val artworkScale = minOf(1.30f, viewport.width / source.width,
+            viewport.height / source.height).coerceAtLeast(1f)
         return StoryPanelFrame(
             bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
             rotationX = rx, rotationY = ry, pivotX = pivotX, pivotY = pivotY,
-            sourceAlpha = 1f - ease(.30f, .68f, p),
-            surfaceAlpha = ease(.08f, .34f, p),
-            contentAlpha = ease(.66f, .96f, p),
-            sourceScale = compression * mix(1f, 1.30f, travel),
-            backdropAlpha = .50f * ease(.04f, .90f, p),
+            sourceAlpha = 1f - reveal,
+            surfaceAlpha = ease(0f, .30f, travel),
+            contentAlpha = reveal,
+            sourceScale = compression * mix(1f, artworkScale, travel),
+            backdropAlpha = .50f * ease(0f, 1f, travel),
         )
     }
 
     fun neighbor(style: MasterLaunchAnimation, raw: Float, bounds: Rect,
         source: Rect, viewport: Rect): StoryNeighborFrame {
-        val p = progress(raw)
+        val travel = settle(0f, 1f, raw)
         val w = viewport.width.coerceAtLeast(1f)
         val h = viewport.height.coerceAtLeast(1f)
         val dx = (bounds.center.x - source.center.x) / w
@@ -157,8 +158,10 @@ internal object StoryLaunchMotion {
                 ((bounds.center.y - viewport.top) / h).coerceIn(0f, 1f) * .15f
             else -> .025f + distance * .10f
         }
-        val move = settle(delay, .88f, p)
-        val fade = 1f - ease(delay + .10f, .94f, p)
+        // Propagation is still distance ordered, but each neighbor accelerates
+        // smoothly from rest rather than starting a second fast-out clock.
+        val move = ease(delay, 1f, travel)
+        val fade = 1f - ease(delay + .10f, 1f, travel)
         val side = if (bounds.center.x < source.center.x) -1f else 1f
         return when (style) {
             MasterLaunchAnimation.LIFT -> StoryNeighborFrame(fade,
@@ -185,6 +188,9 @@ internal object StoryLaunchMotion {
     }
 
     private fun mix(a: Float, b: Float, p: Float) = a + (b - a) * p
+
+    // A gentle lead/lag along the same path, never a delayed start or stop.
+    private fun shape(phase: Float, bias: Float) = phase + bias * phase * (1f - phase)
 }
 
 internal data class StoryPanelFrame(

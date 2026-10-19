@@ -47,8 +47,8 @@ class StoryLaunchMotionTest {
     @Test fun rippleReachesNearTilesBeforeDistantTiles() {
         val near = Rect(185f, 145f, 250f, 210f)
         val far = Rect(300f, 700f, 390f, 790f)
-        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .16f, near, source, viewport)
-        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .16f, far, source, viewport)
+        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .10f, near, source, viewport)
+        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .10f, far, source, viewport)
         assertTrue(abs(a.x) + abs(a.y) > .01f)
         assertEquals(0f, abs(b.x) + abs(b.y), .00001f)
     }
@@ -56,8 +56,8 @@ class StoryLaunchMotionTest {
     @Test fun travelKeepsOriginalDurationWithMeasuredReleaseAndCalmFinish() {
         val quarter = StoryLaunchMotion.settle(0f, 1f, .25f)
         val threeQuarters = StoryLaunchMotion.settle(0f, 1f, .75f)
-        assertTrue("Opening should feel responsive without rushing", quarter > .60f && quarter < .72f)
-        assertTrue("The last quarter should gently settle", threeQuarters > .97f)
+        assertTrue("Opening should accelerate promptly without a kick", quarter > .45f && quarter < .56f)
+        assertTrue("The last quarter should gently settle", threeQuarters > .96f)
         var previous = 0f
         for (sample in 0..100) {
             val distance = StoryLaunchMotion.settle(0f, 1f, sample / 100f)
@@ -68,6 +68,60 @@ class StoryLaunchMotionTest {
             MasterLaunchAnimation.DOOR to 560, MasterLaunchAnimation.RIPPLE to 560,
             MasterLaunchAnimation.PAGE_TURN to 600, MasterLaunchAnimation.GLIDE to 520)
         styles.forEach { assertEquals(originalDurations.getValue(it), StoryLaunchMotion.duration(it)) }
+    }
+
+    @Test fun expansionHasNoVelocityStepsBetweenTheOldChoreographyStages() {
+        val step = .002f
+        for (style in styles) {
+            fun channels(time: Float): List<Float> {
+                val f = StoryLaunchMotion.panel(style, time, source, viewport)
+                return listOf(f.bounds.left / viewport.width, f.bounds.right / viewport.width,
+                    f.bounds.top / viewport.height, f.bounds.bottom / viewport.height,
+                    f.rotationX / 90f, f.rotationY / 90f)
+            }
+            val rest = channels(0f)
+            val first = channels(step)
+            first.indices.forEach { channel ->
+                assertTrue("$style kicks directly out of rest",
+                    abs(first[channel] - rest[channel]) / step < .12f)
+            }
+            for (join in listOf(.08f, .10f, .13f, .20f, .23f, .82f, .88f, .90f, .92f)) {
+                val before = channels(join - step)
+                val at = channels(join)
+                val after = channels(join + step)
+                at.indices.forEach { channel ->
+                    val incoming = (at[channel] - before[channel]) / step
+                    val outgoing = (after[channel] - at[channel]) / step
+                    assertTrue("$style changes velocity abruptly at $join, channel $channel",
+                        abs(outgoing - incoming) < .25f)
+                }
+            }
+        }
+    }
+
+    @Test fun artworkAndAppOverlapWithoutABlankBeatOrFirstReturnFrameCut() {
+        for (style in styles) {
+            for (sample in 0..StoryLaunchMotion.duration(style)) {
+                val f = StoryLaunchMotion.panel(style,
+                    sample.toFloat() / StoryLaunchMotion.duration(style), source, viewport)
+                assertEquals("$style loses both identities during the handoff",
+                    1f, f.sourceAlpha + f.contentAlpha, .00001f)
+            }
+            val easing = StoryLaunchMotion.returnEasing(1f)
+            val firstFrameTime = 16f / StoryLaunchMotion.duration(style)
+            val firstReturn = StoryLaunchMotion.panel(style,
+                1f - easing.transform(firstFrameTime), source, viewport)
+            assertTrue("$style cuts away the app on the first Back frame", firstReturn.contentAlpha > .99f)
+        }
+    }
+
+    @Test fun wideRowArtworkKeepsItsLeadingGlyphInsideTheWindow() {
+        val row = Rect(16f, 145f, 384f, 209f)
+        for (style in styles) for (sample in 0..100) {
+            val f = StoryLaunchMotion.panel(style, sample / 100f, row, viewport)
+            assertTrue("$style enlarges the row beyond the viewport",
+                row.width * f.sourceScale <= viewport.width + .001f)
+        }
     }
 
     @Test fun fullAndInterruptedReturnsKeepThePathButDecelerateIntoTheSource() {
