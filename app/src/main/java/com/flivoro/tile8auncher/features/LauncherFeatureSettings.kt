@@ -65,7 +65,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     var showIconPacks by remember { mutableStateOf(false) }
     var showIconStyles by remember { mutableStateOf(false) }
     var showLauncherModePicker by remember { mutableStateOf(false) }
-    var showMasterLaunchPicker by remember { mutableStateOf(false) }
     var showPhoneColumnsPicker by remember { mutableStateOf(false) }
     var showPhoneTransparencyPicker by remember { mutableStateOf(false) }
     var showPhoneBackgroundStylePicker by remember { mutableStateOf(false) }
@@ -184,13 +183,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         description = "${launcherMode.title} — ${launcherMode.detail}",
         glyph = "app",
     ) { showLauncherModePicker = true }
-
-    SettingsCategoryHeader("Animations")
-    SettingsActionRow(
-        title = "App launch animation",
-        description = "${LauncherFeatureStore.masterLaunchAnimation(context).title} — shared by all three modes",
-        glyph = "app",
-    ) { showMasterLaunchPicker = true }
 
     if (launcherMode == LauncherUiMode.DESKTOP) {
         SettingsActionRow(
@@ -399,30 +391,6 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
                                 phoneRenderAttempted = mode != LauncherUiMode.DESKTOP,
                             )
                             showLauncherModePicker = false
-                        },
-                    )
-                }
-            }
-        }
-    }
-    if (showMasterLaunchPicker) {
-        Dialog(onDismissRequest = { showMasterLaunchPicker = false }) {
-            Column(Modifier.fillMaxWidth().background(Color.White)
-                .verticalScroll(rememberScrollState()).padding(20.dp)) {
-                Text("App launch animation", fontSize = 22.sp, color = settingsPurple)
-                Spacer(Modifier.height(8.dp))
-                Text("Choose an original Windows animation or a new motion story. Opening and returning share the same motion in Desktop, WP8.1 and Windows 10 Mobile.",
-                    fontSize = 14.sp, color = Color.DarkGray)
-                Spacer(Modifier.height(12.dp))
-                MasterLaunchAnimation.entries.forEach { animation ->
-                    ChoiceRow(
-                        label = "${animation.title}\n${animation.detail}",
-                        selected = LauncherFeatureStore.masterLaunchAnimation(context) == animation,
-                        lightSurface = true,
-                        modifier = Modifier.testTag("master-launch-${animation.name}"),
-                        onClick = {
-                            LauncherFeatureStore.setMasterLaunchAnimation(context, animation)
-                            showMasterLaunchPicker = false
                         },
                     )
                 }
