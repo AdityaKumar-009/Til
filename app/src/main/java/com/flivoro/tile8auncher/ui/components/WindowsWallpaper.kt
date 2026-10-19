@@ -59,7 +59,13 @@ fun PhoneTilePicture(
         rememberCustomWallpaperBitmap(uri)
     } else if (wallpaperStyle > 0) {
         rememberWallpaperBitmap(wallpaperResourceId(wallpaperStyle))
-    } else null
+    } else {
+        // Style 0 is procedural, but TILE_PICTURE still needs real shared pixels.
+        // Render the native purple ribbons once and sample them just like a stock photo.
+        remember(gridWidthPx, gridHeightPx) {
+            ProceduralPurpleWallpaper.bitmap(gridWidthPx, gridHeightPx)
+        }
+    }
     val overlay = if (uri != null)
         StartPersonalization.customWallpaperOverlay.coerceIn(0f, .72f) else 0f
     val paint = remember {
