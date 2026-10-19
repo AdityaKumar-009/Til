@@ -216,12 +216,19 @@ object LauncherFeatureStore {
     }
 
     fun beginPhoneRender(context: Context, processId: Int = Process.myPid()) {
-        if (launcherUiMode(context) != LauncherUiMode.DESKTOP) {
-            prefs(context).edit(commit = true) {
-                putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
-                putBoolean(PHONE_RENDER_ATTEMPTED, true)
-                putInt(PHONE_RENDER_PROCESS_ID, processId)
-            }
+        if (launcherUiMode(context) == LauncherUiMode.DESKTOP) return
+        val preferences = prefs(context)
+        // An Activity recreated inside the same healthy process must not force a
+        // second synchronous disk commit before the first frame. A new process
+        // still writes the durable crash-recovery marker, unchanged.
+        if (preferences.getString(PHONE_RENDER_PENDING, null) == PHONE_RENDER_MODE &&
+            preferences.getBoolean(PHONE_RENDER_ATTEMPTED, false) &&
+            preferences.getInt(PHONE_RENDER_PROCESS_ID, -1) == processId
+        ) return
+        preferences.edit(commit = true) {
+            putString(PHONE_RENDER_PENDING, PHONE_RENDER_MODE)
+            putBoolean(PHONE_RENDER_ATTEMPTED, true)
+            putInt(PHONE_RENDER_PROCESS_ID, processId)
         }
     }
 

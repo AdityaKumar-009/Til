@@ -87,6 +87,33 @@ internal object LauncherImageCache {
     }
 
     /**
+     * A user can replace large gallery images repeatedly. Retire only files
+     * imported into our own Start-wallpaper directory, never external content.
+     * Run cleanup off the UI thread after the replacement has been published.
+     */
+    fun retireImportedWallpaper(context: Context, uriString: String) {
+        forget(uriString)
+        val appContext = context.applicationContext
+        ioScope.launch {
+            runCatching {
+                val uri = Uri.parse(uriString)
+                if (uri.scheme == "file") {
+                    val directory = File(appContext.filesDir, "start_wallpapers").canonicalFile
+                    val path = uri.path
+                    if (path != null) {
+                        val file = File(path).canonicalFile
+                        if (file.parentFile == directory &&
+                            file.name.startsWith("start-") && file.name.endsWith(".img")) {
+                            file.delete()
+                        }
+                    }
+                }
+                previewFile(appContext, uriString).delete()
+            }
+        }
+    }
+
+    /**
      * Import a selected gallery/file-provider image into our private persistent
      * files directory. Gallery providers often grant temporary content URIs;
      * storing those directly made wallpapers disappear after an Activity resume,

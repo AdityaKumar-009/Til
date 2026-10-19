@@ -84,7 +84,9 @@ internal object StartPersonalization {
         val previous = customWallpaperUriState.value
         customWallpaperUriState.value = normalized
         if (normalized != null) LauncherImageCache.preload(context, normalized)
-        if (previous != null && previous != normalized) LauncherImageCache.forget(previous)
+        if (previous != null && previous != normalized) {
+            LauncherImageCache.retireImportedWallpaper(context, previous)
+        }
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .apply {
