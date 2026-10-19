@@ -86,8 +86,12 @@ internal object StoryLaunchMotion {
             viewport.center.x + side / 2f, viewport.center.y + side / 2f)
     }
 
-    fun panel(style: MasterLaunchAnimation, raw: Float, source: Rect, viewport: Rect): StoryPanelFrame {
-        val travel = settle(0f, 1f, raw)
+    fun panel(style: MasterLaunchAnimation, raw: Float, source: Rect, viewport: Rect): StoryPanelFrame =
+        panelAtTravel(style, settle(0f, 1f, raw), source, viewport)
+
+    // Share the already-eased display phase with the neighbors; no cubic Bézier
+    // inversion needs to run separately for every tile and overlay layer.
+    fun panelAtTravel(style: MasterLaunchAnimation, travel: Float, source: Rect, viewport: Rect): StoryPanelFrame {
         val arc = if (travel > 0f && travel < 1f) sin(PI * travel).toFloat() else 0f
         val lift = viewport.height * .045f
         var widthProgress = travel
@@ -177,8 +181,11 @@ internal object StoryLaunchMotion {
     }
 
     fun neighbor(style: MasterLaunchAnimation, raw: Float, bounds: Rect,
+        source: Rect, viewport: Rect): StoryNeighborFrame =
+        neighborAtTravel(style, settle(0f, 1f, raw), bounds, source, viewport)
+
+    fun neighborAtTravel(style: MasterLaunchAnimation, travel: Float, bounds: Rect,
         source: Rect, viewport: Rect): StoryNeighborFrame {
-        val travel = settle(0f, 1f, raw)
         val w = viewport.width.coerceAtLeast(1f)
         val h = viewport.height.coerceAtLeast(1f)
         val dx = (bounds.center.x - source.center.x) / w
