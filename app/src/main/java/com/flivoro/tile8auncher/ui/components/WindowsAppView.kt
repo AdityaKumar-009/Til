@@ -24,6 +24,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,6 +37,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.FlipAnimationMode
 import com.flivoro.tile8auncher.data.LaunchTiming
@@ -45,6 +47,7 @@ import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
@@ -397,16 +400,19 @@ private fun PCSettingsAppContent(
     onWallpaperStyleChanged: ((Int) -> Unit)?,
 ) {
     val context = LocalContext.current
+    var settingsPage by remember { mutableIntStateOf(0) }
+    var showMasterPicker by remember { mutableStateOf(false) }
+    var selectedLaunchStyle by remember {
+        mutableStateOf(LauncherFeatureStore.masterLaunchAnimation(context))
+    }
     var selectedMode by remember {
         mutableStateOf(appsRepository?.getFlipAnimationMode() ?: FlipAnimationMode.CLASSIC)
     }
-    var launchTiming by remember {
-        mutableStateOf(appsRepository?.getLaunchTiming() ?: LaunchTiming())
-    }
-    var editingAllApps by remember { mutableStateOf(false) }
+    var launchTiming by remember { mutableStateOf(appsRepository?.getLaunchTiming() ?: LaunchTiming()) }
     var allAppsTiming by remember {
         mutableStateOf(appsRepository?.getLaunchTiming(allApps = true) ?: LaunchTiming())
     }
+    var editingAllApps by remember { mutableStateOf(false) }
     var wallpaperStyle by remember { mutableStateOf(appsRepository?.getWallpaperStyle() ?: 0) }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository?.getWallpaperParallaxEnabled() ?: true)
@@ -414,7 +420,6 @@ private fun PCSettingsAppContent(
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
-    var showLauncherPreferences by remember { mutableStateOf(true) }
 
     fun updateWallpaperParallax(enabled: Boolean) {
         wallpaperParallaxEnabled = enabled
@@ -423,44 +428,148 @@ private fun PCSettingsAppContent(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
+        Modifier.fillMaxSize()
             .testTag("til-advanced-settings-content")
             .background(Color(0xFFF0F0F0))
             .verticalScroll(rememberScrollState())
-            .padding(24.dp)
+            .padding(horizontal = 18.dp, vertical = 22.dp),
     ) {
-        // Page Title
-        Text(
-            text = "Mosaic Settings",
+        Text("Mosaic Settings",
             style = WindowsTypography.displayLarge.copy(
-                color = Color(0xFF222222),
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Light
-            )
+                color = Color(0xFF222222), fontSize = 30.sp, fontWeight = FontWeight.Light,
+            ),
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // The single Mosaic Settings destination contains all launcher options.
-        // The old animation tools are retained as a section rather than a second app.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(true to "Launcher & appearance", false to "Animation tools").forEach { (tab, title) ->
-                Text(
-                    text = title, color = if (showLauncherPreferences == tab) Color.White
-                        else Color(0xFF313131), fontSize = 14.sp,
+        Spacer(Modifier.height(8.dp))
+        Text("Personalize your Start screen, adjust motion, or manage launcher features.",
+            color = Color(0xFF666666), fontSize = 13.sp, lineHeight = 18.sp)
+        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Appearance", "Motion", "Launcher").forEachIndexed { index, title ->
+                Text(title,
+                    color = if (settingsPage == index) Color.White else Color(0xFF313131),
+                    fontSize = 13.sp, maxLines = 1,
                     modifier = Modifier.weight(1f)
-                        .background(if (showLauncherPreferences == tab) Color(0xFF5133AB)
+                        .background(if (settingsPage == index) Color(0xFF5133AB)
                             else Color(0xFFDEDEDE))
-                        .clickable { showLauncherPreferences = tab }
-                        .padding(horizontal = 7.dp, vertical = 13.dp),
+                        .clickable { settingsPage = index }
+                        .padding(horizontal = 6.dp, vertical = 14.dp),
                 )
             }
         }
-        Spacer(Modifier.height(18.dp))
-        if (showLauncherPreferences) {
-            LauncherFeatureSettings(appsRepository)
-        } else {
+        Spacer(Modifier.height(20.dp))
+        when (settingsPage) {
+            0 -> {
+                Text("Start wallpaper & tiles", color = Color(0xFF5133AB), fontSize = 21.sp)
+                Spacer(Modifier.height(12.dp))
+                WallpaperPicker(selected = wallpaperStyle, onSelect = { style ->
+                    wallpaperStyle = style
+                    appsRepository?.setWallpaperStyle(style)
+                    onWallpaperStyleChanged?.invoke(style)
+                })
+                Spacer(Modifier.height(18.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFD0D0D0))
+                .background(Color.White)
+                .clickable { updateWallpaperParallax(!wallpaperParallaxEnabled) }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Wallpaper parallax",
+                    style = WindowsTypography.titleMedium.copy(
+                        color = Color(0xFF222222),
+                        fontSize = 15.sp,
+                    ),
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "Move the background as you scroll horizontally.",
+                    style = WindowsTypography.bodyMedium.copy(
+                        color = Color(0xFF666666),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    ),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = wallpaperParallaxEnabled,
+                onCheckedChange = ::updateWallpaperParallax,
+            )
+        }
+
+
+                Spacer(Modifier.height(14.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFD0D0D0))
+                .background(Color.White)
+                .clickable {
+                    val enabled = !useAppAccentColorsInAllApps
+                    useAppAccentColorsInAllApps = enabled
+                    LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
+                }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "App colors in All Apps",
+                    style = WindowsTypography.titleMedium.copy(
+                        color = Color(0xFF222222),
+                        fontSize = 15.sp,
+                    ),
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "Use each app's extracted accent color for its square in All Apps, matching the automatic color used when the app is pinned to Start.",
+                    style = WindowsTypography.bodyMedium.copy(
+                        color = Color(0xFF666666),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    ),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(
+                checked = useAppAccentColorsInAllApps,
+                onCheckedChange = { enabled ->
+                    useAppAccentColorsInAllApps = enabled
+                    LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
+                },
+            )
+        }
+
+
+            }
+            1 -> {
+                Text("Global app-opening style", color = Color(0xFF5133AB), fontSize = 21.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Your chosen animation is shared across all three interfaces.",
+                    color = Color(0xFF666666), fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth().background(Color.White)
+                        .border(1.dp, Color(0xFFD0D0D0))
+                        .clickable { showMasterPicker = true }
+                        .padding(16.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Animation", color = Color(0xFF222222), fontSize = 15.sp)
+                        Text(selectedLaunchStyle.title, color = Color(0xFF5133AB), fontSize = 14.sp)
+                    }
+                    Text("Change", color = Color(0xFF5133AB), fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(26.dp))
+                Text("Desktop motion fine-tuning", color = Color(0xFF5133AB), fontSize = 19.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("Classic/Modern and custom timing are used by native Desktop animation. They do not retime the eight motion stories.",
+                    color = Color(0xFF666666), fontSize = 12.sp, lineHeight = 16.sp)
+                Spacer(Modifier.height(16.dp))
         // Group Header
         Text(
             text = "App opening animation",
@@ -530,93 +639,6 @@ private fun PCSettingsAppContent(
             },
         )
 
-        Spacer(modifier = Modifier.height(18.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, Color(0xFFD0D0D0))
-                .background(Color.White)
-                .clickable { updateWallpaperParallax(!wallpaperParallaxEnabled) }
-                .padding(horizontal = 16.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Wallpaper parallax",
-                    style = WindowsTypography.titleMedium.copy(
-                        color = Color(0xFF222222),
-                        fontSize = 15.sp,
-                    ),
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = "Move the background as you scroll horizontally.",
-                    style = WindowsTypography.bodyMedium.copy(
-                        color = Color(0xFF666666),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
-                    ),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Switch(
-                checked = wallpaperParallaxEnabled,
-                onCheckedChange = ::updateWallpaperParallax,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, Color(0xFFD0D0D0))
-                .background(Color.White)
-                .clickable {
-                    val enabled = !useAppAccentColorsInAllApps
-                    useAppAccentColorsInAllApps = enabled
-                    LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
-                }
-                .padding(horizontal = 16.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "App colors in All Apps",
-                    style = WindowsTypography.titleMedium.copy(
-                        color = Color(0xFF222222),
-                        fontSize = 15.sp,
-                    ),
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = "Use each app's extracted accent color for its square in All Apps, matching the automatic color used when the app is pinned to Start.",
-                    style = WindowsTypography.bodyMedium.copy(
-                        color = Color(0xFF666666),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
-                    ),
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Switch(
-                checked = useAppAccentColorsInAllApps,
-                onCheckedChange = { enabled ->
-                    useAppAccentColorsInAllApps = enabled
-                    LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
-                },
-            )
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        WallpaperPicker(selected = wallpaperStyle, onSelect = { style ->
-            wallpaperStyle = style
-            appsRepository?.setWallpaperStyle(style)
-            onWallpaperStyleChanged?.invoke(style)
-        })
-        Spacer(Modifier.height(20.dp))
 
         // Test Animation Button
         Row(
@@ -650,6 +672,14 @@ private fun PCSettingsAppContent(
 
         Spacer(modifier = Modifier.height(28.dp))
 
+
+            }
+            else -> {
+                Text("Launcher & app features", color = Color(0xFF5133AB), fontSize = 21.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Interface, tiles, app list, privacy, lock-screen tools and backups.",
+                    color = Color(0xFF666666), fontSize = 13.sp)
+                LauncherFeatureSettings(appsRepository)
         // System Settings Section
         Text(
             text = "System",
@@ -710,7 +740,37 @@ private fun PCSettingsAppContent(
                 style = WindowsTypography.bodyMedium.copy(color = Color.Gray, fontSize = 12.sp)
             )
         }
-        } // Animation tools tab
+
+            }
+        }
+    }
+
+    if (showMasterPicker) {
+        Dialog(onDismissRequest = { showMasterPicker = false }) {
+            Column(
+                Modifier.fillMaxWidth().background(Color.White)
+                    .verticalScroll(rememberScrollState()).padding(18.dp),
+            ) {
+                Text("Choose app-opening animation", color = Color(0xFF5133AB), fontSize = 20.sp)
+                Spacer(Modifier.height(12.dp))
+                MasterLaunchAnimation.entries.forEach { style ->
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                selectedLaunchStyle = style
+                                LauncherFeatureStore.setMasterLaunchAnimation(context, style)
+                                showMasterPicker = false
+                            }
+                            .background(if (selectedLaunchStyle == style)
+                                Color(0xFFEDE5FA) else Color.White)
+                            .padding(12.dp),
+                    ) {
+                        Text(style.title, color = Color(0xFF222222), fontSize = 15.sp)
+                        Text(style.detail, color = Color(0xFF666666), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
     }
 }
 
