@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.ui.phone
 
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -86,6 +87,15 @@ class PhoneAppearancePolicyTest {
             assertTrue("Color crossfade reversed at $progress", blend >= previous)
             previous = blend
         }
+    }
+
+    @Test fun generatedPurpleWallpaperKeepsNativeMotionWhileRealPhotosUseTilePicture() {
+        assertFalse("Procedural purple is not a bitmap", StartPersonalization.hasPictureSource(0, null))
+        assertTrue("Stock photo must retain tile-picture path", StartPersonalization.hasPictureSource(1, null))
+        assertTrue("Custom picture must work with style zero", StartPersonalization.hasPictureSource(
+            0, "file:///data/user/0/launcher/files/start_wallpapers/photo.img"))
+        assertTrue(StartPersonalization.hasPictureSource(9, null))
+        assertFalse(StartPersonalization.hasPictureSource(0, ""))
     }
 
 }
