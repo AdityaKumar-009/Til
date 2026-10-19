@@ -41,8 +41,10 @@ internal object StartPersonalization {
      * not a photo. Route it through the native wallpaper compositor, never
      * through tiled bitmap sampling or launch-source picture transitions.
      */
-    fun hasPictureSource(wallpaperStyle: Int): Boolean =
-        wallpaperStyle > 0 || customWallpaperUri != null
+    fun hasPictureSource(
+        wallpaperStyle: Int,
+        customUri: String? = customWallpaperUri,
+    ): Boolean = wallpaperStyle > 0 || !customUri.isNullOrBlank()
 
     fun ensureLoaded(context: Context) {
         if (initialized) return
