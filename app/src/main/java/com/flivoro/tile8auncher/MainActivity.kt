@@ -231,6 +231,11 @@ class MainActivity : ComponentActivity() {
             LauncherFeatureStore.recoverInterruptedPhoneRender(this)
         }
         LauncherFeatureStore.beginPhoneRender(this)
+        // Restore the persisted custom wallpaper/accent before ANY Start or
+        // All Apps UI reads the observable personalization state. Previously it
+        // was initialized only when opening the wallpaper picker, so custom
+        // images silently disappeared after a cold launcher restart.
+        StartPersonalization.ensureLoaded(this)
         appsRepository = (application as Tile8Application).appsRepository
         ContextCompat.registerReceiver(
             this,
