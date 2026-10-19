@@ -36,8 +36,16 @@ internal fun resolvePhoneTileBackgroundArgb(
     layeredAccent: Long?,
     manualColor: Boolean,
     discoLayered: Boolean,
-): Long = if (canUsePhoneBrandColor(tileId, title, manualColor, discoLayered))
-    layeredAccent ?: baseColor else baseColor
+    wallpaperAccent: Long? = null,
+): Long = when {
+    // Stock Lumia/Metro tiles and the Phone/Messages shortcuts track the
+    // wallpaper-derived accent unless the user chose a tile color explicitly.
+    usesPhoneThemeAccent(tileId, title, manualColor) && wallpaperAccent != null ->
+        wallpaperAccent
+    canUsePhoneBrandColor(tileId, title, manualColor, discoLayered) ->
+        layeredAccent ?: baseColor
+    else -> baseColor
+}
 
 /** Match WP8.1's 30-unit glyph within a 52-unit app-list icon plate. */
 internal fun phoneAllAppsGlyphSizeDp(plateSideDp: Float): Float =
