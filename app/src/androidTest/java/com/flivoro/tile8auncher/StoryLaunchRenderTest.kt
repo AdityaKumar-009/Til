@@ -52,7 +52,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.abs
 
-/** Pixel checks on the actual six public surfaces, for all five new stories. */
+/** Pixel checks on the actual six public surfaces, for every optional story. */
 @RunWith(AndroidJUnit4::class)
 class StoryLaunchRenderTest {
     @get:Rule val compose = createComposeRule()

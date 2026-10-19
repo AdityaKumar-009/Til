@@ -1,7 +1,7 @@
-# Five optional launch stories
+# Eight optional launch stories
 
 Mosaic Settings → App launch animation now includes Lift, Door, Ripple, Page turn,
-and Glide. The three original Windows choices and Default are preserved. The
+Glide, Focus, Arc, and Unfold. The three original Windows choices and Default are preserved. The
 choice is shared across Desktop, Windows Phone 8.1, and Windows 10 Mobile.
 
 | Story | Physical idea | Surrounding scene | Duration |
@@ -11,6 +11,9 @@ choice is shared across Desktop, Windows Phone 8.1, and Windows 10 Mobile.
 | Ripple | A touch propagates through the mosaic before opening the app | Distance controls when each neighbor reacts | 560 ms |
 | Page turn | A sheet lifts from its top edge and unfolds | Rows lift away in sequence | 600 ms |
 | Glide | A sheet travels on a continuous sliding track | The old scene slides aside | 520 ms |
+| Focus | The tile expands straight into the app with no tilt or bounce | The mosaic recedes towards the touch and into depth | 520 ms |
+| Arc | The tile follows a shallow, mirrored curve with a small planar turn | Neighbors drift down and gently counter-turn | 560 ms |
+| Unfold | The tile widens into a sheet while its height continuously catches up | Rows separate above and below the touch | 580 ms |
 
 These are original adaptations of physical motion principles, not claims to
 reproduce an additional historical Windows animation.
@@ -66,6 +69,6 @@ distance-based wave timing, original durations, smooth release and calm return,
 velocity continuity at the old stage boundaries, overlapping identity, first
 Back-frame opacity, and wide/partially visible sources. `StoryLaunchRenderTest`
 also verifies that the internal window stays mounted across opening and Back,
-and checks all five choices on the six real public
+and checks all eight choices on the six real public
 surfaces, including absence of a duplicate source, actual neighbor motion, exact
 artwork at time zero, matching return poses, and early/midpoint emulator captures.

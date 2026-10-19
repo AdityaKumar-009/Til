@@ -122,6 +122,7 @@ internal fun Modifier.storyLaunchActor(
             scaleY = 1f
             rotationX = 0f
             rotationY = 0f
+            rotationZ = 0f
         } else if (!sourceCandidate && scene.isSelected(id)) {
             // Desktop All Apps transfers its icon plate; the title stays on
             // the row and fades. Keep that row's layout anchor stationary.
@@ -138,6 +139,7 @@ internal fun Modifier.storyLaunchActor(
             scaleY = motion.scale
             rotationX = motion.rotationX
             rotationY = motion.rotationY
+            rotationZ = motion.rotationZ
             transformOrigin = TransformOrigin(motion.pivotX, motion.pivotY)
             cameraDistance = maxOf(viewport.width * 3f, viewport.height * 2f)
         }
@@ -279,6 +281,7 @@ internal fun StoryLaunchOverlay(
             translationY = f.bounds.top - (h - f.bounds.height) * f.pivotY
             rotationX = f.rotationX
             rotationY = f.rotationY
+            rotationZ = f.rotationZ
             cameraDistance = maxOf(w * 3f, h * 2f)
         }) {
         // Artwork and destination share ONE perspective plane and hinge. An

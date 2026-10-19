@@ -9,7 +9,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Five optional, physical launch stories. A shared clock drives every actor;
+ * Optional, physical launch stories. A shared clock drives every actor;
  * returning retraces the same poses with its own measured, decelerating timing.
  * These samples never modify any of the three original Windows compositors.
  *
@@ -24,6 +24,9 @@ internal object StoryLaunchMotion {
         MasterLaunchAnimation.RIPPLE -> 560
         MasterLaunchAnimation.PAGE_TURN -> 600
         MasterLaunchAnimation.GLIDE -> 520
+        MasterLaunchAnimation.FOCUS -> 520
+        MasterLaunchAnimation.ARC -> 560
+        MasterLaunchAnimation.UNFOLD -> 580
         else -> error("Not a story animation: $style")
     }
 
@@ -90,6 +93,7 @@ internal object StoryLaunchMotion {
         var dy = 0f
         var rx = 0f
         var ry = 0f
+        var rz = 0f
         var pivotX = .5f
         var pivotY = .5f
         val press = (256f / 27f) * travel * (1f - travel) * (1f - travel) * (1f - travel)
@@ -122,9 +126,33 @@ internal object StoryLaunchMotion {
                 dx = viewport.width * (.055f * arc - .025f * press)
                 dy = -lift * .35f * arc
             }
+            MasterLaunchAnimation.FOCUS -> {
+                // Direct, level expansion. The receding neighbors supply depth
+                // without a press, wobble or a second movement of the source.
+            }
+            MasterLaunchAnimation.ARC -> {
+                // A shallow, source-aware bow towards the center. Left/right
+                // sources mirror each other; a centered source never flips its
+                // direction at an arbitrary sign threshold.
+                val offset = ((source.center.x - viewport.center.x) /
+                    viewport.width.coerceAtLeast(1f)).coerceIn(-.5f, .5f)
+                dx = -offset * viewport.width * .32f * arc
+                dy = -viewport.height * .035f * arc
+                rz = offset * 12f * arc
+            }
+            MasterLaunchAnimation.UNFOLD -> {
+                // Width leads and height follows on the SAME clock, so opening
+                // the sheet never pauses at a seam between two stages.
+                widthProgress = shape(travel, .65f)
+                heightProgress = shape(travel, -.55f)
+                rx = -10f * arc
+                dy = -lift * .40f * arc
+            }
             else -> error("Not a story animation: $style")
         }
-        val compression = 1f - .035f * press
+        val compression = if (style == MasterLaunchAnimation.FOCUS ||
+            style == MasterLaunchAnimation.ARC || style == MasterLaunchAnimation.UNFOLD) 1f
+            else 1f - .035f * press
         val width = mix(source.width * compression, viewport.width, widthProgress)
         val height = mix(source.height * compression, viewport.height, heightProgress)
         val cx = mix(source.center.x, viewport.center.x, travel) + dx
@@ -141,6 +169,7 @@ internal object StoryLaunchMotion {
             contentAlpha = reveal,
             sourceScale = compression * mix(1f, artworkScale, travel),
             backdropAlpha = .50f * ease(0f, 1f, travel),
+            rotationZ = rz,
         )
     }
 
@@ -183,6 +212,24 @@ internal object StoryLaunchMotion {
                 scale = 1f - .06f * move, rotationX = 28f * move, pivotY = 0f)
             MasterLaunchAnimation.GLIDE -> StoryNeighborFrame(fade,
                 -w * .58f * move, dy * h * .04f * move, scale = 1f - .04f * move)
+            MasterLaunchAnimation.FOCUS -> StoryNeighborFrame(fade,
+                -dx * w * .14f * move, -dy * h * .14f * move,
+                scale = 1f - .20f * move)
+            MasterLaunchAnimation.ARC -> {
+                val offset = ((source.center.x - viewport.center.x) / w).coerceIn(-.5f, .5f)
+                StoryNeighborFrame(fade,
+                    (dx * .08f + offset * .12f) * w * move,
+                    (.11f + dy * .05f) * h * move,
+                    scale = 1f - .08f * move, rotationZ = -offset * 6f * move)
+            }
+            MasterLaunchAnimation.UNFOLD -> {
+                // Rows above/below the touch separate gradually. A continuous
+                // vertical weight also keeps actors on the same row level.
+                val vertical = (dy * 4f).coerceIn(-1f, 1f)
+                StoryNeighborFrame(fade, dx * w * .10f * move,
+                    vertical * h * .22f * move, scale = 1f - .05f * move,
+                    rotationX = -vertical * 6f * move)
+            }
             else -> error("Not a story animation: $style")
         }
     }
@@ -199,10 +246,12 @@ internal data class StoryPanelFrame(
     val pivotX: Float, val pivotY: Float,
     val sourceAlpha: Float, val surfaceAlpha: Float, val contentAlpha: Float,
     val sourceScale: Float, val backdropAlpha: Float,
+    val rotationZ: Float = 0f,
 )
 
 internal data class StoryNeighborFrame(
     val alpha: Float, val x: Float, val y: Float,
     val scale: Float = 1f, val rotationX: Float = 0f, val rotationY: Float = 0f,
     val pivotX: Float = .5f, val pivotY: Float = .5f,
+    val rotationZ: Float = 0f,
 )

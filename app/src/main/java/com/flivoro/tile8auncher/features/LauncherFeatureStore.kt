@@ -36,12 +36,16 @@ enum class MasterLaunchAnimation(val title: String, val detail: String) {
     RIPPLE("Ripple", "A touch sends a wave through nearby tiles and opens the app"),
     PAGE_TURN("Page turn", "Lift a page from the mosaic and unfold it into the app"),
     GLIDE("Glide", "Draw the app forward on a smooth, sliding sheet"),
+    FOCUS("Focus", "Bring the tile straight into focus as the mosaic softly recedes"),
+    ARC("Arc", "Carry the tile along a gentle arc and settle into the app"),
+    UNFOLD("Unfold", "Widen the tile into a sheet as nearby rows gently make room"),
 
     ;
 
     val isStory: Boolean
         get() = this == LIFT || this == DOOR || this == RIPPLE ||
-            this == PAGE_TURN || this == GLIDE
+            this == PAGE_TURN || this == GLIDE || this == FOCUS ||
+            this == ARC || this == UNFOLD
 }
 
 enum class AppIconStyle {

@@ -25,6 +25,8 @@ class StoryLaunchMotionTest {
             assertEquals(1f, last.contentAlpha, .00001f)
             assertEquals(0f, last.rotationX, .0001f)
             assertEquals(0f, last.rotationY, .0001f)
+            assertEquals(0f, first.rotationZ, .0001f)
+            assertEquals(0f, last.rotationZ, .0001f)
         }
     }
 
@@ -67,7 +69,10 @@ class StoryLaunchMotionTest {
         val originalDurations = mapOf(MasterLaunchAnimation.LIFT to 520,
             MasterLaunchAnimation.DOOR to 560, MasterLaunchAnimation.RIPPLE to 560,
             MasterLaunchAnimation.PAGE_TURN to 600, MasterLaunchAnimation.GLIDE to 520)
-        styles.forEach { assertEquals(originalDurations.getValue(it), StoryLaunchMotion.duration(it)) }
+        originalDurations.forEach { (style, duration) ->
+            assertEquals(duration, StoryLaunchMotion.duration(style))
+        }
+        styles.forEach { assertTrue(StoryLaunchMotion.duration(it) in 520..600) }
     }
 
     @Test fun expansionHasNoVelocityStepsBetweenTheOldChoreographyStages() {
@@ -77,7 +82,7 @@ class StoryLaunchMotionTest {
                 val f = StoryLaunchMotion.panel(style, time, source, viewport)
                 return listOf(f.bounds.left / viewport.width, f.bounds.right / viewport.width,
                     f.bounds.top / viewport.height, f.bounds.bottom / viewport.height,
-                    f.rotationX / 90f, f.rotationY / 90f)
+                    f.rotationX / 90f, f.rotationY / 90f, f.rotationZ / 90f)
             }
             val rest = channels(0f)
             val first = channels(step)
@@ -154,7 +159,7 @@ class StoryLaunchMotionTest {
                         val f = StoryLaunchMotion.panel(style, ms.toFloat() / duration, anchor, vp)
                         assertTrue(f.bounds.width > 0f && f.bounds.height > 0f)
                         assertTrue(f.bounds.left.isFinite() && f.bounds.top.isFinite())
-                        assertTrue(f.rotationX.isFinite() && f.rotationY.isFinite())
+                        assertTrue(f.rotationX.isFinite() && f.rotationY.isFinite() && f.rotationZ.isFinite())
                         assertTrue(f.sourceAlpha in 0f..1f && f.surfaceAlpha in 0f..1f)
                         assertTrue(f.contentAlpha in 0f..1f)
                         assertTrue("$style jumps between adjacent samples",
@@ -181,6 +186,43 @@ class StoryLaunchMotionTest {
             val preceding = StoryLaunchMotion.panel(style, interruption - .001f, source, viewport)
             assertTrue(abs(outgoing.bounds.center.x - preceding.bounds.center.x) < 2f)
             assertTrue(abs(outgoing.bounds.center.y - preceding.bounds.center.y) < 3f)
+        }
+    }
+
+    @Test fun naturalOptionsExpandWithoutBounceOrDeepRotations() {
+        val natural = listOf(MasterLaunchAnimation.FOCUS, MasterLaunchAnimation.ARC,
+            MasterLaunchAnimation.UNFOLD)
+        for (style in natural) for (anchor in listOf(source, Rect(16f, 145f, 384f, 209f))) {
+            var previous = StoryLaunchMotion.panel(style, 0f, anchor, viewport)
+            for (sample in 1..200) {
+                val f = StoryLaunchMotion.panel(style, sample / 200f, anchor, viewport)
+                assertTrue("$style reverses width mid-expansion", f.bounds.width >= previous.bounds.width - .001f)
+                assertTrue("$style reverses height mid-expansion", f.bounds.height >= previous.bounds.height - .001f)
+                assertTrue(abs(f.rotationX) <= 10f && abs(f.rotationY) <= 10f && abs(f.rotationZ) <= 6f)
+                if (style == MasterLaunchAnimation.FOCUS) {
+                    assertEquals(0f, abs(f.rotationX) + abs(f.rotationY) + abs(f.rotationZ), 0f)
+                }
+                previous = f
+            }
+        }
+    }
+
+    @Test fun arcMirrorsTheSourceAndHasNoDirectionSnapAtScreenCenter() {
+        fun mirrored(rect: Rect) = Rect(viewport.width - rect.right, rect.top,
+            viewport.width - rect.left, rect.bottom)
+        val centered = Rect(126f, 145f, 274f, 293f)
+        for (sample in 0..100) {
+            val t = sample / 100f
+            val left = StoryLaunchMotion.panel(MasterLaunchAnimation.ARC, t, source, viewport)
+            val right = StoryLaunchMotion.panel(MasterLaunchAnimation.ARC, t, mirrored(source), viewport)
+            assertEquals(viewport.width, left.bounds.center.x + right.bounds.center.x, .001f)
+            assertEquals(left.bounds.center.y, right.bounds.center.y, .001f)
+            assertEquals(left.rotationZ, -right.rotationZ, .001f)
+            val a = StoryLaunchMotion.panel(MasterLaunchAnimation.ARC, t,
+                Rect(125.9f, 145f, 273.9f, 293f), viewport)
+            val b = StoryLaunchMotion.panel(MasterLaunchAnimation.ARC, t, centered, viewport)
+            assertTrue(abs(a.bounds.center.x - b.bounds.center.x) < .11f)
+            assertTrue(abs(a.rotationZ - b.rotationZ) < .01f)
         }
     }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise all five new compositors in the actual R8 optimized APK, including Settings Back."""
+"""Exercise all optional compositors in the actual R8 optimized APK, including Settings Back."""
 import re
 import subprocess
 import time
@@ -34,7 +34,7 @@ def tap_settings():
     return False
 
 
-for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE"):
+for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE", "FOCUS", "ARC", "UNFOLD"):
     adb("shell", "am", "force-stop", PKG)
     adb("shell", "pm", "clear", PKG)
     uid = re.search(r"uid:(\d+)", adb("shell", "pm", "list", "packages", "-U", PKG)).group(1)
