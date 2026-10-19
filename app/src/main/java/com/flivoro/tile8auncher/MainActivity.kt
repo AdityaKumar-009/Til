@@ -285,7 +285,8 @@ class MainActivity : ComponentActivity() {
                             val isPhone = uiMode != LauncherUiMode.DESKTOP
                             val tilePicture = origin == LaunchOrigin.START &&
                                 LauncherFeatureStore.backgroundStyle(this@MainActivity, uiMode) ==
-                                    PhoneBackgroundStyle.TILE_PICTURE
+                                    PhoneBackgroundStyle.TILE_PICTURE &&
+                                StartPersonalization.hasPictureSource(appsRepository.getWallpaperStyle())
                             val initialOpacity = if (tilePicture) 0f
                                 else if (isPhone && origin == LaunchOrigin.START &&
                                     uiMode == LauncherUiMode.MOBILE_10)
@@ -302,7 +303,9 @@ class MainActivity : ComponentActivity() {
                                         .hasCustomColor(this@MainActivity, uiMode, tile.id),
                                     LauncherFeatureStore.appIconStyle(this@MainActivity) ==
                                         com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED,
-                                    StartPersonalization.wallpaperAccentArgb,
+                                    StartPersonalization.wallpaperAccentArgb.takeIf {
+                                        StartPersonalization.hasPictureSource(appsRepository.getWallpaperStyle())
+                                    },
                                 )
                             } else tile.colorValue
                             val launchTile = if (launchColor != tile.colorValue)
@@ -1399,7 +1402,8 @@ fun Tile8LauncherApp(
             }
         }) {
         val desktopTilePictureMode = LauncherFeatureStore.backgroundStyle(
-            context, LauncherUiMode.DESKTOP) == PhoneBackgroundStyle.TILE_PICTURE
+            context, LauncherUiMode.DESKTOP) == PhoneBackgroundStyle.TILE_PICTURE &&
+            StartPersonalization.hasPictureSource(wallpaperStyle)
         if (!desktopTilePictureMode) WindowsWallpaper(
             wallpaperStyle = wallpaperStyle,
             enabled = wallpaperParallaxEnabled,
