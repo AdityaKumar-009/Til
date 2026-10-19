@@ -1312,6 +1312,8 @@ fun Tile8LauncherApp(
                                     tile = tile,
                                     appsRepository = appsRepository,
                                     onClose = { closeInAppTileAndRetriggerEntrance() },
+                                    onWallpaperStyleChanged = { wallpaperStyle = it },
+                                    onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
                                 )
                             }
                         }
@@ -1597,6 +1599,7 @@ fun Tile8LauncherApp(
                             WindowsAppView(tile = tile, appsRepository = appsRepository,
                                 onClose = { closeInAppTileAndRetriggerEntrance() },
                                 onWallpaperStyleChanged = { wallpaperStyle = it },
+                                onWallpaperParallaxChanged = { wallpaperParallaxEnabled = it },
                             )
                         }
                     }
