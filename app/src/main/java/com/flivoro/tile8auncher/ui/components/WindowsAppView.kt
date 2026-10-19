@@ -47,6 +47,9 @@ import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
+import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
@@ -420,6 +423,15 @@ private fun PCSettingsAppContent(
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
+    // Store writes update this revision immediately, so changing the tile-picture
+    // selection refreshes the preview and the visible launcher without reopening Settings.
+    val appearanceRevision = LauncherFeatureRuntime.launcherModeRevision
+    val appearanceMode = remember(appearanceRevision) {
+        LauncherFeatureStore.launcherUiMode(context)
+    }
+    val appearancePictureStyle = remember(appearanceRevision) {
+        LauncherFeatureStore.backgroundStyle(context, appearanceMode)
+    }
 
     fun updateWallpaperParallax(enabled: Boolean) {
         wallpaperParallaxEnabled = enabled
@@ -460,7 +472,28 @@ private fun PCSettingsAppContent(
         when (settingsPage) {
             0 -> {
                 Text("Start wallpaper & tiles", color = Color(0xFF5133AB), fontSize = 21.sp)
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
+                Text("Background placement • ${appearanceMode.title}",
+                    color = Color(0xFF666666), fontSize = 12.sp)
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PhoneBackgroundStyle.entries.forEach { style ->
+                        Text(
+                            style.displayName,
+                            color = if (style == appearancePictureStyle) Color.White
+                                else Color(0xFF333333),
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                                .background(if (style == appearancePictureStyle)
+                                    Color(0xFF5133AB) else Color(0xFFDEDEDE))
+                                .clickable {
+                                    LauncherFeatureStore.setBackgroundStyle(context, appearanceMode, style)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
                 WallpaperPicker(selected = wallpaperStyle, onSelect = { style ->
                     wallpaperStyle = style
                     appsRepository?.setWallpaperStyle(style)
