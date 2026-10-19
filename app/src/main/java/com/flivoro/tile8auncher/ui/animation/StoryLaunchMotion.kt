@@ -1,6 +1,5 @@
 package com.flivoro.tile8auncher.ui.animation
 
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
@@ -36,14 +35,15 @@ internal object StoryLaunchMotion {
         return (x * x * x * (10f + x * (-15f + 6f * x))).coerceIn(0f, 1f)
     }
 
-    // Accelerate out of the resting tile, then coast into the app. Starting at
-    // zero velocity avoids the old instantaneous kick. All other channels are
-    // functions of this ONE traveled phase, including during the return.
-    private val release = CubicBezierEasing(.16f, 0f, .18f, 1f)
-
+    // Use the *actual* fitted time-to-expansion curve of Windows 8.1 Desktop's
+    // All Apps app-opening animation, rather than a similar-looking Bézier.
+    // Normalize its 0.50 -> 1.00 window scale to 0 -> 1 while retaining the
+    // sampled fast departure and progressively calmer landing. Each story's
+    // panel, neighbors, source artwork and return use this same traveled phase.
+    // Their distinct geometry and existing durations are intentionally unchanged.
     fun settle(start: Float, end: Float, raw: Float): Float {
         val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
-        return release.transform(p).coerceIn(0f, 1f)
+        return AllAppsLaunchMotion.expansionFraction(p)
     }
 
     /**
