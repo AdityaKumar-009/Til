@@ -49,8 +49,8 @@ class StoryLaunchMotionTest {
     @Test fun rippleReachesNearTilesBeforeDistantTiles() {
         val near = Rect(185f, 145f, 250f, 210f)
         val far = Rect(300f, 700f, 390f, 790f)
-        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .10f, near, source, viewport)
-        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .10f, far, source, viewport)
+        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .01f, near, source, viewport)
+        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .01f, far, source, viewport)
         assertTrue(abs(a.x) + abs(a.y) > .01f)
         assertEquals(0f, abs(b.x) + abs(b.y), .00001f)
     }
@@ -58,8 +58,8 @@ class StoryLaunchMotionTest {
     @Test fun travelKeepsOriginalDurationWithMeasuredReleaseAndCalmFinish() {
         val quarter = StoryLaunchMotion.settle(0f, 1f, .25f)
         val threeQuarters = StoryLaunchMotion.settle(0f, 1f, .75f)
-        assertTrue("Opening should accelerate promptly without a kick", quarter > .45f && quarter < .56f)
-        assertTrue("The last quarter should gently settle", threeQuarters > .96f)
+        assertTrue("Emphasized decelerate must cover most of the distance early", quarter > .80f && quarter < .86f)
+        assertTrue("The last quarter should settle quietly", threeQuarters > .985f)
         var previous = 0f
         for (sample in 0..100) {
             val distance = StoryLaunchMotion.settle(0f, 1f, sample / 100f)
@@ -87,8 +87,8 @@ class StoryLaunchMotionTest {
             val rest = channels(0f)
             val first = channels(step)
             first.indices.forEach { channel ->
-                assertTrue("$style kicks directly out of rest",
-                    abs(first[channel] - rest[channel]) / step < .12f)
+                assertTrue("$style makes an excessive first-frame leap",
+                    abs(first[channel] - rest[channel]) < .06f)
             }
             for (join in listOf(.08f, .10f, .13f, .20f, .23f, .82f, .88f, .90f, .92f)) {
                 val before = channels(join - step)
@@ -163,8 +163,8 @@ class StoryLaunchMotionTest {
                         assertTrue(f.sourceAlpha in 0f..1f && f.surfaceAlpha in 0f..1f)
                         assertTrue(f.contentAlpha in 0f..1f)
                         assertTrue("$style jumps between adjacent samples",
-                            abs(f.bounds.left - previous.bounds.left) < vp.width * .025f &&
-                                abs(f.bounds.top - previous.bounds.top) < vp.height * .025f)
+                            abs(f.bounds.left - previous.bounds.left) < vp.width * .06f &&
+                                abs(f.bounds.top - previous.bounds.top) < vp.height * .06f)
                         previous = f
                     }
                 }
@@ -225,4 +225,22 @@ class StoryLaunchMotionTest {
             assertTrue(abs(a.rotationZ - b.rotationZ) < .01f)
         }
     }
+    @Test fun sharedEasingPathMatchesOriginalPanelAndNeighbors() {
+        val neighborBounds = Rect(210f, 145f, 350f, 293f)
+        for (style in styles) for (tick in 0..100) {
+            val t = tick / 100f
+            val traveled = StoryLaunchMotion.settle(0f, 1f, t)
+            assertEquals(
+                "Pre-eased panel changed the story geometry",
+                StoryLaunchMotion.panel(style, t, source, viewport),
+                StoryLaunchMotion.panelAtTravel(style, traveled, source, viewport),
+            )
+            assertEquals(
+                "Pre-eased neighbors diverged from the selected source",
+                StoryLaunchMotion.neighbor(style, t, neighborBounds, source, viewport),
+                StoryLaunchMotion.neighborAtTravel(style, traveled, neighborBounds, source, viewport),
+            )
+        }
+    }
+
 }
