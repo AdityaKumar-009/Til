@@ -80,9 +80,8 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
 
-    LaunchedEffect(Unit) {
-        LiveTileRuntime.requestReconnect(context)
-    }
+    // MainActivity already requests the listener on resume. Reconnecting again
+    // as soon as Settings composes competes with the app-opening transition.
     val liveTileAccessGranted = LiveTileRuntime.hasNotificationAccess(context)
     val liveTileConnected = LiveTileRuntime.listenerConnected
     val liveUpdateCount = LiveTileNotificationStore.current().size
@@ -97,8 +96,14 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
             "Grant Notification access so Tile8 can project Android notifications into Windows-style live tile updates."
     }
 
-    val installedApps by produceState<List<AppInfo>>(emptyList(), repository) {
-        value = withContext(Dispatchers.IO) { repository.getInstalledApps() }
+    // Avoid package-manager work while a Settings window is animating open.
+    // Only populate the catalog when a picker actually needs the app list.
+    val installedApps by produceState<List<AppInfo>>(
+        emptyList(), repository, appPickerMode, showIconStyles, showIconPacks,
+    ) {
+        if (appPickerMode != null || showIconStyles || showIconPacks) {
+            value = withContext(Dispatchers.IO) { repository.getInstalledApps() }
+        }
     }
     val iconPacks by produceState<List<Pair<String, String>>>(emptyList(), showIconPacks) {
         if (showIconPacks) {
