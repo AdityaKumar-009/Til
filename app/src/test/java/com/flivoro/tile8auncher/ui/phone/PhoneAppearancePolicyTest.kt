@@ -56,4 +56,36 @@ class PhoneAppearancePolicyTest {
         assertEquals(45f * 27f / 52f, phoneAllAppsSettingsGlyphSizeDp(45f), .0001f)
         assertEquals(45f * 22f / 52f, phoneAllAppsFallbackSizeSp(45f), .0001f)
     }
+    @Test fun wallpaperColorWinsForThemeTilesButNotManuallyColoredOrBrandedTiles() {
+        val saved = 0xFF5133ABL
+        val wallpaper = 0xFF1BA1E2L
+        val brand = 0xFFE51400L
+        assertEquals(wallpaper, resolvePhoneTileBackgroundArgb(
+            "tile_settings", "Settings", saved, null,
+            manualColor = false, discoLayered = true, wallpaperAccent = wallpaper))
+        assertEquals(wallpaper, resolvePhoneTileBackgroundArgb(
+            "phone_app_dialer", "Phone", saved, brand,
+            manualColor = false, discoLayered = true, wallpaperAccent = wallpaper))
+        assertEquals(saved, resolvePhoneTileBackgroundArgb(
+            "tile_settings", "Settings", saved, brand,
+            manualColor = true, discoLayered = true, wallpaperAccent = wallpaper))
+        assertEquals(brand, resolvePhoneTileBackgroundArgb(
+            "phone_app_camera", "Camera", saved, brand,
+            manualColor = false, discoLayered = true, wallpaperAccent = wallpaper))
+    }
+
+    @Test fun transparentAndPhotoTilesReachSolidHalfwayAndReverseContinuously() {
+        assertEquals(0f, sourceColorArrival(0f), 0f)
+        assertEquals(1f, sourceColorArrival(.5f), 0f)
+        assertEquals(1f, sourceColorArrival(1f), 0f)
+        assertEquals(.5f, sourceColorArrival(.25f), .00001f)
+        var previous = 0f
+        for (i in 0..100) {
+            val progress = i / 100f
+            val blend = sourceColorArrival(progress)
+            assertTrue("Color crossfade reversed at $progress", blend >= previous)
+            previous = blend
+        }
+    }
+
 }
