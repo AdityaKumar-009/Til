@@ -52,6 +52,7 @@ import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.AllAppsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
 import kotlin.math.cbrt
 import kotlin.math.roundToInt
@@ -128,8 +129,13 @@ fun FlipLaunchOverlay(
                         tween(durationMillis = reverseDuration, easing = LinearEasing),
                     )
                 }
-                // Submit the source frame before revealing the real tile underneath it.
-                snapshotFlow { sourceFrameDrawn }.first { it }
+                // Phone modes borrowing Desktop can temporarily unmount or cull
+                // the source face while Android returns. A face-specific draw
+                // acknowledgment must never hold the launcher hostage. Prefer
+                // the painted frame, but always release the reverse on completion.
+                withTimeoutOrNull(240L) {
+                    snapshotFlow { sourceFrameDrawn }.first { it }
+                }
                 withFrameNanos { }
                 finishReverse(latestReverseReason ?: FlipReverseReason.BACK)
             }
@@ -138,6 +144,12 @@ fun FlipLaunchOverlay(
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().clipToBounds()
+            .drawWithContent {
+                drawContent()
+                // The overlay itself is guaranteed to be on the returning
+                // window; its front face may be culled on phone displays.
+                if (progress.value <= .0001f && !sourceFrameDrawn) sourceFrameDrawn = true
+            }
             .pointerInput(Unit) {
                 // The launch owns input until its handoff, including taps outside the card.
                 awaitPointerEventScope {
