@@ -121,7 +121,16 @@ internal object StartPersonalization {
                 },
             )
         }
-        return if (bitmap == null) fallbackAccent else Color(extractWallpaperAccent(bitmap))
+        if (bitmap == null) {
+            // A selected image may still be loading. Never replace its previous
+            // extracted accent with the unrelated manual default while it decodes.
+            return if (!customUri.isNullOrBlank() || wallpaperStyle > 0)
+                wallpaperAccentColor else fallbackAccent
+        }
+        val metrics = context.resources.displayMetrics
+        val screenAspect = metrics.widthPixels.toFloat() /
+            metrics.heightPixels.coerceAtLeast(1).toFloat()
+        return Color(extractWallpaperAccent(bitmap, screenAspect))
     }
 
     fun setCustomWallpaperOverlay(context: Context, alpha: Float) {
@@ -146,8 +155,24 @@ internal object StartPersonalization {
         else -> R.drawable.start_wallpaper_9
     }
 
-    private fun extractWallpaperAccent(bitmap: Bitmap): Long {
+    private fun extractWallpaperAccent(bitmap: Bitmap, screenAspect: Float): Long {
         if (bitmap.width <= 0 || bitmap.height <= 0) return DEFAULT_ACCENT_ARGB
+
+        // The Start wallpaper is displayed center-cropped. On a portrait phone,
+        // most of a landscape picture may be invisible; sampling that discarded
+        // area produced unrelated app-list and stock tile accent colors.
+        val visibleAspect = screenAspect.coerceIn(.3f, 3.5f)
+        val bitmapAspect = bitmap.width.toFloat() / bitmap.height
+        val cropWidth = if (bitmapAspect > visibleAspect)
+            (bitmap.height * visibleAspect).toInt().coerceIn(1, bitmap.width)
+            else bitmap.width
+        val cropHeight = if (bitmapAspect < visibleAspect)
+            (bitmap.width / visibleAspect).toInt().coerceIn(1, bitmap.height)
+            else bitmap.height
+        val left = (bitmap.width - cropWidth) / 2
+        val top = (bitmap.height - cropHeight) / 2
+        val right = left + cropWidth
+        val bottom = top + cropHeight
 
         val bins = 24
         val weights = DoubleArray(bins)
@@ -159,12 +184,12 @@ internal object StartPersonalization {
         var neutralB = 0.0
         var neutralWeight = 0.0
         val hsv = FloatArray(3)
-        val step = max(1, min(bitmap.width, bitmap.height) / 72)
+        val step = max(1, min(cropWidth, cropHeight) / 72)
 
-        var y = 0
-        while (y < bitmap.height) {
-            var x = 0
-            while (x < bitmap.width) {
+        var y = top
+        while (y < bottom) {
+            var x = left
+            while (x < right) {
                 val pixel = bitmap.getPixel(x, y)
                 val alpha = AndroidColor.alpha(pixel)
                 if (alpha >= 96) {
