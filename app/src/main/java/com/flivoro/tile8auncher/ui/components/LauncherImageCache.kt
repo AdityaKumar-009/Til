@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.UUID
 import kotlin.math.max
 
 /**
@@ -72,6 +73,51 @@ internal object LauncherImageCache {
         memory.remove(safe)
         previews.remove(safe)
     }
+
+    /**
+     * Import a selected gallery/file-provider image into our private persistent
+     * files directory. Gallery providers often grant temporary content URIs;
+     * storing those directly made wallpapers disappear after an Activity resume,
+     * app restart, or provider permission change.
+     *
+     * Call only from Dispatchers.IO. Never publish the new URI before its bytes
+     * are copied and verified as an image.
+     */
+    fun importWallpaper(context: Context, sourceUri: Uri): String? = runCatching {
+        val app = context.applicationContext
+        val directory = File(app.filesDir, "start_wallpapers")
+        check(directory.isDirectory || directory.mkdirs()) { "Cannot create wallpaper directory" }
+        val temp = File.createTempFile("import-", ".tmp", directory)
+        val target = File(directory, "start-${UUID.randomUUID()}.img")
+        try {
+            val input = app.contentResolver.openInputStream(sourceUri)
+                ?: error("Image provider returned no data")
+            input.use { stream ->
+                FileOutputStream(temp).use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    var copied = 0L
+                    while (true) {
+                        val size = stream.read(buffer)
+                        if (size < 0) break
+                        copied += size
+                        require(copied <= 48L * 1024L * 1024L) {
+                            "Wallpaper image is larger than 48 MB"
+                        }
+                        output.write(buffer, 0, size)
+                    }
+                }
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(temp.absolutePath, bounds)
+            require(bounds.outWidth > 0 && bounds.outHeight > 0) {
+                "Selected file is not a readable image"
+            }
+            check(temp.renameTo(target)) { "Failed to store wallpaper" }
+            Uri.fromFile(target).toString()
+        } finally {
+            if (temp.exists()) temp.delete()
+        }
+    }.getOrNull()
 
     private fun decodeContentUri(
         context: Context,
