@@ -392,7 +392,7 @@ fun PhoneLauncherSurface(
     val exitUsesClassic = if (isLaunching) exitMotionMode == LauncherUiMode.PHONE_8
         else mode == LauncherUiMode.PHONE_8
     val densityScale = LocalDensity.current.density
-    val accent = StartPersonalization.accentColor
+    val accent = StartPersonalization.wallpaperAccentColor
     val catalog = remember(sections, tiles) {
         val originals = sections.flatMap(AppSection::apps)
         // Do not inject a synthetic app into the isolated Compose motion fixtures.
@@ -691,9 +691,9 @@ fun PhoneLauncherSurface(
         // Phone/Messages Metro launchers intentionally follow the theme accent.
         colorValue = when {
             isPhoneOrMessagesApp(app.label) ->
-                StartPersonalization.accentArgb
+                StartPersonalization.wallpaperAccentArgb
             else -> appsRepository.getDiscoTileAccentColor(app.packageName)
-                ?: StartPersonalization.accentArgb
+                ?: StartPersonalization.wallpaperAccentArgb
         },
         tileType = if (app.packageName == MOSAIC_SETTINGS_ID)
             com.flivoro.tile8auncher.data.TileType.SETTINGS
@@ -709,7 +709,7 @@ fun PhoneLauncherSurface(
                     id = folder.id,
                     title = folder.name,
                     size = TileSize.MEDIUM,
-                    colorValue = StartPersonalization.accentArgb,
+                    colorValue = StartPersonalization.wallpaperAccentArgb,
                     iconGlyph = "folder",
                 )
             }
@@ -723,14 +723,14 @@ fun PhoneLauncherSurface(
             colorValue = if (usesPhoneThemeAccent(
                 source.id, source.title,
                 PhoneLayoutStore.hasCustomColor(context, mode, source.id),
-            )) StartPersonalization.accentArgb
+            )) StartPersonalization.wallpaperAccentArgb
             else PhoneLayoutStore.color(context, mode, source),
         )
     }
 
     // Accent is snapshot-backed: include it in memoization so changing the
     // selected theme recolors the Start tiles immediately without relaunch.
-    val currentAccentArgb = StartPersonalization.accentArgb
+    val currentAccentArgb = StartPersonalization.wallpaperAccentArgb
     val phoneTiles = remember(order, tiles, catalog, phoneRevision, folderRevision,
         currentAccentArgb) {
         order.mapNotNull { id -> tileFor(id) }
@@ -1717,7 +1717,7 @@ fun PhoneLauncherSurface(
                                             .then(if (isClassicPhone) Modifier.padding((5f * classicUnit).dp) else Modifier)
                                             .size(plateSideDp.dp)
                                             .background(
-                                                if (isTen) Color(rowColor ?: StartPersonalization.accentArgb)
+                                                if (isTen) Color(rowColor ?: StartPersonalization.wallpaperAccentArgb)
                                                 else if (discoLayered) visual.accent
                                                     ?.let { Color(it) } ?: accent else accent
                                             ), contentAlignment = Alignment.Center) {
