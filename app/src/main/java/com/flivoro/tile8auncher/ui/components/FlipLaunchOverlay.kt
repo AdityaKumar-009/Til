@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -168,19 +169,30 @@ fun FlipLaunchOverlay(
         val backRect = remember(width, height) {
             floatArrayOf(0f, 0f, width, 0f, width, height, 0f, height)
         }
-        fun frame(): LaunchFrame {
-            val time = progress.value
-            if (allApps) return AllAppsLaunchMotion.frame(
-                if (state.timing.curve == TimeCurve.REFERENCE) time
-                else AllAppsLaunchMotion.progressForExpansion(state.timing.transform(time)),
-                width, height)
-            val motionProgress = when {
-                state.timing.curve == TimeCurve.REFERENCE -> time
-                modern -> 1f - cbrt(1f - state.timing.transform(time))
-                else -> WindowsLaunchMotion.progressForRotation(state.timing.transform(time))
+        // Front, back and logo previously reconstructed the entire spatial
+        // projection independently every time they drew. On phone modes borrowing
+        // Desktop motion this tripled the motion-curve inversions and perspective
+        // calculations on the UI thread. One snapshot-derived frame is shared.
+        val currentFrame by remember(source, width, height, modern, allApps, state.timing) {
+            derivedStateOf {
+                val time = progress.value
+                if (allApps) {
+                    AllAppsLaunchMotion.frame(
+                        if (state.timing.curve == TimeCurve.REFERENCE) time
+                        else AllAppsLaunchMotion.progressForExpansion(state.timing.transform(time)),
+                        width, height,
+                    )
+                } else {
+                    val motionProgress = when {
+                        state.timing.curve == TimeCurve.REFERENCE -> time
+                        modern -> 1f - cbrt(1f - state.timing.transform(time))
+                        else -> WindowsLaunchMotion.progressForRotation(state.timing.transform(time))
+                    }
+                    WindowsLaunchMotion.frame(motionProgress, source, width, height, modern)
+                }
             }
-            return WindowsLaunchMotion.frame(motionProgress, source, width, height, modern)
         }
+        fun frame(): LaunchFrame = currentFrame
 
         Box(Modifier.fillMaxSize().onGloballyPositioned { windowOrigin = it.positionInWindow() }) {
             // Both faces have fixed layout dimensions. Progress is read only during
