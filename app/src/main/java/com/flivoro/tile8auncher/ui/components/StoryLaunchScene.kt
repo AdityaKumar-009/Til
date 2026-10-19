@@ -52,6 +52,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.math.abs
+import kotlin.math.max
+import com.flivoro.tile8auncher.ui.phone.sourceColorArrival
 
 /** One display clock and one source display list, shared by all three skins. */
 internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () -> Float) {
@@ -296,8 +298,11 @@ internal fun StoryLaunchOverlay(
         }) {
         // Artwork and destination share ONE perspective plane and hinge. An
         // independent artwork rotation would visibly detach it from Door/Page.
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = frame().surfaceAlpha }
-            .background(state.accentColor))
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            val base = frame().surfaceAlpha
+            alpha = if (state.sourceInitialOpacity < 1f)
+                base * sourceColorArrival(scene.progress()) else base
+        }.background(state.accentColor))
 
         val captured = scene.sourceLayer
         val sourceWidth = captured?.size?.width?.toFloat()?.takeIf { it > 0f } ?: source.width
@@ -310,13 +315,17 @@ internal fun StoryLaunchOverlay(
                 // stretch when a wide row becomes a portrait destination window.
                 scaleX = f.sourceScale * w / f.bounds.width
                 scaleY = f.sourceScale * h / f.bounds.height
-                alpha = f.sourceAlpha
+                alpha = if (state.sourceInitialOpacity < 1f)
+                    max(f.sourceAlpha, 1f - sourceColorArrival(scene.progress()))
+                else f.sourceAlpha
             }.drawWithContent {
                 val image = scene.sourceImage
                 val live = scene.sourceLayer
                 if (image != null) drawImage(image)
                 else if (live != null) drawLayer(live) else drawContent()
-            }.background(state.accentColor), contentAlignment = Alignment.Center) {
+            }.background(state.accentColor.copy(
+                alpha = state.sourceInitialOpacity.coerceIn(0f, 1f),
+            )), contentAlignment = Alignment.Center) {
             // Only used for a shortcut that has no physical cell on this page.
             if (captured == null) {
                 if (state.appIcon != null) Image(state.appIcon, tile.title, Modifier.size(56.dp))
