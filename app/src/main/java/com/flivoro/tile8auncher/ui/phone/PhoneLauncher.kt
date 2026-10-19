@@ -2972,6 +2972,11 @@ internal fun PhoneLaunchSourceFace(
     mode: LauncherUiMode,
     repository: AppsRepository,
     modifier: Modifier = Modifier,
+    sourceBounds: Rect = Rect.Zero,
+    sourceInitialOpacity: Float = 1f,
+    sourcePictureMode: Boolean = false,
+    wallpaperStyle: Int = 0,
+    launchProgress: () -> Float = { 0f },
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -3006,15 +3011,19 @@ internal fun PhoneLaunchSourceFace(
         canUsePhoneBrandColor(tile.id, tile.title, customColor, layered) &&
         !customColor && layered
     ) visual.richBackground else null
-    val opacity = if (mode == LauncherUiMode.MOBILE_10)
-        LauncherFeatureStore.phoneTileOpacity(context) else 1f
+    // Match the visible Start face at t=0 and settle on this tile's own
+    // resolved solid accent at t=50%. The source wallpaper and solid color are
+    // complementary layers, so they never appear as two competing tiles.
+    val viewportWidth = context.resources.displayMetrics.widthPixels.toFloat()
+    val viewportHeight = context.resources.displayMetrics.heightPixels.toFloat()
 
     WindowsTileFace(
         tile = faceTile,
         appIcon = visual.icon,
         modifier = modifier,
         allowAppDerivedBackground = false,
-        backgroundAlpha = opacity,
+        backgroundAlpha = 1f,
+        innerModifier = Modifier,
         logoModifier = if (nativeGlyph == "wp81_phone") Modifier.graphicsLayer {
             translationX = -.19f * density
             translationY = 5.41f * density
@@ -3022,22 +3031,47 @@ internal fun PhoneLaunchSourceFace(
             scaleX = classicScale
             scaleY = classicScale
         } else Modifier,
-        backgroundContent = if (richBackground != null) {
-            {
+        backgroundContent = {
+            // Draw this above the solid base initially; both are transformed
+            // by the one Desktop projective plane.
+            if (sourcePictureMode) {
+                com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = 1f - sourceColorArrival(launchProgress())
+                    },
+                    wallpaperStyle = wallpaperStyle,
+                    tileLeftPx = sourceBounds.left,
+                    tileTopPx = sourceBounds.top,
+                    gridWidthPx = viewportWidth,
+                    gridHeightPx = viewportHeight,
+                )
+            } else if (richBackground != null) {
                 androidx.compose.foundation.Image(
                     bitmap = richBackground,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = 1f - sourceColorArrival(launchProgress())
+                    },
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 )
-                Box(Modifier.fillMaxSize().background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = .18f)),
-                    ),
-                ))
             }
-        } else null,
+            // Cover the transparent/photo source with the *resolved* solid
+            // tile color, not a stale wallpaper or stock accent at t=0.
+            Box(
+                Modifier.fillMaxSize().graphicsLayer {
+                    alpha = sourceInitialOpacity.coerceIn(0f, 1f) +
+                        (1f - sourceInitialOpacity.coerceIn(0f, 1f)) *
+                        sourceColorArrival(launchProgress())
+                }.background(Color(resolvedColor)),
+            )
+        },
     )
+}
+
+/** Smooth opacity transition, completing at half the launch duration. */
+internal fun sourceColorArrival(progress: Float): Float {
+    val x = (progress.coerceIn(0f, 1f) * 2f).coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
 }
 
 /**
