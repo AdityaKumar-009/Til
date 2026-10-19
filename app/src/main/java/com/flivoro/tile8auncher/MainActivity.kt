@@ -290,8 +290,7 @@ class MainActivity : ComponentActivity() {
                             val isPhone = uiMode != LauncherUiMode.DESKTOP
                             val tilePicture = origin == LaunchOrigin.START &&
                                 LauncherFeatureStore.backgroundStyle(this@MainActivity, uiMode) ==
-                                    PhoneBackgroundStyle.TILE_PICTURE &&
-                                StartPersonalization.hasPictureSource(appsRepository.getWallpaperStyle())
+                                    PhoneBackgroundStyle.TILE_PICTURE
                             val initialOpacity = if (tilePicture) 0f
                                 else if (isPhone && origin == LaunchOrigin.START &&
                                     uiMode == LauncherUiMode.MOBILE_10)
@@ -308,9 +307,7 @@ class MainActivity : ComponentActivity() {
                                         .hasCustomColor(this@MainActivity, uiMode, tile.id),
                                     LauncherFeatureStore.appIconStyle(this@MainActivity) ==
                                         com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED,
-                                    StartPersonalization.wallpaperAccentArgb.takeIf {
-                                        StartPersonalization.hasPictureSource(appsRepository.getWallpaperStyle())
-                                    },
+                                    StartPersonalization.wallpaperAccentArgb,
                                 )
                             } else tile.colorValue
                             val launchTile = if (launchColor != tile.colorValue)
@@ -1225,14 +1222,11 @@ fun Tile8LauncherApp(
             }
         }
         Box(Modifier.fillMaxSize()) {
+            // Keep the panorama mounted at its native size. Only the source page (Start
+            // OR All Apps) retreats during a borrowed Desktop flip; transforming the
+            // parent made W10M's sibling All Apps page take part in a Start launch.
             Box(Modifier.fillMaxSize().graphicsLayer {
-                val nativeRetreat = if (usesDesktopLaunch && flipState.isRunning) {
-                    val elapsed = flipProgress.value * flipState.timing.durationMillis.coerceIn(100, 2000)
-                    FastOutSlowInEasing.transform((elapsed / 140f).coerceIn(0f, 1f))
-                } else 0f
-                alpha = if (entranceReady) (1f - nativeRetreat) else 0f
-                scaleX = 1f - .12f * nativeRetreat
-                scaleY = 1f - .12f * nativeRetreat
+                alpha = if (entranceReady) 1f else 0f
             }) {
                 // PC Settings loads wallpaper previews and animation tooling. Keeping the
                 // entire phone panorama + lazy app grid alive beneath it can exhaust graphics
@@ -1251,6 +1245,15 @@ fun Tile8LauncherApp(
                         launchingTileId = if (phoneLaunchActive)
                             flipState.sourceTile?.id else handoffTileId,
                         hideOriginalTileId = desktopOverlayTileId,
+                        borrowedDesktopOrigin = if (usesDesktopLaunch && flipState.isRunning)
+                            flipState.origin else null,
+                        borrowedDesktopRetreat = {
+                            if (usesDesktopLaunch && flipState.isRunning) {
+                                val elapsed = flipProgress.value *
+                                    flipState.timing.durationMillis.coerceIn(100, 2000)
+                                FastOutSlowInEasing.transform((elapsed / 140f).coerceIn(0f, 1f))
+                            } else 0f
+                        },
                         launchMotionMode = if (phoneHandoffHeld) handoffAnimationMode
                             else when (chosenLaunch) {
                                 MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
