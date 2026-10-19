@@ -49,6 +49,32 @@ internal object StoryLaunchMotion {
         return emphasizedDecelerate.transform(p).coerceIn(0f, 1f)
     }
 
+    // Back previously inverted the emphasized cubic curve with 18 separate
+    // Bézier evaluations for every frame. A small shared monotone inverse table
+    // retains the exact path to sub-pixel accuracy without repeated curve solves.
+    private val inverseSteps = 2048
+    private val inverseEasingSamples by lazy(LazyThreadSafetyMode.NONE) {
+        FloatArray(inverseSteps + 1) { index ->
+            emphasizedDecelerate.transform(index.toFloat() / inverseSteps)
+        }
+    }
+
+    private fun inverseEmphasizedDistance(distance: Float): Float {
+        val target = distance.coerceIn(0f, 1f)
+        if (target <= 0f || target >= 1f) return target
+        val table = inverseEasingSamples
+        var low = 0
+        var high = inverseSteps
+        while (high - low > 1) {
+            val mid = (low + high) / 2
+            if (table[mid] < target) low = mid else high = mid
+        }
+        val span = table[high] - table[low]
+        val fraction = if (span > 0f)
+            ((target - table[low]) / span).coerceIn(0f, 1f) else 0f
+        return (low + fraction) / inverseSteps
+    }
+
     /**
      * Retrace the SAME spatial poses with a measured return and a soft landing.
      * Reversing a front-loaded linear clock directly would do the opposite:
@@ -63,13 +89,7 @@ internal object StoryLaunchMotion {
             val t = progress(raw)
             if (t <= 0f) 0f else if (t >= 1f) 1f else {
                 val target = distance * (1f - settle(0f, 1f, t))
-                var low = 0f
-                var high = start
-                repeat(18) {
-                    val mid = (low + high) * .5f
-                    if (settle(0f, 1f, mid) < target) low = mid else high = mid
-                }
-                (1f - (low + high) * .5f / start).coerceIn(0f, 1f)
+                (1f - inverseEmphasizedDistance(target) / start).coerceIn(0f, 1f)
             }
         }
     }
