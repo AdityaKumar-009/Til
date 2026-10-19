@@ -283,12 +283,12 @@ class MainActivity : ComponentActivity() {
                             }
                             val uiMode = LauncherFeatureStore.launcherUiMode(this@MainActivity)
                             val isPhone = uiMode != LauncherUiMode.DESKTOP
-                            val phonePicture = isPhone && origin == LaunchOrigin.START &&
+                            val tilePicture = origin == LaunchOrigin.START &&
                                 LauncherFeatureStore.backgroundStyle(this@MainActivity, uiMode) ==
                                     PhoneBackgroundStyle.TILE_PICTURE
-                            val initialOpacity = if (!isPhone || origin != LaunchOrigin.START) 1f
-                                else if (phonePicture) 0f
-                                else if (uiMode == LauncherUiMode.MOBILE_10)
+                            val initialOpacity = if (tilePicture) 0f
+                                else if (isPhone && origin == LaunchOrigin.START &&
+                                    uiMode == LauncherUiMode.MOBILE_10)
                                     LauncherFeatureStore.phoneTileOpacity(this@MainActivity)
                                 else 1f
                             // Resolve the *same* tile color as the phone Start renderer;
@@ -314,7 +314,7 @@ class MainActivity : ComponentActivity() {
                                 appIcon = icon,
                                 accentColor = launchColor.toTileColor(),
                                 sourceInitialOpacity = initialOpacity,
-                                sourcePictureMode = phonePicture,
+                                sourcePictureMode = tilePicture,
                                 sourceWallpaperStyle = appsRepository.getWallpaperStyle(),
                                 animationMode = if (
                                     LauncherFeatureStore.masterLaunchAnimation(this@MainActivity) ==
