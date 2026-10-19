@@ -481,6 +481,10 @@ fun PhoneLauncherSurface(
         LauncherFeatureStore.backgroundStyle(context, mode) ==
             PhoneBackgroundStyle.TILE_PICTURE
     }
+    // Bitmap tiles only exist for a selected photo. The procedural purple
+    // default must stay on the original phone wallpaper/solid-tile renderer.
+    val effectiveTilePictureMode = phoneTilePictureMode &&
+        StartPersonalization.hasPictureSource(wallpaperStyle)
     val columns = remember(mode, densityRevision) { LauncherFeatureStore.phoneSmallColumns(context, mode) }
     val tileOpacity = remember(mode, densityRevision) {
         if (isTen) LauncherFeatureStore.phoneTileOpacity(context) else 1f
@@ -873,7 +877,7 @@ fun PhoneLauncherSurface(
         .testTag("phone-navigation-state")
         .semantics { stateDescription = motionHomeRequest.toString() }
         .onGloballyPositioned { surfaceBounds = it.boundsInWindow() }) {
-        if (!phoneTilePictureMode) {
+        if (!effectiveTilePictureMode) {
             Box(Modifier.fillMaxSize().graphicsLayer {
                 alpha = if (exitUsesMobile) mobileWallpaperAlpha() else 1f
             }) {
@@ -944,7 +948,7 @@ fun PhoneLauncherSurface(
                             hideOriginalTileId = hideOriginalTileId,
                             tileOpacity = tileOpacity,
                             wallpaperStyle = wallpaperStyle,
-                            mobileTilePictureMode = phoneTilePictureMode,
+                            mobileTilePictureMode = effectiveTilePictureMode,
                             appsRepository = appsRepository,
                             editingTileId = editing.takeIf { !showApps },
                             deletingTileId = deletingTileId,
@@ -2340,8 +2344,8 @@ private fun PhoneStartGrid(
         val lastVisibleTop = visibleTops.maxOrNull() ?: firstVisibleTop
         val heightRows = slots.maxOfOrNull { it.row + it.rows } ?: 1
         val gridWidthForPhoto = maxWidth
-        // Generated wallpaper (style 0) must also render inside every tile.
-        val tilePicture = mobileTilePictureMode
+        val tilePicture = mobileTilePictureMode &&
+            StartPersonalization.hasPictureSource(wallpaperStyle)
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
             .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
                 onClick = onExitEdit)) {
