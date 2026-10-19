@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
 import android.graphics.Matrix
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -65,6 +66,20 @@ fun PhoneTilePicture(
     val paint = remember {
         Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     }
+    // Style 0 is a generated wallpaper, not a JPEG. In tile-picture mode it
+    // previously left every tile transparent/black. Use an inexpensive shared-
+    // coordinate gradient for its tile fragments instead of decoding per tile.
+    val generatedPaint = remember(gridWidthPx, gridHeightPx) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f, 0f,
+                gridWidthPx.coerceAtLeast(1f), gridHeightPx.coerceAtLeast(1f),
+                intArrayOf(0xFF23053D.toInt(), 0xFF5A148C.toInt(),
+                    0xFF8824B8.toInt(), 0xFF23053D.toInt()),
+                null, Shader.TileMode.MIRROR,
+            )
+        }
+    }
     androidx.compose.foundation.Canvas(modifier) {
         if (bitmap != null && bitmap.width > 0 && bitmap.height > 0) {
             val scale = max(
@@ -91,6 +106,22 @@ fun PhoneTilePicture(
                         android.graphics.Color.argb((overlay * 255).toInt(), 0, 0, 0),
                     )
                 }
+                native.restoreToCount(save)
+            }
+        } else if (uri == null && wallpaperStyle == 0) {
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                val save = native.save()
+                native.clipRect(0f, 0f, size.width, size.height)
+                inverseTileProjection?.invoke()?.let(native::concat)
+                // World-anchored sampling: adjoining tiles reveal one uninterrupted
+                // purple background even when their faces animate independently.
+                native.translate(-tileLeftPx, -tileTopPx)
+                native.drawRect(
+                    tileLeftPx, tileTopPx,
+                    tileLeftPx + size.width, tileTopPx + size.height,
+                    generatedPaint,
+                )
                 native.restoreToCount(save)
             }
         }
