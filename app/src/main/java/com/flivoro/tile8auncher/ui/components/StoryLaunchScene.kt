@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +55,9 @@ import kotlin.math.abs
 
 /** One display clock and one source display list, shared by all three skins. */
 internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () -> Float) {
+    // Snapshot-derived once per animation frame, instead of independently evaluating
+    // the cubic easing for each visible tile and every layer of the launch overlay.
+    val traveledPhase by derivedStateOf { StoryLaunchMotion.settle(0f, 1f, progress()) }
     var viewport by mutableStateOf(Rect.Zero)
     var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
     var sourceImage by mutableStateOf<ImageBitmap?>(null)
@@ -127,10 +131,10 @@ internal fun Modifier.storyLaunchActor(
             // Desktop All Apps transfers its icon plate; the title stays on
             // the row and fades. Keep that row's layout anchor stationary.
             alpha = 1f - StoryLaunchMotion.ease(.05f, .60f,
-                StoryLaunchMotion.settle(0f, 1f, scene.progress()))
+                scene.traveledPhase)
         } else if (viewport.width > 1f && viewport.height > 1f) {
-            val motion = StoryLaunchMotion.neighbor(scene.state.masterLaunchAnimation,
-                scene.progress(), bounds, StoryLaunchMotion.source(
+            val motion = StoryLaunchMotion.neighborAtTravel(scene.state.masterLaunchAnimation,
+                scene.traveledPhase, bounds, StoryLaunchMotion.source(
                     scene.capturedSourceBounds.takeIf { it.width > 0f } ?: scene.state.sourceBounds, viewport), viewport)
             alpha = motion.alpha
             translationX = motion.x
@@ -260,8 +264,14 @@ internal fun StoryLaunchOverlay(
         val origin = scene.viewport.topLeft
         val source = StoryLaunchMotion.source((scene.capturedSourceBounds.takeIf { it.width > 0f }
             ?: state.sourceBounds).translate(-origin), viewport)
-        fun frame() = StoryLaunchMotion.panel(state.masterLaunchAnimation,
-            scene.progress(), source, viewport)
+        val currentFrame by remember(scene, state.masterLaunchAnimation, source, viewport) {
+            derivedStateOf {
+                StoryLaunchMotion.panelAtTravel(
+                    state.masterLaunchAnimation, scene.traveledPhase, source, viewport,
+                )
+            }
+        }
+        fun frame() = currentFrame
 
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = frame().backdropAlpha }
             .background(Color.Black))
