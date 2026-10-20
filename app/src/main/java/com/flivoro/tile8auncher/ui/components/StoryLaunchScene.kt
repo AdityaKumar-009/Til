@@ -192,6 +192,7 @@ internal fun StoryLaunchOverlay(
     sourceFace: (@Composable (Modifier) -> Unit)? = null,
     destinationIcon: (@Composable (Modifier) -> Unit)? = null,
     sourceForeground: (@Composable (Modifier) -> Unit)? = null,
+    sourceBackground: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val scene = LocalStoryLaunchScene.current ?: return
     val tile = state.sourceTile ?: return
@@ -324,47 +325,66 @@ internal fun StoryLaunchOverlay(
                 state.sourceInitialOpacity, scene.progress())
         }.background(state.accentColor))
 
-        // Freeze the actual touched tile once, then paint that entire face into
-        // the SAME expanding panel. The old independent 1.3x icon-sized layer
-        // remained in the middle while a larger accent rectangle emerged behind
-        // it. That created the tiny-tile -> giant-tile discontinuity visible in
-        // slow-motion recordings. Texture coordinates now expand with the one
-        // panel, including its photo, background, glyph and text, on every frame.
-        Box(Modifier.fillMaxSize().graphicsLayer {
-            val f = frame()
-            // A captured tile-picture turns into its solid tile color at the
-            // midpoint. Its glyph, however, MUST remain on the growing plane;
-            // the foreground-only pass below takes over before the photo fades.
-            alpha = if (scene.sourceImage != null && state.sourceInitialOpacity < 1f)
-                f.sourceAlpha * (1f - sourceColorArrival(scene.progress()))
-            else f.sourceAlpha
-        }, contentAlignment = Alignment.Center) {
-            val bitmap = scene.sourceImage
-            when {
-                bitmap != null -> Image(
-                    bitmap = bitmap,
-                    contentDescription = tile.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds,
-                )
-                sourceFace != null -> sourceFace(Modifier.fillMaxSize())
-                else -> WindowsTileFace(
-                    tile = tile,
-                    appIcon = state.appIcon,
-                    modifier = Modifier.fillMaxSize(),
-                    allowAppDerivedBackground = false,
-                )
+        // Separate the tile's MATERIAL from its LOGO. The material expands all
+        // the way to the viewport with the original physical panel. Previously
+        // the entire tile bitmap was FillBounds-scaled here: that magnified a
+        // 30dp glyph to nearly screen height, as seen in the 60fps recording.
+        //
+        // Source artwork (tile picture or rich app backdrop) fills the panel
+        // only while it dissolves to the resolved accent. It MUST NOT include
+        // the tile's glyph, which has its own bounded-scale foreground below.
+        if (sourceBackground != null || state.sourcePictureMode) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = frame().sourceAlpha *
+                    (1f - sourceColorArrival(scene.progress()))
+            }) {
+                if (sourceBackground != null) {
+                    sourceBackground(Modifier.fillMaxSize())
+                } else if (state.sourcePictureMode) {
+                    PhoneTilePicture(
+                        modifier = Modifier.fillMaxSize(),
+                        wallpaperStyle = state.sourceWallpaperStyle,
+                        tileLeftPx = state.sourceBounds.left - origin.x,
+                        tileTopPx = state.sourceBounds.top - origin.y,
+                        gridWidthPx = w,
+                        gridHeightPx = h,
+                    )
+                }
             }
         }
-        if (scene.sourceImage != null && state.sourceInitialOpacity < 1f) {
-            Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = frame().sourceAlpha * sourceColorArrival(scene.progress())
-            }, contentAlignment = Alignment.Center) {
-                // The photo/color can change at 50% but not the *identity* of
-                // the tile icon. Draw just its original glyph/title on the
-                // same expanding plane; never introduce another sized tile.
-                if (sourceForeground != null) sourceForeground(Modifier.fillMaxSize())
-                else WindowsTileFace(
+
+        // Keep the original tile's *foreground layout size* while the panel
+        // grows behind it. Inverse panel scaling cancels the parent zoom, then
+        // reintroduces only the previous, gentle 1.0 -> 1.3x glyph growth.
+        // The inverse applies to both axes so wide All Apps icon plates do not
+        // stretch as their parent becomes a portrait screen.
+        Box(
+            Modifier.size(
+                with(density) { source.width.toDp() },
+                with(density) { source.height.toDp() },
+            ).align(Alignment.Center).graphicsLayer {
+                val f = frame()
+                scaleX = f.sourceScale * w / f.bounds.width.coerceAtLeast(1f)
+                scaleY = f.sourceScale * h / f.bounds.height.coerceAtLeast(1f)
+                alpha = f.sourceAlpha
+                clip = true
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                sourceForeground != null ->
+                    sourceForeground(Modifier.fillMaxSize())
+                state.origin == LaunchOrigin.ALL_APPS -> {
+                    if (state.appIcon != null) Image(
+                        bitmap = state.appIcon,
+                        contentDescription = tile.title,
+                        modifier = Modifier.fillMaxSize(.78f),
+                    ) else MetroIcon(
+                        tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: "app",
+                        size = 36.dp,
+                    )
+                }
+                else -> WindowsTileFace(
                     tile = tile,
                     appIcon = state.appIcon,
                     modifier = Modifier.fillMaxSize(),
