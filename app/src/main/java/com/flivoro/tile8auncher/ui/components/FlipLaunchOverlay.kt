@@ -73,7 +73,12 @@ fun FlipLaunchOverlay(
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
     if (state.masterLaunchAnimation.isStory) {
-        StoryLaunchOverlay(state, progress, onAnimationEnd, onReverseAnimationEnd, destinationContent)
+        StoryLaunchOverlay(
+            state, progress, onAnimationEnd, onReverseAnimationEnd,
+            destinationContent = destinationContent,
+            sourceFace = sourceFace,
+            destinationIcon = destinationIcon,
+        )
         return
     }
     if (state.masterLaunchAnimation == MasterLaunchAnimation.PHONE_8 ||
