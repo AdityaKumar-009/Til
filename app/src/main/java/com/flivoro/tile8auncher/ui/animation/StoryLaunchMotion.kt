@@ -88,7 +88,11 @@ internal object StoryLaunchMotion {
         return Easing { raw ->
             val t = progress(raw)
             if (t <= 0f) 0f else if (t >= 1f) 1f else {
-                val target = distance * (1f - settle(0f, 1f, t))
+                // A direct fast-out on the returning distance erased almost
+                // the entire source-to-app handoff on the FIRST Back frame.
+                // Ease traveled distance out of the destination with zero
+                // initial velocity while still retracing the identical path.
+                val target = distance * (1f - ease(0f, 1f, t))
                 (1f - inverseEmphasizedDistance(target) / start).coerceIn(0f, 1f)
             }
         }
