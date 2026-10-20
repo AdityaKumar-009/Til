@@ -203,7 +203,7 @@ class StoryLaunchMotionTest {
                 val distance = StoryLaunchMotion.settle(0f, 1f, raw)
                 assertTrue("Return must not reverse direction", distance <= previous + .0001f)
                 assertEquals("Return must retrace the lead curve with a soft landing",
-                    startingDistance * (1f - StoryLaunchMotion.settle(0f, 1f, time)), distance, .0001f)
+                    startingDistance * (1f - StoryLaunchMotion.ease(0f, 1f, time)), distance, .0001f)
                 previous = distance
             }
         }
