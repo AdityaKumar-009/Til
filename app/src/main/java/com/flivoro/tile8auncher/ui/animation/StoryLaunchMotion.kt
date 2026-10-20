@@ -184,17 +184,32 @@ internal object StoryLaunchMotion {
         val height = mix(source.height * compression, viewport.height, heightProgress)
         val cx = mix(source.center.x, viewport.center.x, travel) + dx
         val cy = mix(source.center.y, viewport.center.y, travel) + dy
-        val reveal = ease(.38f, 1f, travel)
-        // A full-width app row must not grow its leading glyph offscreen.
-        val artworkScale = minOf(1.30f, viewport.width / source.width,
-            viewport.height / source.height).coerceAtLeast(1f)
+        // Keep the REAL tile face attached to the expanding plane through the
+        // majority of its journey. Previously the bitmap grew by just 30% while
+        // the card grew to screen size: it looked like a stationary sticker
+        // surrounded by a separate, expanding accent rectangle.
+        //
+        // Uniformly follow the smaller expansion axis so wallpaper, glyphs and
+        // app rows keep their aspect ratio. The viewport cap protects wide rows
+        // and partly visible source cells from growing beyond the window.
+        val artworkScale = minOf(
+            width / source.width.coerceAtLeast(1f),
+            height / source.height.coerceAtLeast(1f),
+            viewport.width / source.width.coerceAtLeast(1f),
+            viewport.height / source.height.coerceAtLeast(1f),
+            2.70f,
+        ).coerceAtLeast(1f)
+        // Handoff happens only once the moving source has visibly opened.
+        // Source and app still crossfade on ONE timeline (no blank intermediate
+        // frame or detached second animation).
+        val reveal = ease(.58f, .96f, travel)
         return StoryPanelFrame(
             bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
             rotationX = rx, rotationY = ry, pivotX = pivotX, pivotY = pivotY,
             sourceAlpha = 1f - reveal,
             surfaceAlpha = ease(0f, .30f, travel),
             contentAlpha = reveal,
-            sourceScale = compression * mix(1f, artworkScale, travel),
+            sourceScale = artworkScale,
             backdropAlpha = .50f * ease(0f, 1f, travel),
             rotationZ = rz,
         )
