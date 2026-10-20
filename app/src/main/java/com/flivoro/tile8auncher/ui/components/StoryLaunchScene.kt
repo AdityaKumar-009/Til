@@ -201,7 +201,8 @@ internal fun StoryLaunchOverlay(
             // references can disappear when an offscreen/transparent row is
             // culled; a cached image retains real glyphs, wallpaper and colors.
             scene.sourceImage = layer.toImageBitmap()
-            withFrameNanos { }
+            // The snapshot has been completed. Animation can begin on the next
+            // scheduled draw; another forced idle frame made taps feel disconnected.
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -295,6 +296,9 @@ internal fun StoryLaunchOverlay(
             rotationY = f.rotationY
             rotationZ = f.rotationZ
             cameraDistance = maxOf(w * 3f, h * 2f)
+            // The source image and app content must stay inside the SAME moving
+            // panel, even as Door/Page/Arc rotate it in perspective.
+            clip = true
         }) {
         // Artwork and destination share ONE perspective plane and hinge. An
         // independent artwork rotation would visibly detach it from Door/Page.
