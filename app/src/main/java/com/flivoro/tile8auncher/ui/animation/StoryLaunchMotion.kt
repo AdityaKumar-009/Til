@@ -42,34 +42,11 @@ internal object StoryLaunchMotion {
     // with no late reacceleration or join point. Preserve each story's duration,
     // geometry, neighbor choreography, and the three native Windows animations.
     private val emphasizedDecelerate = CubicBezierEasing(.05f, .70f, .10f, 1f)
-    // The fitted fast-out curve covers ~33% of the journey in the first 3% of
-    // time. At 60 Hz this can skip the tile-to-card connection in a single
-    // displayed frame. Give only the first 7% of time a C1-continuous release;
-    // the rest of the user's chosen curve and every duration stay unchanged.
-    private const val releaseEnd = .07f
-    private val releaseDistance = emphasizedDecelerate.transform(releaseEnd)
-    private val releaseSlope = (
-        emphasizedDecelerate.transform(releaseEnd + .0001f) -
-            emphasizedDecelerate.transform(releaseEnd - .0001f)
-        ) / .0002f
-    private fun forwardDistance(p: Float): Float {
-        if (p >= releaseEnd) return emphasizedDecelerate.transform(p)
-        val x = p / releaseEnd
-        val x2 = x * x
-        val x3 = x2 * x
-        return (releaseDistance * (3f * x2 - 2f * x3) +
-            releaseSlope * releaseEnd * (x3 - x2)).coerceIn(0f, 1f)
-    }
 
-    // Back starts gently enough not to cut away an already visible app in the
-    // first rendered frame; then it returns promptly and settles at the tile.
-    private val returnCurve = CubicBezierEasing(.22f, 0f, .16f, 1f)
-
-    // All actors and fades sample the same traveled phase. This function is
-    // also the spatial inverse's source, so Back retraces the exact path.
+    // All actors and fades use the same traveled phase, including during return.
     fun settle(start: Float, end: Float, raw: Float): Float {
         val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
-        return forwardDistance(p).coerceIn(0f, 1f)
+        return emphasizedDecelerate.transform(p).coerceIn(0f, 1f)
     }
 
     // Back previously inverted the emphasized cubic curve with 18 separate
@@ -78,7 +55,7 @@ internal object StoryLaunchMotion {
     private val inverseSteps = 2048
     private val inverseEasingSamples by lazy(LazyThreadSafetyMode.NONE) {
         FloatArray(inverseSteps + 1) { index ->
-            forwardDistance(index.toFloat() / inverseSteps)
+            emphasizedDecelerate.transform(index.toFloat() / inverseSteps)
         }
     }
 
@@ -111,7 +88,7 @@ internal object StoryLaunchMotion {
         return Easing { raw ->
             val t = progress(raw)
             if (t <= 0f) 0f else if (t >= 1f) 1f else {
-                val target = distance * (1f - returnCurve.transform(t))
+                val target = distance * (1f - settle(0f, 1f, t))
                 (1f - inverseEmphasizedDistance(target) / start).coerceIn(0f, 1f)
             }
         }
@@ -207,32 +184,17 @@ internal object StoryLaunchMotion {
         val height = mix(source.height * compression, viewport.height, heightProgress)
         val cx = mix(source.center.x, viewport.center.x, travel) + dx
         val cy = mix(source.center.y, viewport.center.y, travel) + dy
-        // Keep the REAL tile face attached to the expanding plane through the
-        // majority of its journey. Previously the bitmap grew by just 30% while
-        // the card grew to screen size: it looked like a stationary sticker
-        // surrounded by a separate, expanding accent rectangle.
-        //
-        // Uniformly follow the smaller expansion axis so wallpaper, glyphs and
-        // app rows keep their aspect ratio. The viewport cap protects wide rows
-        // and partly visible source cells from growing beyond the window.
-        val artworkScale = minOf(
-            width / source.width.coerceAtLeast(1f),
-            height / source.height.coerceAtLeast(1f),
-            viewport.width / source.width.coerceAtLeast(1f),
-            viewport.height / source.height.coerceAtLeast(1f),
-            2.70f,
-        ).coerceAtLeast(1f)
-        // Handoff happens only once the moving source has visibly opened.
-        // Source and app still crossfade on ONE timeline (no blank intermediate
-        // frame or detached second animation).
-        val reveal = ease(.58f, .96f, travel)
+        val reveal = ease(.38f, 1f, travel)
+        // A full-width app row must not grow its leading glyph offscreen.
+        val artworkScale = minOf(1.30f, viewport.width / source.width,
+            viewport.height / source.height).coerceAtLeast(1f)
         return StoryPanelFrame(
             bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
             rotationX = rx, rotationY = ry, pivotX = pivotX, pivotY = pivotY,
             sourceAlpha = 1f - reveal,
             surfaceAlpha = ease(0f, .30f, travel),
             contentAlpha = reveal,
-            sourceScale = artworkScale,
+            sourceScale = compression * mix(1f, artworkScale, travel),
             backdropAlpha = .50f * ease(0f, 1f, travel),
             rotationZ = rz,
         )
