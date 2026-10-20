@@ -3017,12 +3017,15 @@ internal fun PhoneLaunchSourceFace(
     sourcePictureMode: Boolean = false,
     wallpaperStyle: Int = 0,
     launchProgress: () -> Float = { 0f },
+    sourceOrigin: LaunchOrigin = LaunchOrigin.START,
+    preferredIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val visual = rememberWp81TileVisual(
-        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+        repository, tile.packageName,
+        (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
     val customColor = PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
@@ -3059,7 +3062,7 @@ internal fun PhoneLaunchSourceFace(
 
     WindowsTileFace(
         tile = faceTile,
-        appIcon = visual.icon,
+        appIcon = visual.icon ?: preferredIcon,
         modifier = modifier,
         allowAppDerivedBackground = false,
         // Background is painted exactly once below from the source opacity/photo
@@ -3128,11 +3131,14 @@ internal fun PhoneLaunchDestinationIcon(
     mode: LauncherUiMode,
     repository: AppsRepository,
     modifier: Modifier = Modifier,
+    sourceOrigin: LaunchOrigin = LaunchOrigin.START,
+    preferredIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     val context = LocalContext.current
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val artwork = rememberWp81TileVisual(
-        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+        repository, tile.packageName,
+        (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
     val stockGlyph = if (mode == LauncherUiMode.PHONE_8 &&
@@ -3146,8 +3152,8 @@ internal fun PhoneLaunchDestinationIcon(
             glyph.isNotEmpty() -> com.flivoro.tile8auncher.ui.components.MetroIcon(
                 glyph, color = Color.White, size = 78.dp,
             )
-            artwork.icon != null -> androidx.compose.foundation.Image(
-                bitmap = artwork.icon, contentDescription = tile.title,
+            artwork.icon != null || preferredIcon != null -> androidx.compose.foundation.Image(
+                bitmap = (artwork.icon ?: preferredIcon)!!, contentDescription = tile.title,
                 modifier = Modifier.size(78.dp),
             )
             else -> com.flivoro.tile8auncher.ui.components.MetroIcon(
