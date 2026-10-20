@@ -225,8 +225,8 @@ class MainActivity : ComponentActivity() {
         insetsController.isAppearanceLightStatusBars = false
         insetsController.isAppearanceLightNavigationBars = false
 
-        // A phone-mode crash during its first render or while opening Settings must not
-        // strand the device in an unopenable home launcher. Restore Desktop on next cold start.
+        // A genuine startup crash must not strand HOME. Never infer a crash merely
+        // because Android started a fresh launcher process after ordinary shutdown.
         if (savedInstanceState == null) {
             LauncherFeatureStore.recoverInterruptedPhoneRender(this)
         }
@@ -521,6 +521,15 @@ class MainActivity : ComponentActivity() {
                 homeRequest++
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // A user leaving HOME, switching apps, or Android backgrounding this
+        // Activity is not a renderer crash. Clear unfinished watchdog markers
+        // even when the initial animation had not yet reached its 600ms settle.
+        LauncherFeatureStore.confirmPhoneRender(this)
+        LauncherFeatureStore.confirmPhoneSettings(this)
     }
 
     override fun onDestroy() {
