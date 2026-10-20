@@ -107,11 +107,12 @@ internal object StoryLaunchMotion {
     }
 
     fun panel(style: MasterLaunchAnimation, raw: Float, source: Rect, viewport: Rect): StoryPanelFrame =
-        panelAtTravel(style, settle(0f, 1f, raw), source, viewport)
+        panelAtTravel(style, settle(0f, 1f, raw), source, viewport, raw)
 
     // Share the already-eased display phase with the neighbors; no cubic Bézier
     // inversion needs to run separately for every tile and overlay layer.
-    fun panelAtTravel(style: MasterLaunchAnimation, travel: Float, source: Rect, viewport: Rect): StoryPanelFrame {
+    fun panelAtTravel(style: MasterLaunchAnimation, travel: Float, source: Rect, viewport: Rect,
+        rawProgress: Float = travel): StoryPanelFrame {
         val arc = if (travel > 0f && travel < 1f) sin(PI * travel).toFloat() else 0f
         val lift = viewport.height * .045f
         var widthProgress = travel
@@ -184,7 +185,13 @@ internal object StoryLaunchMotion {
         val height = mix(source.height * compression, viewport.height, heightProgress)
         val cx = mix(source.center.x, viewport.center.x, travel) + dx
         val cy = mix(source.center.y, viewport.center.y, travel) + dy
-        val reveal = ease(.38f, 1f, travel)
+        // The spatial motion is strongly front-loaded: at half of the clock
+        // it has almost finished expanding. Revealing the app using traveled
+        // distance made the original tile vanish mid-launch and exposed a
+        // second, unrelated full-window panel. Keep the entire photographed
+        // tile face until near the end of the ACTUAL duration; only its contents
+        // crossfade, while the one physical rectangle keeps expanding.
+        val reveal = ease(.68f, .96f, progress(rawProgress))
         // A full-width app row must not grow its leading glyph offscreen.
         val artworkScale = minOf(1.30f, viewport.width / source.width,
             viewport.height / source.height).coerceAtLeast(1f)
