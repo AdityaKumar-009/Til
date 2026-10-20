@@ -1,6 +1,7 @@
 package com.flivoro.tile8auncher.ui.animation
 
 import androidx.compose.ui.geometry.Rect
+import com.flivoro.tile8auncher.ui.components.connectedStoryBackgroundAlpha
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import org.junit.Assert.*
 import org.junit.Test
@@ -10,6 +11,24 @@ class StoryLaunchMotionTest {
     private val styles = MasterLaunchAnimation.entries.filter { it.isStory }
     private val viewport = Rect(0f, 0f, 400f, 850f)
     private val source = Rect(32f, 145f, 180f, 293f)
+
+    @Test fun solidTileGrowsWithoutASecondSurfaceFade() {
+        // The expanding colored plane must exist at exactly the tapped tile's
+        // first frame; a separate 0..30% alpha ramp made a large tile pop in.
+        for (style in styles) {
+            val start = StoryLaunchMotion.panel(style, 0f, source, viewport)
+            assertEquals(source, start.bounds)
+            for (time in listOf(0f, .01f, .05f, .25f, .50f, 1f)) {
+                assertEquals("$style lost its continuous opaque surface at $time",
+                    1f, connectedStoryBackgroundAlpha(1f, time), .00001f)
+            }
+        }
+        // Wallpaper/translucent tiles keep their original 50%-duration
+        // arrival at solid accent instead of snapping to an opaque card.
+        assertEquals(0f, connectedStoryBackgroundAlpha(0f, 0f), 0f)
+        assertEquals(.5f, connectedStoryBackgroundAlpha(0f, .25f), .00001f)
+        assertEquals(1f, connectedStoryBackgroundAlpha(0f, .5f), .00001f)
+    }
 
     @Test fun sourceIdentityAndFullWindowAreExactInEveryStory() {
         for (style in styles) {
