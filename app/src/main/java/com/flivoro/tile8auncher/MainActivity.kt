@@ -362,6 +362,10 @@ class MainActivity : ComponentActivity() {
             flipState = FlipAnimationState(isRunning = false)
         }
         pendingLaunchIntent = null
+        // Backgrounding HOME before the first settled frame is an ordinary
+        // lifecycle transition, not evidence that the renderer crashed.
+        LauncherFeatureStore.confirmPhoneRender(this)
+        LauncherFeatureStore.confirmPhoneSettings(this)
     }
 
     override fun onPause() {
@@ -521,15 +525,6 @@ class MainActivity : ComponentActivity() {
                 homeRequest++
             }
         }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // A user leaving HOME, switching apps, or Android backgrounding this
-        // Activity is not a renderer crash. Clear unfinished watchdog markers
-        // even when the initial animation had not yet reached its 600ms settle.
-        LauncherFeatureStore.confirmPhoneRender(this)
-        LauncherFeatureStore.confirmPhoneSettings(this)
     }
 
     override fun onDestroy() {
