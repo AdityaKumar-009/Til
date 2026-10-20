@@ -5,6 +5,7 @@ import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -188,6 +189,8 @@ internal fun StoryLaunchOverlay(
     onAnimationEnd: () -> Unit,
     onReverseAnimationEnd: (FlipReverseReason) -> Unit,
     destinationContent: (@Composable () -> Unit)? = null,
+    sourceFace: (@Composable (Modifier) -> Unit)? = null,
+    destinationIcon: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val scene = LocalStoryLaunchScene.current ?: return
     val tile = state.sourceTile ?: return
@@ -280,6 +283,7 @@ internal fun StoryLaunchOverlay(
             derivedStateOf {
                 StoryLaunchMotion.panelAtTravel(
                     state.masterLaunchAnimation, scene.traveledPhase, source, viewport,
+                    scene.progress(),
                 )
             }
         }
@@ -305,6 +309,9 @@ internal fun StoryLaunchOverlay(
             rotationY = f.rotationY
             rotationZ = f.rotationZ
             cameraDistance = maxOf(w * 3f, h * 2f)
+            // Transform and crop the one physical tile face, not two differently
+            // sized panels. Door/Page/Arc still use their original perspective.
+            clip = true
         }) {
         // Artwork and destination share ONE perspective plane and hinge. An
         // independent artwork rotation would visibly detach it from Door/Page.
@@ -316,32 +323,33 @@ internal fun StoryLaunchOverlay(
                 state.sourceInitialOpacity, scene.progress())
         }.background(state.accentColor))
 
-        val captured = scene.sourceLayer
-        val sourceWidth = captured?.size?.width?.toFloat()?.takeIf { it > 0f } ?: source.width
-        val sourceHeight = captured?.size?.height?.toFloat()?.takeIf { it > 0f } ?: source.height
-        Box(Modifier.size(with(density) { sourceWidth.toDp() }, with(density) { sourceHeight.toDp() })
-            .align(Alignment.Center)
-            .graphicsLayer {
-                val f = frame()
-                // Preserve the exact source aspect ratio; icons and labels never
-                // stretch when a wide row becomes a portrait destination window.
-                scaleX = f.sourceScale * w / f.bounds.width
-                scaleY = f.sourceScale * h / f.bounds.height
-                alpha = if (state.sourceInitialOpacity < 1f)
-                    max(f.sourceAlpha, 1f - sourceColorArrival(scene.progress()))
-                else f.sourceAlpha
-            }.drawWithContent {
-                val image = scene.sourceImage
-                val live = scene.sourceLayer
-                if (image != null) drawImage(image)
-                else if (live != null) drawLayer(live) else drawContent()
-            }.background(state.accentColor.copy(
-                alpha = state.sourceInitialOpacity.coerceIn(0f, 1f),
-            )), contentAlignment = Alignment.Center) {
-            // Only used for a shortcut that has no physical cell on this page.
-            if (captured == null) {
-                if (state.appIcon != null) Image(state.appIcon, tile.title, Modifier.size(56.dp))
-                else MetroIcon(tile.iconGlyph.ifEmpty { "app" }, size = 56.dp)
+        // Freeze the actual touched tile once, then paint that entire face into
+        // the SAME expanding panel. The old independent 1.3x icon-sized layer
+        // remained in the middle while a larger accent rectangle emerged behind
+        // it. That created the tiny-tile -> giant-tile discontinuity visible in
+        // slow-motion recordings. Texture coordinates now expand with the one
+        // panel, including its photo, background, glyph and text, on every frame.
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            val f = frame()
+            alpha = if (scene.sourceImage != null && state.sourceInitialOpacity < 1f)
+                max(f.sourceAlpha, 1f - sourceColorArrival(scene.progress()))
+            else f.sourceAlpha
+        }, contentAlignment = Alignment.Center) {
+            val bitmap = scene.sourceImage
+            when {
+                bitmap != null -> Image(
+                    bitmap = bitmap,
+                    contentDescription = tile.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds,
+                )
+                sourceFace != null -> sourceFace(Modifier.fillMaxSize())
+                else -> WindowsTileFace(
+                    tile = tile,
+                    appIcon = state.appIcon,
+                    modifier = Modifier.fillMaxSize(),
+                    allowAppDerivedBackground = false,
+                )
             }
         }
         Box(Modifier.fillMaxSize().graphicsLayer {
@@ -359,7 +367,8 @@ internal fun StoryLaunchOverlay(
                     scaleX = w / f.bounds.width
                     scaleY = h / f.bounds.height
                 }, contentAlignment = Alignment.Center) {
-                    if (tile.iconGlyph.isNotEmpty()) MetroIcon(tile.iconGlyph, color = Color.White, size = 78.dp)
+                    if (destinationIcon != null) destinationIcon(Modifier.fillMaxSize())
+                    else if (tile.iconGlyph.isNotEmpty()) MetroIcon(tile.iconGlyph, color = Color.White, size = 78.dp)
                     else if (state.appIcon != null) Image(state.appIcon, tile.title, Modifier.fillMaxSize())
                     else MetroIcon("app", color = Color.White, size = 78.dp)
                 }
