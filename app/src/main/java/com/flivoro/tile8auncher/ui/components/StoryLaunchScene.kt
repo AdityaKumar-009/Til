@@ -366,7 +366,10 @@ internal fun StoryLaunchOverlay(
                 val f = frame()
                 scaleX = f.sourceScale * w / f.bounds.width.coerceAtLeast(1f)
                 scaleY = f.sourceScale * h / f.bounds.height.coerceAtLeast(1f)
-                alpha = f.sourceAlpha
+                // For an external app, this IS the final splash glyph.
+                // Switching to a separate 78dp icon near the end reintroduced
+                // a small -> large logo jump even when the panel was continuous.
+                alpha = if (destinationContent == null) 1f else f.sourceAlpha
                 clip = true
             },
             contentAlignment = Alignment.Center,
@@ -393,26 +396,15 @@ internal fun StoryLaunchOverlay(
                 )
             }
         }
-        Box(Modifier.fillMaxSize().graphicsLayer {
-            val f = frame()
-            alpha = f.contentAlpha
-        }, contentAlignment = Alignment.Center) {
-            // Compose the real internal window during source preparation, before
-            // the motion clock starts. Keep that same subtree through opening
-            // and Back: replacing a splash glyph at the endpoint creates a cut.
-            if (destinationContent != null) {
+        // Internal Settings/widgets are still the SAME mounted destination
+        // subtree, revealed late over the growing tile. External apps do not
+        // need a second splash icon: the original foreground above stays
+        // attached to the panel until Android takes over its own window.
+        if (destinationContent != null) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = frame().contentAlpha
+            }, contentAlignment = Alignment.Center) {
                 destinationContent()
-            } else {
-                Box(Modifier.size(78.dp).graphicsLayer {
-                    val f = frame()
-                    scaleX = w / f.bounds.width
-                    scaleY = h / f.bounds.height
-                }, contentAlignment = Alignment.Center) {
-                    if (destinationIcon != null) destinationIcon(Modifier.fillMaxSize())
-                    else if (tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app") MetroIcon(tile.iconGlyph, color = Color.White, size = 78.dp)
-                    else if (state.appIcon != null) Image(state.appIcon, tile.title, Modifier.fillMaxSize())
-                    else MetroIcon("app", color = Color.White, size = 78.dp)
-                }
             }
         }
         }
