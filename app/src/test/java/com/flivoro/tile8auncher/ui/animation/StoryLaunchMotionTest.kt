@@ -50,8 +50,10 @@ class StoryLaunchMotionTest {
     @Test fun rippleReachesNearTilesBeforeDistantTiles() {
         val near = Rect(185f, 145f, 250f, 210f)
         val far = Rect(300f, 700f, 390f, 790f)
-        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .015f, near, source, viewport)
-        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .015f, far, source, viewport)
+        // The connected release softens the first ~7% of travel. At 3% of
+        // clock time the near neighbor has begun moving but the far one has not.
+        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .03f, near, source, viewport)
+        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .03f, far, source, viewport)
         assertTrue(abs(a.x) + abs(a.y) > .01f)
         assertEquals(0f, abs(b.x) + abs(b.y), .00001f)
     }
