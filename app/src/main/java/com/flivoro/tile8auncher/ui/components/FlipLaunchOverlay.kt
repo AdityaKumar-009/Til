@@ -70,6 +70,7 @@ fun FlipLaunchOverlay(
     sourceFace: (@Composable (Modifier) -> Unit)? = null,
     destinationIcon: (@Composable (Modifier) -> Unit)? = null,
     sourceForeground: (@Composable (Modifier) -> Unit)? = null,
+    sourceBackground: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
@@ -80,6 +81,7 @@ fun FlipLaunchOverlay(
             sourceFace = sourceFace,
             destinationIcon = destinationIcon,
             sourceForeground = sourceForeground,
+            sourceBackground = sourceBackground,
         )
         return
     }
