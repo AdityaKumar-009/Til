@@ -375,6 +375,19 @@ internal fun StoryLaunchOverlay(
             contentAlignment = Alignment.Center,
         ) {
             when {
+                // On Phone All Apps the selected source is a wide, transparent
+                // *row*, with its real icon plate aligned to the leading edge.
+                // Rendering a generic centered Start tile here changes both
+                // the icon location and its size. Retain the recorded row at
+                // its original dimensions; the panel still grows independently.
+                state.origin == LaunchOrigin.ALL_APPS &&
+                    source.width >= viewport.width * .65f &&
+                    scene.sourceImage != null -> Image(
+                    bitmap = scene.sourceImage!!,
+                    contentDescription = tile.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds,
+                )
                 sourceForeground != null ->
                     sourceForeground(Modifier.fillMaxSize())
                 state.origin == LaunchOrigin.ALL_APPS -> {
