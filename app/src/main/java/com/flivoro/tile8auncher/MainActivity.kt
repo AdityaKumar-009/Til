@@ -269,7 +269,19 @@ class MainActivity : ComponentActivity() {
                             // to Android Settings' stock semantic intent.
                             pendingLaunchIntent = if (tile.tileType == TileType.SETTINGS) null
                                 else resolveLaunchIntent(tile)
-                            val icon = if (origin == LaunchOrigin.ALL_APPS) {
+                            val uiMode = LauncherFeatureStore.launcherUiMode(this@MainActivity)
+                            val layeredIcons = LauncherFeatureStore.appIconStyle(this@MainActivity) ==
+                                com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED
+                            // Both phone All Apps panes, and WP8.1 Start, actually
+                            // draw normalized layered glyphs. Capture the same
+                            // cached glyph instead of substituting a different
+                            // Desktop/Android icon when the live snapshot is culled.
+                            val phoneVisibleIcon = tile.packageName?.takeIf {
+                                layeredIcons && (origin == LaunchOrigin.ALL_APPS &&
+                                    uiMode != LauncherUiMode.DESKTOP ||
+                                    uiMode == LauncherUiMode.PHONE_8)
+                            }?.let(appsRepository::getCachedWp81NormalizedIcon)
+                            val icon = phoneVisibleIcon ?: if (origin == LaunchOrigin.ALL_APPS) {
                                 cachedAllAppsIconForCurrentStyle(
                                     context = this@MainActivity,
                                     repository = appsRepository,
@@ -286,7 +298,6 @@ class MainActivity : ComponentActivity() {
                                     packageName = tile.packageName,
                                 )
                             }
-                            val uiMode = LauncherFeatureStore.launcherUiMode(this@MainActivity)
                             val isPhone = uiMode != LauncherUiMode.DESKTOP
                             val tilePicture = origin == LaunchOrigin.START &&
                                 LauncherFeatureStore.backgroundStyle(this@MainActivity, uiMode) ==
@@ -1393,6 +1404,8 @@ fun Tile8LauncherApp(
                                 sourcePictureMode = flipState.sourcePictureMode,
                                 wallpaperStyle = flipState.sourceWallpaperStyle,
                                 launchProgress = { flipProgress.value },
+                                sourceOrigin = flipState.origin,
+                                preferredIcon = flipState.appIcon,
                             )
                         }
                     },
@@ -1403,6 +1416,8 @@ fun Tile8LauncherApp(
                                 mode = launcherMode,
                                 repository = appsRepository,
                                 modifier = iconModifier,
+                                sourceOrigin = flipState.origin,
+                                preferredIcon = flipState.appIcon,
                             )
                         }
                     },
