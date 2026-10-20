@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher
 
+import android.app.ApplicationExitInfo
 import android.os.Process
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -271,11 +272,11 @@ class LauncherModeSwitchTest {
             compose.runOnUiThread {
                 LauncherFeatureStore.setPhoneSmallColumns(context, LauncherUiMode.PHONE_8, 6)
                 LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.PHONE_8)
-                // Model process death after an actual render attempt. A PID change separates
-                // that crash from a normal Activity recreation in the same process.
+                // Simulate a real native crash, not an ordinary PID rollover.
                 LauncherFeatureStore.beginPhoneRender(context, processId = Int.MAX_VALUE)
             }
-            assertTrue(LauncherFeatureStore.recoverInterruptedPhoneRender(context))
+            assertTrue(LauncherFeatureStore.recoverInterruptedPhoneRender(
+                context, previousExitReasonForTest = ApplicationExitInfo.REASON_CRASH_NATIVE))
             assertEquals(LauncherUiMode.DESKTOP, LauncherFeatureStore.launcherUiMode(context))
             assertEquals(6, LauncherFeatureStore.phoneSmallColumns(context, LauncherUiMode.PHONE_8))
         } finally {
@@ -289,30 +290,58 @@ class LauncherModeSwitchTest {
     }
 
     @Test
-    fun livePhoneModeSelectionIsSafeAcrossActivityRecreationAndProcessDeath() {
+    fun livePhoneModeSelectionSurvivesNormalProcessDeathAndRecoversOnlyCrashes() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val previousMode = LauncherFeatureStore.launcherUiMode(context)
         try {
             LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.DESKTOP)
             for (mode in listOf(LauncherUiMode.PHONE_8, LauncherUiMode.MOBILE_10)) {
                 LauncherFeatureStore.setLauncherUiMode(
-                    context,
-                    mode,
-                    phoneRenderAttempted = true,
+                    context, mode, phoneRenderAttempted = true,
                 )
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse(
                     "A same-process Activity recreation rolled back $mode",
                     LauncherFeatureStore.recoverInterruptedPhoneRender(
-                        context,
-                        currentProcessId = Process.myPid(),
+                        context, currentProcessId = Process.myPid(),
                     ),
                 )
-                assertTrue(
-                    "A dead $mode render process was not recovered",
+
+                // Close/reopen, HOME background kill, swipe-away or low-memory
+                // replacement must never overwrite the user's chosen interface.
+                for (normalReason in listOf(
+                    ApplicationExitInfo.REASON_USER_REQUESTED,
+                    ApplicationExitInfo.REASON_LOW_MEMORY,
+                    ApplicationExitInfo.REASON_OTHER,
+                )) {
+                    LauncherFeatureStore.beginPhoneRender(context, processId = Process.myPid())
+                    assertFalse(
+                        "A normal $normalReason process exit reset $mode",
+                        LauncherFeatureStore.recoverInterruptedPhoneRender(
+                            context, currentProcessId = Int.MAX_VALUE,
+                            previousExitReasonForTest = normalReason,
+                        ),
+                    )
+                    assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
+                }
+
+                // Even an old marker with NO exit record is insufficient evidence
+                // to discard the mode preference.
+                LauncherFeatureStore.beginPhoneRender(context, processId = Process.myPid())
+                assertFalse(
                     LauncherFeatureStore.recoverInterruptedPhoneRender(
-                        context,
-                        currentProcessId = Int.MAX_VALUE,
+                        context, currentProcessId = Int.MAX_VALUE,
+                    ),
+                )
+                assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
+
+                // Actual startup crashes still allow a safe Desktop recovery.
+                LauncherFeatureStore.beginPhoneRender(context, processId = Process.myPid())
+                assertTrue(
+                    "An actual renderer crash did not recover $mode",
+                    LauncherFeatureStore.recoverInterruptedPhoneRender(
+                        context, currentProcessId = Int.MAX_VALUE,
+                        previousExitReasonForTest = ApplicationExitInfo.REASON_CRASH,
                     ),
                 )
                 assertEquals(LauncherUiMode.DESKTOP, LauncherFeatureStore.launcherUiMode(context))
