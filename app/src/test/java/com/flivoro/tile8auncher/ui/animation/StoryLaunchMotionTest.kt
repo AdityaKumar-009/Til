@@ -125,6 +125,27 @@ class StoryLaunchMotionTest {
         }
     }
 
+    @Test fun foregroundIconKeepsItsOriginalSmallToSlightlyLargerScale() {
+        // The surface should fill the viewport, but the icon must NOT fill it.
+        // This protects against drawing the entire tile bitmap with
+        // ContentScale.FillBounds (giant glyph -> tiny glyph on every tap).
+        for (style in styles) {
+            var previous = 0f
+            for (step in 0..200) {
+                val raw = step / 200f
+                val frame = StoryLaunchMotion.panel(style, raw, source, viewport)
+                assertTrue("$style magnifies the logo beyond its old 1.3x cap",
+                    frame.sourceScale <= 1.31f)
+                assertTrue("$style shrinks the logo while launching",
+                    frame.sourceScale + .04f >= previous)
+                previous = frame.sourceScale
+            }
+            val completed = StoryLaunchMotion.panel(style, 1f, source, viewport)
+            assertEquals("$style does not fill the destination panel",
+                viewport, completed.bounds)
+        }
+    }
+
     @Test fun sourceFaceStaysAttachedAcrossTheRealLaunchMidpoint() {
         for (style in styles) {
             val start = StoryLaunchMotion.panel(style, 0f, source, viewport)
@@ -182,7 +203,7 @@ class StoryLaunchMotionTest {
                 val distance = StoryLaunchMotion.settle(0f, 1f, raw)
                 assertTrue("Return must not reverse direction", distance <= previous + .0001f)
                 assertEquals("Return must retrace the lead curve with a soft landing",
-                    startingDistance * (1f - StoryLaunchMotion.ease(0f, 1f, time)), distance, .0001f)
+                    startingDistance * (1f - StoryLaunchMotion.settle(0f, 1f, time)), distance, .0001f)
                 previous = distance
             }
         }
