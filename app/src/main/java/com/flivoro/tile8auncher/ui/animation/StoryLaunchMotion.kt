@@ -44,9 +44,9 @@ internal object StoryLaunchMotion {
     private val emphasizedDecelerate = CubicBezierEasing(.05f, .70f, .10f, 1f)
     // The fitted fast-out curve covers ~33% of the journey in the first 3% of
     // time. At 60 Hz this can skip the tile-to-card connection in a single
-    // displayed frame. Give only the first 12% of time a C1-continuous release;
+    // displayed frame. Give only the first 7% of time a C1-continuous release;
     // the rest of the user's chosen curve and every duration stay unchanged.
-    private const val releaseEnd = .12f
+    private const val releaseEnd = .07f
     private val releaseDistance = emphasizedDecelerate.transform(releaseEnd)
     private val releaseSlope = (
         emphasizedDecelerate.transform(releaseEnd + .0001f) -
