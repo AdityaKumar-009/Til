@@ -1,5 +1,6 @@
 package com.flivoro.tile8auncher.ui.animation
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import org.junit.Assert.*
@@ -141,8 +142,11 @@ class StoryLaunchMotionTest {
                 val raw = start * (1f - easing.transform(time))
                 val distance = StoryLaunchMotion.settle(0f, 1f, raw)
                 assertTrue("Return must not reverse direction", distance <= previous + .0001f)
-                assertEquals("Return must retrace the lead curve with a soft landing",
-                    startingDistance * (1f - StoryLaunchMotion.settle(0f, 1f, time)), distance, .0001f)
+                // Return keeps the spatial path, but unlike the strong forward
+                // fast-out curve it releases gently before settling at the tile.
+                val returnDistance = CubicBezierEasing(.22f, 0f, .16f, 1f).transform(time)
+                assertEquals("Return must retrace the path with a connected release",
+                    startingDistance * (1f - returnDistance), distance, .0001f)
                 previous = distance
             }
         }
@@ -186,6 +190,23 @@ class StoryLaunchMotionTest {
             val preceding = StoryLaunchMotion.panel(style, interruption - .001f, source, viewport)
             assertTrue(abs(outgoing.bounds.center.x - preceding.bounds.center.x) < 2f)
             assertTrue(abs(outgoing.bounds.center.y - preceding.bounds.center.y) < 3f)
+        }
+    }
+
+    @Test fun firstRenderedLaunchAndBackFramesDoNotJump() {
+        for (style in styles) {
+            val duration = StoryLaunchMotion.duration(style)
+            // 16 ms is one display frame at 60 Hz. The old fast-out returned
+            // through a large part of the handoff before that frame was drawn.
+            val initial = StoryLaunchMotion.panel(style, 0f, source, viewport)
+            val first = StoryLaunchMotion.panel(style, 16f / duration, source, viewport)
+            assertTrue("$style jumps too far on the first forward frame",
+                first.bounds.width - initial.bounds.width < viewport.width * .16f)
+            val easing = StoryLaunchMotion.returnEasing(1f)
+            val firstBack = StoryLaunchMotion.panel(
+                style, 1f - easing.transform(16f / duration), source, viewport)
+            assertTrue("$style drops the destination icon on the first Back frame",
+                firstBack.contentAlpha > .99f)
         }
     }
 
