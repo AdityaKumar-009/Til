@@ -88,9 +88,9 @@ internal object StoryLaunchMotion {
         return Easing { raw ->
             val t = progress(raw)
             if (t <= 0f) 0f else if (t >= 1f) 1f else {
-                // Preserve the original emphasized return fit. The selected
-                // tile's foreground scaling is independent of this clock.
-                val target = distance * (1f - settle(0f, 1f, t))
+                // Preserve the existing soft Back motion from the previous
+                // release. Only the foreground icon's graphics scaling changes.
+                val target = distance * (1f - ease(0f, 1f, t))
                 (1f - inverseEmphasizedDistance(target) / start).coerceIn(0f, 1f)
             }
         }
