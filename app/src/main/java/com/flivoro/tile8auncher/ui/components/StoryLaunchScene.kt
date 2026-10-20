@@ -374,6 +374,7 @@ internal fun StoryLaunchOverlay(
             },
             contentAlignment = Alignment.Center,
         ) {
+            val frozenRow = scene.sourceImage
             when {
                 // On Phone All Apps the selected source is a wide, transparent
                 // *row*, with its real icon plate aligned to the leading edge.
@@ -382,8 +383,8 @@ internal fun StoryLaunchOverlay(
                 // its original dimensions; the panel still grows independently.
                 state.origin == LaunchOrigin.ALL_APPS &&
                     source.width >= viewport.width * .65f &&
-                    scene.sourceImage != null -> Image(
-                    bitmap = scene.sourceImage!!,
+                    frozenRow != null -> Image(
+                    bitmap = frozenRow,
                     contentDescription = tile.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.FillBounds,
