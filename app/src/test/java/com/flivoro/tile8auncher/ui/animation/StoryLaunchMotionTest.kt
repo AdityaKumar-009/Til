@@ -189,6 +189,32 @@ class StoryLaunchMotionTest {
         }
     }
 
+    @Test fun capturedTileArtworkExpandsWithTheSamePanelAcrossEveryStory() {
+        // Regression: the old 1.30x ceiling left the real tile as a small,
+        // detached sticker while a separate solid panel expanded around it.
+        val square = Rect(32f, 145f, 180f, 293f)
+        for (style in styles) {
+            val start = StoryLaunchMotion.panelAtTravel(style, 0f, square, viewport)
+            val middle = StoryLaunchMotion.panelAtTravel(style, .42f, square, viewport)
+            val late = StoryLaunchMotion.panelAtTravel(style, .68f, square, viewport)
+            assertEquals(style.name, 1f, start.sourceScale, .00001f)
+            assertTrue("$style lost the source-to-panel connection",
+                middle.sourceScale > 1.35f)
+            assertTrue("$style cuts away the original tile before it opens",
+                middle.sourceAlpha > .99f)
+            assertTrue("$style has no destination during the connected handoff",
+                late.contentAlpha > 0f)
+            for (step in 0..100) {
+                val f = StoryLaunchMotion.panelAtTravel(style, step / 100f, square, viewport)
+                assertTrue("$style lets source artwork extend outside its card",
+                    f.sourceScale * square.width <= f.bounds.width + .001f &&
+                        f.sourceScale * square.height <= f.bounds.height + .001f)
+                assertEquals("$style has a gap between source and destination",
+                    1f, f.sourceAlpha + f.contentAlpha, .00001f)
+            }
+        }
+    }
+
     @Test fun naturalOptionsExpandWithoutBounceOrDeepRotations() {
         val natural = listOf(MasterLaunchAnimation.FOCUS, MasterLaunchAnimation.ARC,
             MasterLaunchAnimation.UNFOLD)
