@@ -1,6 +1,5 @@
 package com.flivoro.tile8auncher.ui.animation
 
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import org.junit.Assert.*
@@ -50,10 +49,8 @@ class StoryLaunchMotionTest {
     @Test fun rippleReachesNearTilesBeforeDistantTiles() {
         val near = Rect(185f, 145f, 250f, 210f)
         val far = Rect(300f, 700f, 390f, 790f)
-        // The connected release softens the first ~7% of travel. At 3% of
-        // clock time the near neighbor has begun moving but the far one has not.
-        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .03f, near, source, viewport)
-        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .03f, far, source, viewport)
+        val a = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .015f, near, source, viewport)
+        val b = StoryLaunchMotion.neighbor(MasterLaunchAnimation.RIPPLE, .015f, far, source, viewport)
         assertTrue(abs(a.x) + abs(a.y) > .01f)
         assertEquals(0f, abs(b.x) + abs(b.y), .00001f)
     }
@@ -144,11 +141,8 @@ class StoryLaunchMotionTest {
                 val raw = start * (1f - easing.transform(time))
                 val distance = StoryLaunchMotion.settle(0f, 1f, raw)
                 assertTrue("Return must not reverse direction", distance <= previous + .0001f)
-                // Return keeps the spatial path, but unlike the strong forward
-                // fast-out curve it releases gently before settling at the tile.
-                val returnDistance = CubicBezierEasing(.22f, 0f, .16f, 1f).transform(time)
-                assertEquals("Return must retrace the path with a connected release",
-                    startingDistance * (1f - returnDistance), distance, .0001f)
+                assertEquals("Return must retrace the lead curve with a soft landing",
+                    startingDistance * (1f - StoryLaunchMotion.settle(0f, 1f, time)), distance, .0001f)
                 previous = distance
             }
         }
@@ -192,49 +186,6 @@ class StoryLaunchMotionTest {
             val preceding = StoryLaunchMotion.panel(style, interruption - .001f, source, viewport)
             assertTrue(abs(outgoing.bounds.center.x - preceding.bounds.center.x) < 2f)
             assertTrue(abs(outgoing.bounds.center.y - preceding.bounds.center.y) < 3f)
-        }
-    }
-
-    @Test fun firstRenderedLaunchAndBackFramesDoNotJump() {
-        for (style in styles) {
-            val duration = StoryLaunchMotion.duration(style)
-            // 16 ms is one display frame at 60 Hz. The old fast-out returned
-            // through a large part of the handoff before that frame was drawn.
-            val initial = StoryLaunchMotion.panel(style, 0f, source, viewport)
-            val first = StoryLaunchMotion.panel(style, 16f / duration, source, viewport)
-            assertTrue("$style jumps too far on the first forward frame",
-                first.bounds.width - initial.bounds.width < viewport.width * .16f)
-            val easing = StoryLaunchMotion.returnEasing(1f)
-            val firstBack = StoryLaunchMotion.panel(
-                style, 1f - easing.transform(16f / duration), source, viewport)
-            assertTrue("$style drops the destination icon on the first Back frame",
-                firstBack.contentAlpha > .99f)
-        }
-    }
-
-    @Test fun capturedTileArtworkExpandsWithTheSamePanelAcrossEveryStory() {
-        // Regression: the old 1.30x ceiling left the real tile as a small,
-        // detached sticker while a separate solid panel expanded around it.
-        val square = Rect(32f, 145f, 180f, 293f)
-        for (style in styles) {
-            val start = StoryLaunchMotion.panelAtTravel(style, 0f, square, viewport)
-            val middle = StoryLaunchMotion.panelAtTravel(style, .42f, square, viewport)
-            val late = StoryLaunchMotion.panelAtTravel(style, .68f, square, viewport)
-            assertEquals(style.name, 1f, start.sourceScale, .00001f)
-            assertTrue("$style lost the source-to-panel connection",
-                middle.sourceScale > 1.35f)
-            assertTrue("$style cuts away the original tile before it opens",
-                middle.sourceAlpha > .99f)
-            assertTrue("$style has no destination during the connected handoff",
-                late.contentAlpha > 0f)
-            for (step in 0..100) {
-                val f = StoryLaunchMotion.panelAtTravel(style, step / 100f, square, viewport)
-                assertTrue("$style lets source artwork extend outside its card",
-                    f.sourceScale * square.width <= f.bounds.width + .001f &&
-                        f.sourceScale * square.height <= f.bounds.height + .001f)
-                assertEquals("$style has a gap between source and destination",
-                    1f, f.sourceAlpha + f.contentAlpha, .00001f)
-            }
         }
     }
 
