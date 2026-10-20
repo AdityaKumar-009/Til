@@ -3020,6 +3020,7 @@ internal fun PhoneLaunchSourceFace(
     sourceOrigin: LaunchOrigin = LaunchOrigin.START,
     preferredIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
     foregroundOnly: Boolean = false,
+    backgroundOnly: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -3060,6 +3061,32 @@ internal fun PhoneLaunchSourceFace(
     // complementary layers, so they never appear as two competing tiles.
     val viewportWidth = context.resources.displayMetrics.widthPixels.toFloat()
     val viewportHeight = context.resources.displayMetrics.heightPixels.toFloat()
+
+    if (backgroundOnly) {
+        // A story morph paints the expanding ACCENT face in its main plane and
+        // draws the original-size glyph separately. Only photo/rich artwork is
+        // needed here; never draw a second glyph or the same solid color again.
+        Box(modifier) {
+            if (sourcePictureMode) {
+                com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
+                    modifier = Modifier.fillMaxSize(),
+                    wallpaperStyle = wallpaperStyle,
+                    tileLeftPx = sourceBounds.left,
+                    tileTopPx = sourceBounds.top,
+                    gridWidthPx = viewportWidth,
+                    gridHeightPx = viewportHeight,
+                )
+            } else if (richBackground != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = richBackground,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+            }
+        }
+        return
+    }
 
     WindowsTileFace(
         tile = faceTile,
