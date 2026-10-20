@@ -42,11 +42,34 @@ internal object StoryLaunchMotion {
     // with no late reacceleration or join point. Preserve each story's duration,
     // geometry, neighbor choreography, and the three native Windows animations.
     private val emphasizedDecelerate = CubicBezierEasing(.05f, .70f, .10f, 1f)
+    // The fitted fast-out curve covers ~33% of the journey in the first 3% of
+    // time. At 60 Hz this can skip the tile-to-card connection in a single
+    // displayed frame. Give only the first 12% of time a C1-continuous release;
+    // the rest of the user's chosen curve and every duration stay unchanged.
+    private const val releaseEnd = .12f
+    private val releaseDistance = emphasizedDecelerate.transform(releaseEnd)
+    private val releaseSlope = (
+        emphasizedDecelerate.transform(releaseEnd + .0001f) -
+            emphasizedDecelerate.transform(releaseEnd - .0001f)
+        ) / .0002f
+    private fun forwardDistance(p: Float): Float {
+        if (p >= releaseEnd) return emphasizedDecelerate.transform(p)
+        val x = p / releaseEnd
+        val x2 = x * x
+        val x3 = x2 * x
+        return (releaseDistance * (3f * x2 - 2f * x3) +
+            releaseSlope * releaseEnd * (x3 - x2)).coerceIn(0f, 1f)
+    }
 
-    // All actors and fades use the same traveled phase, including during return.
+    // Back starts gently enough not to cut away an already visible app in the
+    // first rendered frame; then it returns promptly and settles at the tile.
+    private val returnCurve = CubicBezierEasing(.22f, 0f, .16f, 1f)
+
+    // All actors and fades sample the same traveled phase. This function is
+    // also the spatial inverse's source, so Back retraces the exact path.
     fun settle(start: Float, end: Float, raw: Float): Float {
         val p = ((progress(raw) - start) / (end - start)).coerceIn(0f, 1f)
-        return emphasizedDecelerate.transform(p).coerceIn(0f, 1f)
+        return forwardDistance(p).coerceIn(0f, 1f)
     }
 
     // Back previously inverted the emphasized cubic curve with 18 separate
@@ -55,7 +78,7 @@ internal object StoryLaunchMotion {
     private val inverseSteps = 2048
     private val inverseEasingSamples by lazy(LazyThreadSafetyMode.NONE) {
         FloatArray(inverseSteps + 1) { index ->
-            emphasizedDecelerate.transform(index.toFloat() / inverseSteps)
+            forwardDistance(index.toFloat() / inverseSteps)
         }
     }
 
@@ -88,7 +111,7 @@ internal object StoryLaunchMotion {
         return Easing { raw ->
             val t = progress(raw)
             if (t <= 0f) 0f else if (t >= 1f) 1f else {
-                val target = distance * (1f - settle(0f, 1f, t))
+                val target = distance * (1f - returnCurve.transform(t))
                 (1f - inverseEmphasizedDistance(target) / start).coerceIn(0f, 1f)
             }
         }
