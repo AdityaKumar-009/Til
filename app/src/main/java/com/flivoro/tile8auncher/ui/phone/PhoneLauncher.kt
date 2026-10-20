@@ -3019,6 +3019,7 @@ internal fun PhoneLaunchSourceFace(
     launchProgress: () -> Float = { 0f },
     sourceOrigin: LaunchOrigin = LaunchOrigin.START,
     preferredIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
+    foregroundOnly: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -3077,6 +3078,7 @@ internal fun PhoneLaunchSourceFace(
             scaleY = classicScale
         } else Modifier,
         backgroundContent = {
+            if (!foregroundOnly) {
             // Draw this above the solid base initially; both are transformed
             // by the one Desktop projective plane.
             if (sourcePictureMode) {
@@ -3110,6 +3112,7 @@ internal fun PhoneLaunchSourceFace(
                         (1f - initialSolidOpacity) * sourceColorArrival(launchProgress())
                 }.background(Color(resolvedColor)),
             )
+            }
         },
     )
 }
