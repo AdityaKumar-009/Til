@@ -103,9 +103,9 @@ class Tile8Application : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // Application.onCreate runs for a new process even when Android restores a saved
-        // MainActivity instance. Recover here so an interrupted phone-mode render cannot
-        // loop on devices that restart HOME with non-null savedInstanceState.
+        // A new process can follow a normal HOME shutdown, memory reclamation, or a
+        // genuine renderer crash. Only confirmed crash exits may switch to safe Desktop;
+        // ordinary process restarts must retain the selected Windows Phone interface.
         LauncherFeatureStore.recoverInterruptedPhoneRender(this)
         // The original short render watchdog can clear its flag before a later
         // device-only crash. Keep a process-wide fallback that saves the failure
