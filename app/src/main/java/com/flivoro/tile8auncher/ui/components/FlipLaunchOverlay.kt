@@ -69,6 +69,7 @@ fun FlipLaunchOverlay(
     /** Optional real source renderer for phone skins borrowing Desktop motion. */
     sourceFace: (@Composable (Modifier) -> Unit)? = null,
     destinationIcon: (@Composable (Modifier) -> Unit)? = null,
+    sourceForeground: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
@@ -78,6 +79,7 @@ fun FlipLaunchOverlay(
             destinationContent = destinationContent,
             sourceFace = sourceFace,
             destinationIcon = destinationIcon,
+            sourceForeground = sourceForeground,
         )
         return
     }
