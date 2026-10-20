@@ -85,6 +85,16 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
 internal val LocalStoryLaunchScene = staticCompositionLocalOf<StoryLaunchScene?> { null }
 
 /**
+ * The growing solid face is the same physical surface as the touched tile.
+ * Do not fade a second, larger card into existence after the source tile is
+ * already shrinking/fading. For photo/translucent tiles, keep the established
+ * smooth color-arrival policy that reaches solid color at 50% launch time.
+ */
+internal fun connectedStoryBackgroundAlpha(sourceInitialOpacity: Float, rawProgress: Float): Float =
+    if (sourceInitialOpacity >= 1f) 1f else sourceColorArrival(rawProgress)
+
+
+/**
  * Transfer drawing ownership of the selected, REAL tile to the launch plane.
  * Its drawing is recorded once and cached before travel, with no icon decode.
  * Its original cell draws nothing, so there cannot be a stationary duplicate.
@@ -201,8 +211,7 @@ internal fun StoryLaunchOverlay(
             // references can disappear when an offscreen/transparent row is
             // culled; a cached image retains real glyphs, wallpaper and colors.
             scene.sourceImage = layer.toImageBitmap()
-            // The snapshot has been completed. Animation can begin on the next
-            // scheduled draw; another forced idle frame made taps feel disconnected.
+            withFrameNanos { }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -296,16 +305,15 @@ internal fun StoryLaunchOverlay(
             rotationY = f.rotationY
             rotationZ = f.rotationZ
             cameraDistance = maxOf(w * 3f, h * 2f)
-            // The source image and app content must stay inside the SAME moving
-            // panel, even as Door/Page/Arc rotate it in perspective.
-            clip = true
         }) {
         // Artwork and destination share ONE perspective plane and hinge. An
         // independent artwork rotation would visibly detach it from Door/Page.
         Box(Modifier.fillMaxSize().graphicsLayer {
-            val base = frame().surfaceAlpha
-            alpha = if (state.sourceInitialOpacity < 1f)
-                base * sourceColorArrival(scene.progress()) else base
+            // The face is already exactly the source tile's size at progress=0.
+            // The previous independent alpha ramp made a large replacement
+            // rectangle emerge while the real tile bitmap was still small.
+            alpha = connectedStoryBackgroundAlpha(
+                state.sourceInitialOpacity, scene.progress())
         }.background(state.accentColor))
 
         val captured = scene.sourceLayer
