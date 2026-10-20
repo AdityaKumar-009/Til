@@ -1422,6 +1422,21 @@ fun Tile8LauncherApp(
                             )
                         }
                     },
+                    sourceBackground = { backdropModifier ->
+                        flipState.sourceTile?.let { phoneTile ->
+                            PhoneLaunchSourceFace(
+                                tile = phoneTile,
+                                mode = launcherMode,
+                                repository = appsRepository,
+                                modifier = backdropModifier,
+                                sourceBounds = flipState.sourceBounds,
+                                sourcePictureMode = flipState.sourcePictureMode,
+                                wallpaperStyle = flipState.sourceWallpaperStyle,
+                                sourceOrigin = flipState.origin,
+                                backgroundOnly = true,
+                            )
+                        }
+                    },
                     destinationIcon = { iconModifier ->
                         flipState.sourceTile?.let { phoneTile ->
                             PhoneLaunchDestinationIcon(
