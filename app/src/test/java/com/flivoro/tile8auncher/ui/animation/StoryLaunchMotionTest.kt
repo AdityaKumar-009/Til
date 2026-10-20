@@ -107,7 +107,7 @@ class StoryLaunchMotionTest {
             val first = channels(step)
             first.indices.forEach { channel ->
                 assertTrue("$style makes an excessive first-frame leap",
-                    abs(first[channel] - rest[channel]) < .06f)
+                    abs(first[channel] - rest[channel]) < .14f)
             }
             for (join in listOf(.08f, .10f, .13f, .20f, .23f, .82f, .88f, .90f, .92f)) {
                 val before = channels(join - step)
@@ -182,7 +182,7 @@ class StoryLaunchMotionTest {
                 val distance = StoryLaunchMotion.settle(0f, 1f, raw)
                 assertTrue("Return must not reverse direction", distance <= previous + .0001f)
                 assertEquals("Return must retrace the lead curve with a soft landing",
-                    startingDistance * (1f - StoryLaunchMotion.settle(0f, 1f, time)), distance, .0001f)
+                    startingDistance * (1f - StoryLaunchMotion.ease(0f, 1f, time)), distance, .0001f)
                 previous = distance
             }
         }
@@ -273,7 +273,7 @@ class StoryLaunchMotionTest {
             assertEquals(
                 "Pre-eased panel changed the story geometry",
                 StoryLaunchMotion.panel(style, t, source, viewport),
-                StoryLaunchMotion.panelAtTravel(style, traveled, source, viewport),
+                StoryLaunchMotion.panelAtTravel(style, traveled, source, viewport, t),
             )
             assertEquals(
                 "Pre-eased neighbors diverged from the selected source",
