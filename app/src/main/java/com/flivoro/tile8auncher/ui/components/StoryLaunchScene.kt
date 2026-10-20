@@ -191,6 +191,7 @@ internal fun StoryLaunchOverlay(
     destinationContent: (@Composable () -> Unit)? = null,
     sourceFace: (@Composable (Modifier) -> Unit)? = null,
     destinationIcon: (@Composable (Modifier) -> Unit)? = null,
+    sourceForeground: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val scene = LocalStoryLaunchScene.current ?: return
     val tile = state.sourceTile ?: return
@@ -331,8 +332,11 @@ internal fun StoryLaunchOverlay(
         // panel, including its photo, background, glyph and text, on every frame.
         Box(Modifier.fillMaxSize().graphicsLayer {
             val f = frame()
+            // A captured tile-picture turns into its solid tile color at the
+            // midpoint. Its glyph, however, MUST remain on the growing plane;
+            // the foreground-only pass below takes over before the photo fades.
             alpha = if (scene.sourceImage != null && state.sourceInitialOpacity < 1f)
-                max(f.sourceAlpha, 1f - sourceColorArrival(scene.progress()))
+                f.sourceAlpha * (1f - sourceColorArrival(scene.progress()))
             else f.sourceAlpha
         }, contentAlignment = Alignment.Center) {
             val bitmap = scene.sourceImage
@@ -349,6 +353,23 @@ internal fun StoryLaunchOverlay(
                     appIcon = state.appIcon,
                     modifier = Modifier.fillMaxSize(),
                     allowAppDerivedBackground = false,
+                )
+            }
+        }
+        if (scene.sourceImage != null && state.sourceInitialOpacity < 1f) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = frame().sourceAlpha * sourceColorArrival(scene.progress())
+            }, contentAlignment = Alignment.Center) {
+                // The photo/color can change at 50% but not the *identity* of
+                // the tile icon. Draw just its original glyph/title on the
+                // same expanding plane; never introduce another sized tile.
+                if (sourceForeground != null) sourceForeground(Modifier.fillMaxSize())
+                else WindowsTileFace(
+                    tile = tile,
+                    appIcon = state.appIcon,
+                    modifier = Modifier.fillMaxSize(),
+                    allowAppDerivedBackground = false,
+                    backgroundAlpha = 0f,
                 )
             }
         }
