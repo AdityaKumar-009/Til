@@ -1276,6 +1276,7 @@ fun Tile8LauncherApp(
                                 FastOutSlowInEasing.transform((elapsed / 140f).coerceIn(0f, 1f))
                             } else 0f
                         },
+                        launchTiming = flipState.timing,
                         launchMotionMode = if (phoneHandoffHeld) handoffAnimationMode
                             else when (chosenLaunch) {
                                 MasterLaunchAnimation.PHONE_8 -> LauncherUiMode.PHONE_8
