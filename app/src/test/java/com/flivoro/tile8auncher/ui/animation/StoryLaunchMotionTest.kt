@@ -179,6 +179,57 @@ class StoryLaunchMotionTest {
         }
     }
 
+    @Test fun fourVisibleStoriesNeverReboundDuringFinalReturnFrames() {
+        // Ripple/Door once compressed a nearly full-width row BELOW its
+        // original size before expanding again over the last few Back frames.
+        // Also test Focus/Uncover because every preset shares the final
+        // compositor-to-real-cell ownership transfer.
+        val shown = listOf(
+            MasterLaunchAnimation.RIPPLE,
+            MasterLaunchAnimation.FOCUS,
+            MasterLaunchAnimation.DOOR,
+            MasterLaunchAnimation.UNFOLD,
+        )
+        val anchors = listOf(
+            source,
+            Rect(16f, 145f, 384f, 209f), // nearly full-width All Apps row
+            Rect(16f, 145f, 384f, 293f), // wide tile
+        )
+        for (style in shown) for (anchor in anchors) {
+            var previous = StoryLaunchMotion.panelAtTravel(
+                style, 0f, anchor, viewport, 0f, returning = true)
+            assertEquals("$style reverse must end at the untouched tile",
+                anchor, previous.bounds)
+            for (step in 1..1000) {
+                val travel = step / 1000f
+                val next = StoryLaunchMotion.panelAtTravel(
+                    style, travel, anchor, viewport, travel, returning = true)
+                assertTrue("$style briefly becomes narrower than its source at $travel",
+                    next.bounds.width >= anchor.width - .001f)
+                assertTrue("$style width rebounds near source at $travel",
+                    next.bounds.width >= previous.bounds.width - .001f)
+                assertTrue("$style height rebounds near source at $travel",
+                    next.bounds.height >= previous.bounds.height - .001f)
+                previous = next
+            }
+        }
+    }
+
+    @Test fun finalCellHandoffOnlyHappensAtSubpixelGeometry() {
+        val handoff = StoryLaunchMotion.RETURN_HANDOFF_TRAVEL
+        assertEquals(1f, StoryLaunchMotion.returnToSourceOpacity(0f), 0f)
+        assertEquals(0f, StoryLaunchMotion.returnToSourceOpacity(handoff), .00001f)
+        for (style in listOf(MasterLaunchAnimation.RIPPLE, MasterLaunchAnimation.FOCUS,
+                MasterLaunchAnimation.DOOR, MasterLaunchAnimation.UNFOLD)) {
+            val frame = StoryLaunchMotion.panelAtTravel(
+                style, handoff, source, viewport, handoff, returning = true)
+            assertTrue("$style transfers with a visibly oversized panel",
+                kotlin.math.abs(frame.bounds.width - source.width) < 1f)
+            assertTrue("$style transfers with a visibly tall panel",
+                kotlin.math.abs(frame.bounds.height - source.height) < 1f)
+        }
+    }
+
     @Test fun returningSourceCellBlendsWithMovingTileWithoutBlink() {
         // The physical Start/All Apps cell owns the final pose before the
         // overlay is unmounted. Their weights are complementary in both
