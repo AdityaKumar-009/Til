@@ -1937,6 +1937,9 @@ class AppsRepository(private val context: Context) {
             steps = readPreference(defaults.steps) {
                 prefs.getInt(key(LAUNCH_TIMING_STEPS), defaults.steps)
             },
+            durationOverridden = readPreference(false) {
+                prefs.getBoolean(key(LAUNCH_TIMING_OVERRIDE), false)
+            },
         ).sanitized()
     }
 
@@ -1945,6 +1948,7 @@ class AppsRepository(private val context: Context) {
         val safeTiming = timing.sanitized()
         prefs.edit {
             putInt(key(LAUNCH_TIMING_DURATION), safeTiming.durationMillis)
+            putBoolean(key(LAUNCH_TIMING_OVERRIDE), safeTiming.durationOverridden)
             putString(key(LAUNCH_TIMING_CURVE), safeTiming.curve.name)
             putFloat(key(LAUNCH_TIMING_CUSTOM_X1), safeTiming.customX1)
             putFloat(key(LAUNCH_TIMING_CUSTOM_Y1), safeTiming.customY1)
@@ -1982,6 +1986,7 @@ class AppsRepository(private val context: Context) {
         const val APP_VISUAL_CACHE_TARGET_BYTES = 48L * 1024L * 1024L
         const val VISUAL_CACHE_PRUNE_INTERVAL_MS = 30_000L
         const val LAUNCH_TIMING_DURATION = "launch_timing_duration_millis"
+        const val LAUNCH_TIMING_OVERRIDE = "launch_timing_duration_overridden"
         const val LAUNCH_TIMING_CURVE = "launch_timing_curve"
         const val LAUNCH_TIMING_CUSTOM_X1 = "launch_timing_custom_x1"
         const val LAUNCH_TIMING_CUSTOM_Y1 = "launch_timing_custom_y1"
