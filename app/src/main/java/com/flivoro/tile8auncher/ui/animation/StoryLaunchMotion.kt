@@ -5,6 +5,8 @@ import androidx.compose.animation.core.Easing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.data.LaunchTiming
+import com.flivoro.tile8auncher.data.TileSize
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.data.TimeCurve
 import kotlin.math.PI
 import kotlin.math.hypot
@@ -58,6 +60,22 @@ internal object StoryLaunchMotion {
     // Weather, etc.) whose extra information is not a simple title Text.
     // The same channel reverses continuously on Back.
     fun iconOnlyOpacity(raw: Float): Float = ease(.18f, .50f, progress(raw))
+
+    /** Exactly one glyph is shown for the entire connected transformation.
+     * Its source offset eases to the panel's center without an alpha swap
+     * or a jump at the 50% clock boundary. Back traverses the same path. */
+    fun iconCenterProgress(raw: Float): Float = ease(0f, .50f, progress(raw))
+
+    fun iconOriginOffsetX(origin: LaunchOrigin, sourceWidthPx: Float,
+        density: Float): Float = if (origin == LaunchOrigin.ALL_APPS)
+        // Phone All Apps icons start within the leading glyph plate, not at
+        // the center of the entire row. This remains a continuous translation.
+        -sourceWidthPx * .5f + (26f * density) else 0f
+
+    fun iconOriginOffsetY(origin: LaunchOrigin, size: TileSize,
+        density: Float): Float =
+        if (origin == LaunchOrigin.ALL_APPS || size == TileSize.SMALL) 0f
+        else -6f * density
 
     // Transfer source-cell ownership only when the animated rectangle is
     // geometrically indistinguishable from the cell. Previously the crossover
