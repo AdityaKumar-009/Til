@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +67,8 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
     var sourceImage by mutableStateOf<ImageBitmap?>(null)
     var sourceDraws by mutableStateOf(0)
     var sourcePrepared by mutableStateOf(false)
+    // Direction may change without reconstructing this scene (in-place Back).
+    var returning by mutableStateOf(state.direction == FlipAnimationDirection.REVERSE)
     var capturedSourceBounds by mutableStateOf(state.sourceBounds)
     var sourceOwner by mutableStateOf<Any?>(null)
     var sourceMeasured = false
@@ -84,6 +87,9 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
 }
 
 internal val LocalStoryLaunchScene = staticCompositionLocalOf<StoryLaunchScene?> { null }
+
+/** Only the tile TITLE uses this opacity; the logo keeps its own bounded scale. */
+internal val LocalStoryTileTitleOpacity = staticCompositionLocalOf<() -> Float> { { 1f } }
 
 /**
  * The growing solid face is the same physical surface as the touched tile.
@@ -132,7 +138,12 @@ internal fun Modifier.storyLaunchActor(
     return measured.graphicsLayer {
         val viewport = scene.viewport
         if (ownsSource()) {
-            alpha = 1f
+            // Blend the animated face into the very SAME physical source cell
+            // before removing the overlay; otherwise Back ends with a blank
+            // beat and then the original tile suddenly reappears.
+            alpha = if (scene.returning)
+                StoryLaunchMotion.returnToSourceOpacity(scene.traveledPhase)
+            else 1f
             translationX = 0f
             translationY = 0f
             scaleX = 1f
@@ -169,6 +180,10 @@ internal fun Modifier.storyLaunchActor(
                 layer.record { this@drawWithContent.drawContent() }
                 drawLayer(layer)
                 if (scene.sourceDraws < 2) scene.sourceDraws++
+            } else if (scene.returning && scene.traveledPhase < .30f) {
+                // Reveal the original rendered glyph, title and wallpaper
+                // while its overlaid twin is still shrinking toward the cell.
+                drawContent()
             }
             if (scene.sourceOwner !== token) scene.sourceOwner = token
             if (scene.sourceLayer !== layer) scene.sourceLayer = layer
@@ -224,6 +239,7 @@ internal fun StoryLaunchOverlay(
         }
     }
     LaunchedEffect(scene, state.direction) {
+        scene.returning = state.direction == FlipAnimationDirection.REVERSE
         val duration = StoryLaunchMotion.duration(state.masterLaunchAnimation)
         if (state.direction == FlipAnimationDirection.FORWARD) {
             finalFrameDrawn = false
@@ -297,11 +313,16 @@ internal fun StoryLaunchOverlay(
         // No per-frame relayout, bitmap work, blur, shader, or per-tile Animator.
         Box(Modifier.fillMaxSize().graphicsLayer {
             val f = frame()
+            // Fade the overlay out ONLY as its real source cell fades in;
+            // never end the animation before both tiles have shared frames.
+            val returnOwnership = if (scene.returning && scene.sourceOwner != null)
+                1f - StoryLaunchMotion.returnToSourceOpacity(scene.traveledPhase)
+            else 1f
             // During forward preparation the original cell is still drawing.
             // Publish the foreground face and hide that cell in the same frame.
             alpha = if (state.direction == FlipAnimationDirection.FORWARD &&
                 state.sourceBounds.width > 1f && state.sourceBounds.height > 1f &&
-                scene.sourceImage == null && !scene.sourcePrepared) 0f else 1f
+                scene.sourceImage == null && !scene.sourcePrepared) 0f else returnOwnership
             transformOrigin = TransformOrigin(f.pivotX, f.pivotY)
             scaleX = f.bounds.width / w
             scaleY = f.bounds.height / h
@@ -390,7 +411,11 @@ internal fun StoryLaunchOverlay(
                     contentScale = ContentScale.FillBounds,
                 )
                 sourceForeground != null ->
-                    sourceForeground(Modifier.fillMaxSize())
+                    CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
+                        StoryLaunchMotion.titleOpacity(scene.progress())
+                    }) {
+                        sourceForeground(Modifier.fillMaxSize())
+                    }
                 state.origin == LaunchOrigin.ALL_APPS -> {
                     if (state.appIcon != null) Image(
                         bitmap = state.appIcon,
@@ -401,13 +426,17 @@ internal fun StoryLaunchOverlay(
                         size = 36.dp,
                     )
                 }
-                else -> WindowsTileFace(
-                    tile = tile,
-                    appIcon = state.appIcon,
-                    modifier = Modifier.fillMaxSize(),
-                    allowAppDerivedBackground = false,
-                    backgroundAlpha = 0f,
-                )
+                else -> CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
+                    StoryLaunchMotion.titleOpacity(scene.progress())
+                }) {
+                    WindowsTileFace(
+                        tile = tile,
+                        appIcon = state.appIcon,
+                        modifier = Modifier.fillMaxSize(),
+                        allowAppDerivedBackground = false,
+                        backgroundAlpha = 0f,
+                    )
+                }
             }
         }
         // Internal Settings/widgets are still the SAME mounted destination
