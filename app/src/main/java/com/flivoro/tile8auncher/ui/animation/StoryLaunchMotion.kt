@@ -63,7 +63,7 @@ internal object StoryLaunchMotion {
     // geometrically indistinguishable from the cell. Previously the crossover
     // occupied the last 3.5% of travel: the real tile appeared while the
     // moving panel was still visibly larger, which looked like a bounce.
-    internal const val RETURN_HANDOFF_TRAVEL = .004f
+    internal const val RETURN_HANDOFF_TRAVEL = .001f
     fun returnToSourceOpacity(travel: Float): Float =
         1f - ease(0f, RETURN_HANDOFF_TRAVEL, progress(travel))
 
