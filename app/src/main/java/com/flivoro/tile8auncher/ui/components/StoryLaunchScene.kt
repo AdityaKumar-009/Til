@@ -100,8 +100,20 @@ internal val LocalStoryTileTitleOpacity = staticCompositionLocalOf<() -> Float> 
  * already shrinking/fading. For photo/translucent tiles, keep the established
  * smooth color-arrival policy that reaches solid color at 50% launch time.
  */
-internal fun connectedStoryBackgroundAlpha(sourceInitialOpacity: Float, rawProgress: Float): Float =
-    if (sourceInitialOpacity >= 1f) 1f else sourceColorArrival(rawProgress)
+internal fun connectedStoryBackgroundAlpha(
+    sourceInitialOpacity: Float,
+    rawProgress: Float,
+    sourcePictureMode: Boolean = false,
+): Float {
+    // A tile-photo is an opaque painted face, NOT a transparent tile. Its
+    // photographed pixels may dissolve into the accent, but the physical
+    // expanding panel must remain fully covered from the first drawn frame.
+    if (sourcePictureMode) return 1f
+    val start = sourceInitialOpacity.coerceIn(0f, 1f)
+    // Honor a deliberately translucent W10M tile's actual start opacity;
+    // don't teleport to zero alpha at tap and fade back in by halfway.
+    return start + (1f - start) * sourceColorArrival(rawProgress)
+}
 
 
 /**
@@ -368,7 +380,7 @@ internal fun StoryLaunchOverlay(
             // The previous independent alpha ramp made a large replacement
             // rectangle emerge while the real tile bitmap was still small.
             alpha = connectedStoryBackgroundAlpha(
-                state.sourceInitialOpacity, scene.progress())
+                state.sourceInitialOpacity, scene.progress(), state.sourcePictureMode)
         }.background(state.accentColor))
 
         // Separate the tile's MATERIAL from its LOGO. The material expands all
