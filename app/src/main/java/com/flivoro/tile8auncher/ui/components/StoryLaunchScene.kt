@@ -198,8 +198,8 @@ internal fun Modifier.storyLaunchActor(
             // all pixels; on Back it resumes only when the moving plane has
             // reached practically identical geometry. No bitmap clone, extra
             // colored tile, or offscreen RenderNode is ever painted.
-            if (!scene.sourcePrepared || (scene.returning &&
-                scene.traveledPhase <= StoryLaunchMotion.RETURN_HANDOFF_TRAVEL)) {
+            if (StoryLaunchMotion.shouldDrawOriginalCell(
+                    scene.sourcePrepared, scene.returning, scene.traveledPhase)) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
                 drawContent()
