@@ -3109,6 +3109,23 @@ internal fun PhoneLaunchSourceFace(
         return
     }
 
+    if (detailsOnly && sourceOrigin == LaunchOrigin.ALL_APPS) {
+        // The real All Apps list lays its title BESIDE a leading icon plate,
+        // not below a Start tile. Preserve that position while details fade;
+        // the one permanent glyph is rendered by StoryLaunchOverlay instead.
+        Box(modifier, contentAlignment = Alignment.CenterStart) {
+            Text(
+                text = tile.title,
+                color = Color.White,
+                fontSize = if (mode == LauncherUiMode.PHONE_8) 24.sp else 18.sp,
+                maxLines = 1,
+                modifier = Modifier.padding(start =
+                    if (mode == LauncherUiMode.PHONE_8) 72.dp else 60.dp),
+            )
+        }
+        return
+    }
+
     WindowsTileFace(
         tile = faceTile,
         appIcon = visual.icon ?: preferredIcon,
