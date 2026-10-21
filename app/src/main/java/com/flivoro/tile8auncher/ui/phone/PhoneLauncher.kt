@@ -3163,6 +3163,7 @@ internal fun PhoneLaunchDestinationIcon(
     modifier: Modifier = Modifier,
     sourceOrigin: LaunchOrigin = LaunchOrigin.START,
     preferredIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
+    iconSize: androidx.compose.ui.unit.Dp = 78.dp,
 ) {
     val context = LocalContext.current
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
@@ -3179,15 +3180,15 @@ internal fun PhoneLaunchDestinationIcon(
     val glyph = stockGlyph ?: tile.iconGlyph
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
-            glyph.isNotEmpty() -> com.flivoro.tile8auncher.ui.components.MetroIcon(
-                glyph, color = Color.White, size = 78.dp,
+            glyph.isNotEmpty() && glyph != "app" -> com.flivoro.tile8auncher.ui.components.MetroIcon(
+                glyph, color = Color.White, size = iconSize,
             )
             artwork.icon != null || preferredIcon != null -> androidx.compose.foundation.Image(
                 bitmap = (artwork.icon ?: preferredIcon)!!, contentDescription = tile.title,
-                modifier = Modifier.size(78.dp),
+                modifier = Modifier.size(iconSize),
             )
             else -> com.flivoro.tile8auncher.ui.components.MetroIcon(
-                "app", color = Color.White, size = 78.dp,
+                "app", color = Color.White, size = iconSize,
             )
         }
     }
