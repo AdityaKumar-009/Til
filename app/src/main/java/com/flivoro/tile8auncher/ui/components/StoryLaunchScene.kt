@@ -142,7 +142,12 @@ internal fun Modifier.storyLaunchActor(
             // Blend the animated face into the very SAME physical source cell
             // before removing the overlay; otherwise Back ends with a blank
             // beat and then the original tile suddenly reappears.
-            alpha = if (scene.returning)
+            // The real source must first draw its display list. Alpha zero
+            // can cause Android/Compose to cull the row entirely before it
+            // publishes sourceLayer, creating a 500ms reverse capture timeout
+            // and a disappearing/reappearing tile. Keep it drawable behind
+            // the full-screen overlay until its image is prepared.
+            alpha = if (scene.returning && scene.sourcePrepared)
                 StoryLaunchMotion.returnToSourceOpacity(scene.traveledPhase)
             else 1f
             translationX = 0f
@@ -232,7 +237,8 @@ internal fun StoryLaunchOverlay(
             // references can disappear when an offscreen/transparent row is
             // culled; a cached image retains real glyphs, wallpaper and colors.
             scene.sourceImage = layer.toImageBitmap()
-            withFrameNanos { }
+            // The snapshot is already complete; one more idle vsync would
+            // leave the Back surface paused before it starts shrinking.
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
