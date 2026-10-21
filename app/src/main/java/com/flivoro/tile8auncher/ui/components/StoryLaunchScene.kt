@@ -188,7 +188,8 @@ internal fun Modifier.storyLaunchActor(
         } else if (viewport.width > 1f && viewport.height > 1f) {
             val motion = StoryLaunchMotion.neighborAtTravel(scene.state.masterLaunchAnimation,
                 scene.traveledPhase, bounds, StoryLaunchMotion.source(
-                    scene.capturedSourceBounds.takeIf { it.width > 0f } ?: scene.state.sourceBounds, viewport), viewport)
+                    scene.capturedSourceBounds.takeIf { it.width > 0f } ?: scene.state.sourceBounds, viewport), viewport,
+                returning = scene.returning)
             alpha = motion.alpha
             translationX = motion.x
             translationY = motion.y
