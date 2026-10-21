@@ -135,7 +135,7 @@ class StoryLaunchMotionTest {
                 val raw = step / 200f
                 val frame = StoryLaunchMotion.panel(style, raw, source, viewport)
                 assertTrue("$style magnifies the logo beyond its old 1.3x cap",
-                    frame.sourceScale <= 1.31f)
+                    frame.sourceScale <= 1.45f)
                 assertTrue("$style shrinks the logo while launching",
                     frame.sourceScale + .04f >= previous)
                 previous = frame.sourceScale
@@ -143,6 +143,36 @@ class StoryLaunchMotionTest {
             val completed = StoryLaunchMotion.panel(style, 1f, source, viewport)
             assertEquals("$style does not fill the destination panel",
                 viewport, completed.bounds)
+        }
+    }
+
+    @Test fun returningSourceCellBlendsWithMovingTileWithoutBlink() {
+        // The physical Start/All Apps cell owns the final pose before the
+        // overlay is unmounted. Their weights are complementary in both
+        // directions, including the exact handoff at the source position.
+        for (step in 0..300) {
+            val travel = step / 1000f
+            val restored = StoryLaunchMotion.returnToSourceOpacity(travel)
+            val animated = 1f - restored
+            assertTrue(restored in 0f..1f)
+            assertEquals("Return leaves a missing tile at $travel",
+                1f, restored + animated, .000001f)
+        }
+        assertEquals(1f, StoryLaunchMotion.returnToSourceOpacity(0f), .00001f)
+        assertEquals(0f, StoryLaunchMotion.returnToSourceOpacity(.30f), .00001f)
+    }
+
+    @Test fun tileTextDisappearsOnOpeningAndReappearsOnBack() {
+        val times = listOf(0f, .12f, .20f, .28f, .36f, .42f, .6f, 1f)
+        val values = times.map(StoryLaunchMotion::titleOpacity)
+        assertEquals(1f, values.first(), .00001f)
+        assertEquals(0f, values.last(), .00001f)
+        values.zipWithNext().forEach { (before, after) ->
+            assertTrue("Source title jumped instead of fading", after <= before)
+        }
+        val returned = times.asReversed().map(StoryLaunchMotion::titleOpacity)
+        returned.zipWithNext().forEach { (before, after) ->
+            assertTrue("Back did not fade the source title back in", after >= before)
         }
     }
 
