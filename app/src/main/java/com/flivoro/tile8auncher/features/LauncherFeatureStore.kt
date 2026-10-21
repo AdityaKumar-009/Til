@@ -49,6 +49,15 @@ enum class MasterLaunchAnimation(val title: String, val detail: String) {
         get() = this == LIFT || this == DOOR || this == RIPPLE ||
             this == PAGE_TURN || this == GLIDE || this == FOCUS ||
             this == ARC || this == UNFOLD
+
+    companion object {
+        // Focus the picker on the four quieter, visually distinct optional
+        // effects. Older saved choices remain fully readable and runnable,
+        // so curating this list does not reset users or break existing presets.
+        val selectableChoices: List<MasterLaunchAnimation> = entries.filterNot {
+            it == DOOR || it == PAGE_TURN || it == ARC || it == UNFOLD
+        }
+    }
 }
 
 enum class AppIconStyle {
