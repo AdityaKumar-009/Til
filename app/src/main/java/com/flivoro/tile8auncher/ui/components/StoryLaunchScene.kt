@@ -186,7 +186,7 @@ internal fun Modifier.storyLaunchActor(
                 layer.record { this@drawWithContent.drawContent() }
                 drawLayer(layer)
                 if (scene.sourceDraws < 2) scene.sourceDraws++
-            } else if (scene.returning && scene.traveledPhase < .30f) {
+            } else if (scene.returning && scene.traveledPhase < .12f) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
                 drawContent()
@@ -263,10 +263,14 @@ internal fun StoryLaunchOverlay(
             finishForward()
         } else {
             firstFrameDrawn = false
-            cacheSourceArtwork()
+            // Returning is composited from the cached app icon and live tile;
+            // no bitmap readback is required. Waiting for a cullable source
+            // RenderNode here caused up to 500 ms of blank/full-screen pause.
             scene.sourcePrepared = true
             val start = StoryLaunchMotion.progress(progress.value)
-            val remaining = (duration * start).roundToInt()
+            // Keep the same spatial curve, but avoid replaying an elaborate
+            // full-duration launch backwards when Back should feel understated.
+            val remaining = (duration * start * .85f).roundToInt()
             if (remaining > 0) progress.animateTo(0f,
                 tween(remaining, easing = StoryLaunchMotion.returnEasing(start)))
             else progress.snapTo(0f)
@@ -314,8 +318,9 @@ internal fun StoryLaunchOverlay(
         }
         fun frame() = currentFrame
 
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = frame().backdropAlpha }
-            .background(Color.Black))
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            alpha = frame().backdropAlpha * (if (scene.returning) .25f else 1f)
+        }.background(Color.Black))
         // Fixed layout: all travel, rotation and expansion happens in GPU layers.
         // No per-frame relayout, bitmap work, blur, shader, or per-tile Animator.
         Box(Modifier.fillMaxSize().graphicsLayer {
@@ -402,71 +407,96 @@ internal fun StoryLaunchOverlay(
             },
             contentAlignment = Alignment.Center,
         ) {
-            val frozenRow = scene.sourceImage
-            when {
-                // On Phone All Apps the selected source is a wide, transparent
-                // *row*, with its real icon plate aligned to the leading edge.
-                // Rendering a generic centered Start tile here changes both
-                // the icon location and its size. Retain the recorded row at
-                // its original dimensions; the panel still grows independently.
-                state.origin == LaunchOrigin.ALL_APPS &&
-                    source.width >= viewport.width * .65f &&
-                    frozenRow != null -> {
-                    // Phone All Apps is a wide row: its icon plate and its text
-                    // must stay at their original positions, but the caption
-                    // fades away on launch and fades BACK on return.
-                    // Splitting only the draw region preserves the cached row
-                    // pixels without decoding/laying out the title per frame.
-                    val plateRight = minOf(source.width * .22f, 80f * density.density)
-                    Box(Modifier.fillMaxSize().drawWithContent {
-                        clipRect(right = plateRight) { this@drawWithContent.drawContent() }
-                    }) {
-                        Image(
-                            bitmap = frozenRow,
+            // A source tile may contain a title, dates, financial figures,
+            // badges or rotating content. Fading just Text("title") leaves
+            // other labels on the growing card. Fade the WHOLE original face
+            // into an icon-only face by exactly 50% of the RAW duration.
+            // The two complementary channels reverse identically on Back.
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = 1f - StoryLaunchMotion.iconOnlyOpacity(scene.progress())
+            }, contentAlignment = Alignment.Center) {
+                val frozenRow = scene.sourceImage
+                when {
+                    // On Phone All Apps the selected source is a wide, transparent
+                    // *row*, with its real icon plate aligned to the leading edge.
+                    // Rendering a generic centered Start tile here changes both
+                    // the icon location and its size. Retain the recorded row at
+                    // its original dimensions; the panel still grows independently.
+                    state.origin == LaunchOrigin.ALL_APPS &&
+                        source.width >= viewport.width * .65f &&
+                        frozenRow != null -> {
+                        // Phone All Apps is a wide row: its icon plate and its text
+                        // must stay at their original positions, but the caption
+                        // fades away on launch and fades BACK on return.
+                        // Splitting only the draw region preserves the cached row
+                        // pixels without decoding/laying out the title per frame.
+                        val plateRight = minOf(source.width * .22f, 80f * density.density)
+                        Box(Modifier.fillMaxSize().drawWithContent {
+                            clipRect(right = plateRight) { this@drawWithContent.drawContent() }
+                        }) {
+                            Image(
+                                bitmap = frozenRow,
+                                contentDescription = tile.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.FillBounds,
+                            )
+                        }
+                        Box(Modifier.fillMaxSize().graphicsLayer {
+                            alpha = StoryLaunchMotion.titleOpacity(scene.progress())
+                        }.drawWithContent {
+                            clipRect(left = plateRight) { this@drawWithContent.drawContent() }
+                        }) {
+                            Image(
+                                bitmap = frozenRow,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.FillBounds,
+                            )
+                        }
+                    }
+                    sourceForeground != null ->
+                        CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
+                            StoryLaunchMotion.titleOpacity(scene.progress())
+                        }) {
+                            sourceForeground(Modifier.fillMaxSize())
+                        }
+                    state.origin == LaunchOrigin.ALL_APPS -> {
+                        if (state.appIcon != null) Image(
+                            bitmap = state.appIcon,
                             contentDescription = tile.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.fillMaxSize(.78f),
+                        ) else MetroIcon(
+                            tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: "app",
+                            size = 36.dp,
                         )
                     }
-                    Box(Modifier.fillMaxSize().graphicsLayer {
-                        alpha = StoryLaunchMotion.titleOpacity(scene.progress())
-                    }.drawWithContent {
-                        clipRect(left = plateRight) { this@drawWithContent.drawContent() }
-                    }) {
-                        Image(
-                            bitmap = frozenRow,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.FillBounds,
-                        )
-                    }
-                }
-                sourceForeground != null ->
-                    CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
+                    else -> CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
                         StoryLaunchMotion.titleOpacity(scene.progress())
                     }) {
-                        sourceForeground(Modifier.fillMaxSize())
+                        WindowsTileFace(
+                            tile = tile,
+                            appIcon = state.appIcon,
+                            modifier = Modifier.fillMaxSize(),
+                            allowAppDerivedBackground = false,
+                            backgroundAlpha = 0f,
+                        )
                     }
-                state.origin == LaunchOrigin.ALL_APPS -> {
-                    if (state.appIcon != null) Image(
+                }
+    
+            }
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = StoryLaunchMotion.iconOnlyOpacity(scene.progress())
+            }, contentAlignment = Alignment.Center) {
+                when {
+                    destinationIcon != null -> destinationIcon(Modifier.fillMaxSize())
+                    tile.iconGlyph.isNotBlank() && tile.iconGlyph != "app" ->
+                        MetroIcon(tile.iconGlyph, color = Color.White, size = 42.dp)
+                    state.appIcon != null -> Image(
                         bitmap = state.appIcon,
                         contentDescription = tile.title,
-                        modifier = Modifier.fillMaxSize(.78f),
-                    ) else MetroIcon(
-                        tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: "app",
-                        size = 36.dp,
+                        modifier = Modifier.size(42.dp),
                     )
-                }
-                else -> CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
-                    StoryLaunchMotion.titleOpacity(scene.progress())
-                }) {
-                    WindowsTileFace(
-                        tile = tile,
-                        appIcon = state.appIcon,
-                        modifier = Modifier.fillMaxSize(),
-                        allowAppDerivedBackground = false,
-                        backgroundAlpha = 0f,
-                    )
+                    else -> MetroIcon("app", color = Color.White, size = 42.dp)
                 }
             }
         }
