@@ -4,6 +4,8 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
+import com.flivoro.tile8auncher.data.LaunchTiming
+import com.flivoro.tile8auncher.data.TimeCurve
 import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -29,6 +31,17 @@ internal object StoryLaunchMotion {
         MasterLaunchAnimation.UNFOLD -> 580
         else -> error("Not a story animation: $style")
     }
+
+    /** Resolve saved timing for every optional preset, preserving the established
+     * native reference duration until the user changes the duration slider. */
+    fun effectiveDuration(style: MasterLaunchAnimation, timing: LaunchTiming): Int =
+        if (timing.durationMillis == LaunchTiming.DEFAULT_DURATION_MILLIS)
+            duration(style) else timing.sanitized().durationMillis
+
+    /** One user-selected spatial phase for the tapped tile AND neighbors. */
+    fun traveledPhase(raw: Float, timing: LaunchTiming): Float =
+        if (timing.curve == TimeCurve.REFERENCE) settle(0f, 1f, raw)
+        else timing.transform(raw)
 
     // Smooth envelopes join with zero velocity and acceleration at either end.
     fun ease(start: Float, end: Float, progress: Float): Float {
