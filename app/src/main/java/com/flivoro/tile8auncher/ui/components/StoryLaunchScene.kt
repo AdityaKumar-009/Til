@@ -400,46 +400,25 @@ internal fun StoryLaunchOverlay(
             },
             contentAlignment = Alignment.Center,
         ) {
-            // A source tile may contain a title, dates, financial figures,
-            // badges or rotating content. Fading just Text("title") leaves
-            // other labels on the growing card. Fade the WHOLE original face
-            // into an icon-only face by exactly 50% of the RAW duration.
-            // The two complementary channels reverse identically on Back.
+            // The icon is ONE persistent composable from the very first
+            // frame through the 50% midpoint and through Back. The former
+            // full-tile/icon-only crossfade used two independently aligned
+            // glyphs and visibly teleported the icon at their midpoint.
+            // Only supplementary title/live data fades away.
             Box(Modifier.fillMaxSize().graphicsLayer {
                 alpha = 1f - StoryLaunchMotion.iconOnlyOpacity(scene.progress())
             }, contentAlignment = Alignment.Center) {
-                // The real source snapshot includes its OPAQUE BACKGROUND.
-                // Painting it at the glyph's bounded dimensions creates a
-                // second small purple tile INSIDE the growing purple panel.
-                // Use only transparent icon/text composables here; backdrop
-                // material is already painted once in the outer full-size plane.
-                // This is identical for opening, Back, Start and All Apps.
-                when {
-                    sourceForeground != null ->
-                        CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
-                            StoryLaunchMotion.titleOpacity(scene.progress())
-                        }) {
-                            sourceForeground(Modifier.fillMaxSize())
-                        }
-                    state.origin == LaunchOrigin.ALL_APPS -> {
-                        if (state.appIcon != null) Image(
-                            bitmap = state.appIcon,
-                            contentDescription = tile.title,
-                            modifier = Modifier.fillMaxSize(.78f),
-                        ) else MetroIcon(
-                            tile.iconGlyph.takeIf { it.isNotBlank() && it != "app" } ?: "app",
-                            size = 36.dp,
-                        )
+                if (sourceForeground != null) {
+                    CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
+                        StoryLaunchMotion.titleOpacity(scene.progress())
+                    }) {
+                        sourceForeground(Modifier.fillMaxSize())
                     }
-                    else -> CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
+                } else if (state.origin != LaunchOrigin.ALL_APPS) {
+                    CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
                         StoryLaunchMotion.titleOpacity(scene.progress())
                     }) {
                         WindowsTileFace(
-                            // The Desktop template draws a gradient inside its
-                            // CONTENT even when backgroundAlpha is zero. Story
-                            // faces must NEVER paint tile material in this
-                            // inner bounded layer: the full-screen panel owns
-                            // exactly one opaque backdrop at all times.
                             tile = if (tile.tileType ==
                                 com.flivoro.tile8auncher.data.TileType.DESKTOP)
                                 tile.copy(
@@ -448,15 +427,25 @@ internal fun StoryLaunchOverlay(
                                 ) else tile,
                             appIcon = state.appIcon,
                             modifier = Modifier.fillMaxSize(),
+                            logoModifier = Modifier.graphicsLayer { alpha = 0f },
                             allowAppDerivedBackground = false,
                             backgroundAlpha = 0f,
                         )
                     }
                 }
-    
             }
+            // The single glyph follows a smooth source-to-center offset,
+            // sharing the expanding material's perspective plane and size.
+            // No alpha change, substitute icon, or discrete layout switch.
             Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = StoryLaunchMotion.iconOnlyOpacity(scene.progress())
+                val centered = StoryLaunchMotion.iconCenterProgress(scene.progress())
+                val sourceX = StoryLaunchMotion.iconOriginOffsetX(
+                    state.origin, source.width, density.density)
+                val sourceY = StoryLaunchMotion.iconOriginOffsetY(
+                    state.origin, tile.size, density.density)
+                translationX = sourceX * (1f - centered)
+                translationY = sourceY * (1f - centered)
+                alpha = 1f
             }, contentAlignment = Alignment.Center) {
                 when {
                     destinationIcon != null -> destinationIcon(Modifier.fillMaxSize())
