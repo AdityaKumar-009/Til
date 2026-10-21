@@ -3,6 +3,8 @@ package com.flivoro.tile8auncher.ui.animation
 import androidx.compose.ui.geometry.Rect
 import com.flivoro.tile8auncher.ui.components.connectedStoryBackgroundAlpha
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
+import com.flivoro.tile8auncher.data.LaunchTiming
+import com.flivoro.tile8auncher.data.TimeCurve
 import org.junit.Assert.*
 import org.junit.Test
 import kotlin.math.abs
@@ -28,6 +30,24 @@ class StoryLaunchMotionTest {
         assertEquals(0f, connectedStoryBackgroundAlpha(0f, 0f), 0f)
         assertEquals(.5f, connectedStoryBackgroundAlpha(0f, .25f), .00001f)
         assertEquals(1f, connectedStoryBackgroundAlpha(0f, .5f), .00001f)
+    }
+
+    @Test fun allOptionalPresetsUseCustomDurationAndSpatialCurve() {
+        val normal = LaunchTiming()
+        val custom = LaunchTiming(durationMillis = 800,
+            durationOverridden = true, curve = TimeCurve.EASE_IN_CUBIC)
+        for (style in styles) {
+            assertEquals(StoryLaunchMotion.duration(style),
+                StoryLaunchMotion.effectiveDuration(style, normal))
+            assertEquals(800, StoryLaunchMotion.effectiveDuration(style, custom))
+            assertEquals(.125f, StoryLaunchMotion.traveledPhase(.5f, custom), .0001f)
+            val ref = StoryLaunchMotion.traveledPhase(.5f, normal)
+            assertTrue("Reference should preserve the original emphatic curve", ref > .5f)
+            val frame = StoryLaunchMotion.panelAtTravel(style,
+                StoryLaunchMotion.traveledPhase(.5f, custom), source, viewport, .5f)
+            assertTrue("$style failed to respect custom slower spatial progress",
+                frame.bounds.width < viewport.width)
+        }
     }
 
     @Test fun sourceIdentityAndFullWindowAreExactInEveryStory() {
