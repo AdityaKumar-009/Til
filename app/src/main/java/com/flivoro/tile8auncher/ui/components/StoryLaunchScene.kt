@@ -472,7 +472,17 @@ internal fun StoryLaunchOverlay(
                         StoryLaunchMotion.titleOpacity(scene.progress())
                     }) {
                         WindowsTileFace(
-                            tile = tile,
+                            // The Desktop template draws a gradient inside its
+                            // CONTENT even when backgroundAlpha is zero. Story
+                            // faces must NEVER paint tile material in this
+                            // inner bounded layer: the full-screen panel owns
+                            // exactly one opaque backdrop at all times.
+                            tile = if (tile.tileType ==
+                                com.flivoro.tile8auncher.data.TileType.DESKTOP)
+                                tile.copy(
+                                    tileType = com.flivoro.tile8auncher.data.TileType.APP,
+                                    iconGlyph = tile.iconGlyph.ifBlank { "desktop" },
+                                ) else tile,
                             appIcon = state.appIcon,
                             modifier = Modifier.fillMaxSize(),
                             allowAppDerivedBackground = false,
