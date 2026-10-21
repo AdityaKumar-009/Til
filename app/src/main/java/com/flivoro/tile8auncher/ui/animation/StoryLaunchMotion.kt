@@ -251,7 +251,7 @@ internal object StoryLaunchMotion {
         neighborAtTravel(style, settle(0f, 1f, raw), bounds, source, viewport)
 
     fun neighborAtTravel(style: MasterLaunchAnimation, travel: Float, bounds: Rect,
-        source: Rect, viewport: Rect): StoryNeighborFrame {
+        source: Rect, viewport: Rect, returning: Boolean = false): StoryNeighborFrame {
         val w = viewport.width.coerceAtLeast(1f)
         val h = viewport.height.coerceAtLeast(1f)
         val dx = (bounds.center.x - source.center.x) / w
@@ -277,7 +277,11 @@ internal object StoryLaunchMotion {
                 rotationY = side * 23f * move, pivotX = if (side < 0f) 0f else 1f)
             MasterLaunchAnimation.RIPPLE -> {
                 val length = hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(.12f)
-                val wave = sin(PI * move).toFloat()
+                // Ripple's opening wave is intentional. Replaying that pulse
+                // in reverse makes neighboring tiles wobble a SECOND time
+                // just before landing, even when their paths are monotonic.
+                // Keep their return scale/rotation quiet and connected.
+                val wave = if (returning) 0f else sin(PI * move).toFloat()
                 StoryNeighborFrame(fade, dx / length * w * .18f * move,
                     dy / length * h * .14f * move,
                     scale = 1f - .075f * wave - .04f * move,
