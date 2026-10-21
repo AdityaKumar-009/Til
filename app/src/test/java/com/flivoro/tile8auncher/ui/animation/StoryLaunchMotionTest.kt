@@ -30,6 +30,19 @@ class StoryLaunchMotionTest {
         assertEquals(0f, connectedStoryBackgroundAlpha(0f, 0f), 0f)
         assertEquals(.5f, connectedStoryBackgroundAlpha(0f, .25f), .00001f)
         assertEquals(1f, connectedStoryBackgroundAlpha(0f, .5f), .00001f)
+        // Photo tiles are visually fully painted. They must NOT reveal
+        // wallpaper/neighbor tiles for half the animation just because their
+        // underlying solid accent initially has opacity zero.
+        for (time in listOf(0f, .01f, .08f, .20f, .25f, .49f, .50f, 1f)) {
+            assertEquals("A photo tile became see-through at $time",
+                1f, connectedStoryBackgroundAlpha(0f, time,
+                    sourcePictureMode = true), .00001f)
+        }
+        // Explicit semi-transparent tiles should preserve their original
+        // opacity at tap rather than suddenly becoming fully transparent.
+        assertEquals(.75f, connectedStoryBackgroundAlpha(.75f, 0f), .00001f)
+        assertEquals(.875f, connectedStoryBackgroundAlpha(.75f, .25f), .00001f)
+        assertEquals(1f, connectedStoryBackgroundAlpha(.75f, .5f), .00001f)
     }
 
     @Test fun allOptionalPresetsUseCustomDurationAndSpatialCurve() {
