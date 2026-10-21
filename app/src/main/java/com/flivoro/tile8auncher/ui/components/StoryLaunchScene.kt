@@ -445,38 +445,13 @@ internal fun StoryLaunchOverlay(
             Box(Modifier.fillMaxSize().graphicsLayer {
                 alpha = 1f - StoryLaunchMotion.iconOnlyOpacity(scene.progress())
             }, contentAlignment = Alignment.Center) {
-                val frozenRow = scene.sourceImage
+                // The real source snapshot includes its OPAQUE BACKGROUND.
+                // Painting it at the glyph's bounded dimensions creates a
+                // second small purple tile INSIDE the growing purple panel.
+                // Use only transparent icon/text composables here; backdrop
+                // material is already painted once in the outer full-size plane.
+                // This is identical for opening, Back, Start and All Apps.
                 when {
-                    // During Back, reuse the EXACT pixels the real source tile
-                    // displayed at launch. A separately composed Lumia glyph
-                    // and tile title can differ slightly in size/placement, so
-                    // switching from that approximation to the live cell at
-                    // the last frame made the source appear to pop or rebound.
-                    scene.returning && frozenRow != null -> Image(
-                        bitmap = frozenRow,
-                        contentDescription = tile.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                    )
-                    // On Phone All Apps the selected source is a wide, transparent
-                    // *row*, with its real icon plate aligned to the leading edge.
-                    // Rendering a generic centered Start tile here changes both
-                    // the icon location and its size. Retain the recorded row at
-                    // its original dimensions; the panel still grows independently.
-                    state.origin == LaunchOrigin.ALL_APPS &&
-                        source.width >= viewport.width * .65f &&
-                        frozenRow != null -> {
-                        // Preserve the exact tapped row until the shared
-                    // midpoint crossfade takes ownership. A second clipped
-                    // copy of the same texture was unnecessary work and could
-                    // shimmer or show twice on reversal.
-                    Image(
-                        bitmap = frozenRow,
-                        contentDescription = tile.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                    )
-                    }
                     sourceForeground != null ->
                         CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
                             StoryLaunchMotion.titleOpacity(scene.progress())
