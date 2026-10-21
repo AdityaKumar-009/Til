@@ -116,13 +116,21 @@ internal fun Modifier.storyLaunchActor(
     val scene = LocalStoryLaunchScene.current ?: return this
     if (scene.state.origin != origin) return this
     var bounds by remember(id) { mutableStateOf(Rect.Zero) }
-    val measured = this.onGloballyPositioned {
-        bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
-    }
     val potentialSource = sourceCandidate && scene.isSelected(id) &&
         scene.state.sourceBounds.width > 1f && scene.state.sourceBounds.height > 1f
     val token = remember(scene, id) { Any() }
     val layer = if (potentialSource) rememberGraphicsLayer() else null
+    val measured = this.onGloballyPositioned {
+        bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
+        // Claim the source as soon as Android lays it out. Relying on a
+        // draw pass can deadlock when a returning cell is culled at alpha=0:
+        // no sourceOwner is published, the overlay cannot crossfade into it,
+        // and the tile pops back only after the overlay is removed.
+        if (layer != null && scene.sourceOwner == null && scene.matchesSourceBounds(bounds)) {
+            scene.sourceOwner = token
+            scene.sourceLayer = layer
+        }
+    }
     if (layer != null) {
         DisposableEffect(scene, layer) {
             onDispose {
