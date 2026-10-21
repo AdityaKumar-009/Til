@@ -107,6 +107,7 @@ import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.SharedStartWorkspace
 import com.flivoro.tile8auncher.data.TileModel
+import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.LiveTileNotificationStore
