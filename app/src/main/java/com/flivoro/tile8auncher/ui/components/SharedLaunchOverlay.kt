@@ -171,9 +171,7 @@ internal fun SharedLaunchOverlay(
             style, viewportHeightCss,
             state.origin == com.flivoro.tile8auncher.ui.animation.LaunchOrigin.ALL_APPS,
         )
-        val playbackDuration = if (state.timing.durationMillis !=
-            com.flivoro.tile8auncher.data.LaunchTiming.DEFAULT_DURATION_MILLIS)
-            state.timing.sanitized().durationMillis else duration
+        val playbackDuration = state.timing.playbackDuration(duration)
         val playbackCurve = if (state.timing.curve ==
             com.flivoro.tile8auncher.data.TimeCurve.REFERENCE) LinearEasing
         else androidx.compose.animation.core.Easing { state.timing.transform(it) }
