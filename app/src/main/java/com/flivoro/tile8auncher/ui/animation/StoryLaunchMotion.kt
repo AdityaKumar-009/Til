@@ -35,8 +35,7 @@ internal object StoryLaunchMotion {
     /** Resolve saved timing for every optional preset, preserving the established
      * native reference duration until the user changes the duration slider. */
     fun effectiveDuration(style: MasterLaunchAnimation, timing: LaunchTiming): Int =
-        if (timing.durationMillis == LaunchTiming.DEFAULT_DURATION_MILLIS)
-            duration(style) else timing.sanitized().durationMillis
+        timing.playbackDuration(duration(style))
 
     /** One user-selected spatial phase for the tapped tile AND neighbors. */
     fun traveledPhase(raw: Float, timing: LaunchTiming): Float =
