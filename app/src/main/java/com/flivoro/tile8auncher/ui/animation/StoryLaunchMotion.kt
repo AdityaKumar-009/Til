@@ -39,12 +39,18 @@ internal object StoryLaunchMotion {
     // Source text is not part of the moving panel's silhouette. Its early
     // disappearance on launch, and late reappearance on Back, both use the
     // SAME raw progress. Icons keep their separate, larger bounded scaling.
-    fun titleOpacity(raw: Float): Float = 1f - ease(.12f, .42f, progress(raw))
+    fun titleOpacity(raw: Float): Float = 1f - ease(.12f, .50f, progress(raw))
+
+    // At exactly half the animation clock the expanding tile must show
+    // ONLY its centered glyph, regardless of built-in tile templates (Money,
+    // Weather, etc.) whose extra information is not a simple title Text.
+    // The same channel reverses continuously on Back.
+    fun iconOnlyOpacity(raw: Float): Float = ease(.18f, .50f, progress(raw))
 
     // Blend to the real source cell over the final third of RETURN travel.
     // Crossfade its painted pixels rather than dropping the moving tile just
     // before the original cell resumes its drawing ownership.
-    fun returnToSourceOpacity(travel: Float): Float = 1f - ease(0f, .30f, progress(travel))
+    fun returnToSourceOpacity(travel: Float): Float = 1f - ease(0f, .12f, progress(travel))
 
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
