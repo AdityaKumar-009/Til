@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.LinearEasing
+import com.flivoro.tile8auncher.data.TimeCurve
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
@@ -61,7 +62,9 @@ import com.flivoro.tile8auncher.ui.phone.sourceColorArrival
 internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () -> Float) {
     // Snapshot-derived once per animation frame, instead of independently evaluating
     // the cubic easing for each visible tile and every layer of the launch overlay.
-    val traveledPhase by derivedStateOf { StoryLaunchMotion.settle(0f, 1f, progress()) }
+    val traveledPhase by derivedStateOf {
+        StoryLaunchMotion.traveledPhase(progress(), state.timing)
+    }
     var viewport by mutableStateOf(Rect.Zero)
     var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
     var sourceImage by mutableStateOf<ImageBitmap?>(null)
@@ -255,7 +258,8 @@ internal fun StoryLaunchOverlay(
     }
     LaunchedEffect(scene, state.direction) {
         scene.returning = state.direction == FlipAnimationDirection.REVERSE
-        val duration = StoryLaunchMotion.duration(state.masterLaunchAnimation)
+        val duration = StoryLaunchMotion.effectiveDuration(
+            state.masterLaunchAnimation, state.timing)
         if (state.direction == FlipAnimationDirection.FORWARD) {
             finalFrameDrawn = false
             progress.snapTo(0f)
@@ -280,7 +284,8 @@ internal fun StoryLaunchOverlay(
             // full-duration launch backwards when Back should feel understated.
             val remaining = (duration * start * .85f).roundToInt()
             if (remaining > 0) progress.animateTo(0f,
-                tween(remaining, easing = StoryLaunchMotion.returnEasing(start)))
+                tween(remaining, easing = if (state.timing.curve == TimeCurve.REFERENCE)
+                    StoryLaunchMotion.returnEasing(start) else LinearEasing))
             else progress.snapTo(0f)
             snapshotFlow { firstFrameDrawn }.first { it }
             withFrameNanos { }
