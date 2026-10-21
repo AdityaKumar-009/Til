@@ -254,6 +254,28 @@ class StoryLaunchMotionTest {
         }
     }
 
+    @Test fun exactlyOneSelectedTileOwnsMaterialThroughoutEveryStory() {
+        // The last on-device video showed a separate small square inside
+        // the expanding colored panel. The actual physical source cell must
+        // never draw simultaneously with the traveling material panel.
+        for (style in listOf(MasterLaunchAnimation.RIPPLE,
+                MasterLaunchAnimation.FOCUS, MasterLaunchAnimation.DOOR,
+                MasterLaunchAnimation.UNFOLD)) {
+            assertTrue(StoryLaunchMotion.shouldDrawOriginalCell(
+                prepared = false, returning = false, travel = 0f))
+            for (tick in 0..1000) {
+                val travel = tick / 1000f
+                assertFalse("$style duplicates the original tile during opening",
+                    StoryLaunchMotion.shouldDrawOriginalCell(
+                        prepared = true, returning = false, travel = travel))
+                val shouldBeBack = travel <= StoryLaunchMotion.RETURN_HANDOFF_TRAVEL
+                assertEquals("$style duplicates the original on Back at $travel",
+                    shouldBeBack, StoryLaunchMotion.shouldDrawOriginalCell(
+                        prepared = true, returning = true, travel = travel))
+            }
+        }
+    }
+
     @Test fun returningSourceCellBlendsWithMovingTileWithoutBlink() {
         // The physical Start/All Apps cell owns the final pose before the
         // overlay is unmounted. Their weights are complementary in both
