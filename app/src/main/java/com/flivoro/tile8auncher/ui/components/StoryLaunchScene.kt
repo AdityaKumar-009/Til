@@ -147,7 +147,8 @@ internal fun Modifier.storyLaunchActor(
             // publishes sourceLayer, creating a 500ms reverse capture timeout
             // and a disappearing/reappearing tile. Keep it drawable behind
             // the full-screen overlay until its image is prepared.
-            alpha = if (scene.returning && scene.sourcePrepared)
+            alpha = if (scene.returning && scene.sourcePrepared &&
+                scene.sourceOwner === token)
                 StoryLaunchMotion.returnToSourceOpacity(scene.traveledPhase)
             else 1f
             translationX = 0f
