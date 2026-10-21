@@ -375,6 +375,7 @@ fun PhoneLauncherSurface(
     interactionEnabled: Boolean,
     wallpaperStyle: Int,
     launchMotionMode: LauncherUiMode? = null,
+    launchTiming: com.flivoro.tile8auncher.data.LaunchTiming = com.flivoro.tile8auncher.data.LaunchTiming(),
     hideOriginalTileId: String? = null,
     borrowedDesktopRetreat: () -> Float = { 0f },
     borrowedDesktopOrigin: LaunchOrigin? = null,
@@ -651,8 +652,19 @@ fun PhoneLauncherSurface(
     val latestDuration by rememberUpdatedState(duration)
     LaunchedEffect(mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack) {
         snapshotFlow { paneBounds.width > 0f && surfaceBounds.height > 0f }.first { it }
-        val animationDuration = latestDuration
-        motionClock.animateTo(animationDuration.toFloat(), tween(animationDuration, easing = LinearEasing))
+        val nativeDuration = latestDuration
+        // Preserve the authentic choreography's native millisecond samples.
+        // User timing changes only how quickly the shared scene clock travels
+        // through those samples; tiles, wallpaper, and app-list rows remain synced.
+        val requestedDuration = if (isLaunching &&
+            launchTiming.durationMillis != com.flivoro.tile8auncher.data.LaunchTiming.DEFAULT_DURATION_MILLIS)
+            launchTiming.sanitized().durationMillis else nativeDuration
+        val selectedEasing = if (isLaunching &&
+            launchTiming.curve != com.flivoro.tile8auncher.data.TimeCurve.REFERENCE)
+            androidx.compose.animation.core.Easing { launchTiming.transform(it) }
+        else LinearEasing
+        motionClock.animateTo(nativeDuration.toFloat(),
+            tween(requestedDuration, easing = selectedEasing))
         classicForwardEntranceActive = false
         if (isLaunching) {
             // Let the completed pose be submitted before the external Activity is requested.
