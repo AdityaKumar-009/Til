@@ -600,7 +600,7 @@ private fun PCSettingsAppContent(
                 Spacer(Modifier.height(26.dp))
                 Text("Launch timing • all three modes", color = Color(0xFF5133AB), fontSize = 19.sp)
                 Spacer(Modifier.height(6.dp))
-                Text("Duration and curve apply to the selected global animation on Start and All Apps. Reference preserves its original pacing. Classic/Modern below is Desktop-only.",
+                Text("Duration and curve apply to the selected global animation on Start and All Apps. Reference preserves its original pacing. Classic/Modern only applies to Default on Desktop.",
                     color = Color(0xFF666666), fontSize = 12.sp, lineHeight = 16.sp)
                 Spacer(Modifier.height(16.dp))
         // Group Header
@@ -625,8 +625,9 @@ private fun PCSettingsAppContent(
 
         // This visual switch only applies to the native Desktop effect;
         // it must not look like it controls Ripple, W10M, or any other preset.
-        if (selectedLaunchStyle == MasterLaunchAnimation.DEFAULT ||
-            selectedLaunchStyle == MasterLaunchAnimation.DESKTOP) {
+        if (selectedLaunchStyle == MasterLaunchAnimation.DEFAULT &&
+            LauncherFeatureStore.launcherUiMode(context) ==
+                com.flivoro.tile8auncher.features.LauncherUiMode.DESKTOP) {
         // Option 1: Classic
         AnimationModeOptionCard(
             title = "Classic",
