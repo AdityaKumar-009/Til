@@ -419,7 +419,7 @@ internal fun StoryLaunchOverlay(
                     // pixels without decoding/laying out the title per frame.
                     val plateRight = minOf(source.width * .22f, 80f * density.density)
                     Box(Modifier.fillMaxSize().drawWithContent {
-                        clipRect(right = plateRight) { drawContent() }
+                        clipRect(right = plateRight) { this@drawWithContent.drawContent() }
                     }) {
                         Image(
                             bitmap = frozenRow,
@@ -431,7 +431,7 @@ internal fun StoryLaunchOverlay(
                     Box(Modifier.fillMaxSize().graphicsLayer {
                         alpha = StoryLaunchMotion.titleOpacity(scene.progress())
                     }.drawWithContent {
-                        clipRect(left = plateRight) { drawContent() }
+                        clipRect(left = plateRight) { this@drawWithContent.drawContent() }
                     }) {
                         Image(
                             bitmap = frozenRow,
