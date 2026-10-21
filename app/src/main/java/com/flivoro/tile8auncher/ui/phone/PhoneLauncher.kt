@@ -656,9 +656,8 @@ fun PhoneLauncherSurface(
         // Preserve the authentic choreography's native millisecond samples.
         // User timing changes only how quickly the shared scene clock travels
         // through those samples; tiles, wallpaper, and app-list rows remain synced.
-        val requestedDuration = if (isLaunching &&
-            launchTiming.durationMillis != com.flivoro.tile8auncher.data.LaunchTiming.DEFAULT_DURATION_MILLIS)
-            launchTiming.sanitized().durationMillis else nativeDuration
+        val requestedDuration = if (isLaunching) launchTiming.playbackDuration(nativeDuration)
+            else nativeDuration
         val selectedEasing = if (isLaunching &&
             launchTiming.curve != com.flivoro.tile8auncher.data.TimeCurve.REFERENCE)
             androidx.compose.animation.core.Easing { launchTiming.transform(it) }
