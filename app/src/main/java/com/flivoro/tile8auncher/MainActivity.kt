@@ -1567,14 +1567,7 @@ fun Tile8LauncherApp(
                                     it == MasterLaunchAnimation.MOBILE_10)
                         },
                         borrowedLaunchSelectedId = flipState.sourceTile?.id,
-                        borrowedLaunchProgress = {
-                            // The physical Desktop tiles and their neighbors must
-                            // sample the SAME user-selected clock. Never let
-                            // the overlay ease while each tile stays linear.
-                            if (flipState.timing.curve == com.flivoro.tile8auncher.data.TimeCurve.REFERENCE)
-                                flipProgress.value
-                            else flipState.timing.transform(flipProgress.value)
-                        },
+                        borrowedLaunchProgress = { flipProgress.value },
                         entranceRequest = startEntranceRequest,
                         entranceKind = startEntranceKind,
                         entranceEnabled = entranceReady && currentScreen == LauncherScreen.START &&
@@ -1655,14 +1648,7 @@ fun Tile8LauncherApp(
                                     it == MasterLaunchAnimation.MOBILE_10)
                         },
                         borrowedLaunchPackage = flipState.sourceTile?.packageName,
-                        borrowedLaunchProgress = {
-                            // The physical Desktop tiles and their neighbors must
-                            // sample the SAME user-selected clock. Never let
-                            // the overlay ease while each tile stays linear.
-                            if (flipState.timing.curve == com.flivoro.tile8auncher.data.TimeCurve.REFERENCE)
-                                flipProgress.value
-                            else flipState.timing.transform(flipProgress.value)
-                        },
+                        borrowedLaunchProgress = { flipProgress.value },
                     )
                 },
             )
