@@ -3033,6 +3033,7 @@ internal fun PhoneLaunchSourceFace(
     preferredIcon: androidx.compose.ui.graphics.ImageBitmap? = null,
     foregroundOnly: Boolean = false,
     backgroundOnly: Boolean = false,
+    detailsOnly: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -3117,7 +3118,12 @@ internal fun PhoneLaunchSourceFace(
         // to the resolved solid color; an opaque base would defeat transparency.
         backgroundAlpha = 0f,
         innerModifier = Modifier,
-        logoModifier = if (nativeGlyph == "wp81_phone") Modifier.graphicsLayer {
+        // Story owns exactly ONE icon instance for the whole timeline.
+        // This transparent detail face carries labels/live data ONLY.
+        // Hiding template logos prevents a second, misaligned glyph from
+        // fading across the persistent centered icon at the midpoint.
+        logoModifier = if (detailsOnly) Modifier.graphicsLayer { alpha = 0f }
+        else if (nativeGlyph == "wp81_phone") Modifier.graphicsLayer {
             translationX = -.19f * density
             translationY = 5.41f * density
         } else if (classicScale != 1f) Modifier.graphicsLayer {
