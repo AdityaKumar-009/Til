@@ -36,6 +36,16 @@ internal object StoryLaunchMotion {
         return (x * x * x * (10f + x * (-15f + 6f * x))).coerceIn(0f, 1f)
     }
 
+    // Source text is not part of the moving panel's silhouette. Its early
+    // disappearance on launch, and late reappearance on Back, both use the
+    // SAME raw progress. Icons keep their separate, larger bounded scaling.
+    fun titleOpacity(raw: Float): Float = 1f - ease(.12f, .42f, progress(raw))
+
+    // Blend to the real source cell over the final third of RETURN travel.
+    // Crossfade its painted pixels rather than dropping the moving tile just
+    // before the original cell resumes its drawing ownership.
+    fun returnToSourceOpacity(travel: Float): Float = 1f - ease(0f, .30f, progress(travel))
+
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
     // A single continuous easing replaces the stitched Desktop sample data,
@@ -195,7 +205,7 @@ internal object StoryLaunchMotion {
         // crossfade, while the one physical rectangle keeps expanding.
         val reveal = ease(.68f, .96f, progress(rawProgress))
         // A full-width app row must not grow its leading glyph offscreen.
-        val artworkScale = minOf(1.30f, viewport.width / source.width,
+        val artworkScale = minOf(1.44f, viewport.width / source.width,
             viewport.height / source.height).coerceAtLeast(1f)
         return StoryPanelFrame(
             bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
