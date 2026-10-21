@@ -598,9 +598,9 @@ private fun PCSettingsAppContent(
                     Text("Change", color = Color(0xFF5133AB), fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(26.dp))
-                Text("Desktop motion fine-tuning", color = Color(0xFF5133AB), fontSize = 19.sp)
+                Text("Launch timing • all three modes", color = Color(0xFF5133AB), fontSize = 19.sp)
                 Spacer(Modifier.height(6.dp))
-                Text("Classic/Modern and custom timing are used by native Desktop animation. They do not retime the eight motion stories.",
+                Text("Duration and curve apply to the selected global animation on Start and All Apps. Reference preserves its original pacing. Classic/Modern below is Desktop-only.",
                     color = Color(0xFF666666), fontSize = 12.sp, lineHeight = 16.sp)
                 Spacer(Modifier.height(16.dp))
         // Group Header
@@ -623,6 +623,10 @@ private fun PCSettingsAppContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // This visual switch only applies to the native Desktop effect;
+        // it must not look like it controls Ripple, W10M, or any other preset.
+        if (selectedLaunchStyle == MasterLaunchAnimation.DEFAULT ||
+            selectedLaunchStyle == MasterLaunchAnimation.DESKTOP) {
         // Option 1: Classic
         AnimationModeOptionCard(
             title = "Classic",
@@ -651,6 +655,7 @@ private fun PCSettingsAppContent(
             }
         )
 
+        }
         Spacer(modifier = Modifier.height(24.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -663,8 +668,15 @@ private fun PCSettingsAppContent(
         Spacer(Modifier.height(12.dp))
         AnimationTimingSettings(
             timing = if (editingAllApps) allAppsTiming else launchTiming,
-            referenceProgress = if (editingAllApps) AllAppsLaunchMotion::expansionFraction
-                else WindowsLaunchMotion::rotationFractionAtProgress,
+            referenceProgress = when {
+                selectedLaunchStyle.isStory -> { value ->
+                    com.flivoro.tile8auncher.ui.animation.StoryLaunchMotion.settle(0f, 1f, value)
+                }
+                selectedLaunchStyle == MasterLaunchAnimation.PHONE_8 ||
+                    selectedLaunchStyle == MasterLaunchAnimation.MOBILE_10 -> { value -> value }
+                editingAllApps -> AllAppsLaunchMotion::expansionFraction
+                else -> WindowsLaunchMotion::rotationFractionAtProgress
+            },
             onTimingChange = { timing ->
                 val safeTiming = timing.sanitized()
                 if (editingAllApps) allAppsTiming = safeTiming else launchTiming = safeTiming
