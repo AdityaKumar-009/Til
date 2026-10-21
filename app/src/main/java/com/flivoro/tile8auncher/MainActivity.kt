@@ -1421,6 +1421,7 @@ fun Tile8LauncherApp(
                                 sourceOrigin = flipState.origin,
                                 preferredIcon = flipState.appIcon,
                                 foregroundOnly = true,
+                                detailsOnly = true,
                             )
                         }
                     },
