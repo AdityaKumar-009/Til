@@ -69,7 +69,10 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
     var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
     var sourceImage by mutableStateOf<ImageBitmap?>(null)
     var sourceDraws by mutableStateOf(0)
-    var sourcePrepared by mutableStateOf(false)
+    // Return has no bitmap-readback prerequisite. Prepare its ownership gate
+    // immediately so the first composed Back frame does not briefly expose
+    // the stationary original tile before the launch effect hides it.
+    var sourcePrepared by mutableStateOf(state.direction == FlipAnimationDirection.REVERSE)
     // Direction may change without reconstructing this scene (in-place Back).
     var returning by mutableStateOf(state.direction == FlipAnimationDirection.REVERSE)
     var capturedSourceBounds by mutableStateOf(state.sourceBounds)
