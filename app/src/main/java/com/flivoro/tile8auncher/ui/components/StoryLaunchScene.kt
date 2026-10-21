@@ -197,7 +197,7 @@ internal fun Modifier.storyLaunchActor(
                 layer.record { this@drawWithContent.drawContent() }
                 drawLayer(layer)
                 if (scene.sourceDraws < 2) scene.sourceDraws++
-            } else if (scene.returning && scene.traveledPhase < .12f) {
+            } else if (scene.returning && scene.traveledPhase < .035f) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
                 drawContent()
