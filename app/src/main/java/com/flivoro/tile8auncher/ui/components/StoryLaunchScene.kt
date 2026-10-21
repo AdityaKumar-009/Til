@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -426,34 +425,16 @@ internal fun StoryLaunchOverlay(
                     state.origin == LaunchOrigin.ALL_APPS &&
                         source.width >= viewport.width * .65f &&
                         frozenRow != null -> {
-                        // Phone All Apps is a wide row: its icon plate and its text
-                        // must stay at their original positions, but the caption
-                        // fades away on launch and fades BACK on return.
-                        // Splitting only the draw region preserves the cached row
-                        // pixels without decoding/laying out the title per frame.
-                        val plateRight = minOf(source.width * .22f, 80f * density.density)
-                        Box(Modifier.fillMaxSize().drawWithContent {
-                            clipRect(right = plateRight) { this@drawWithContent.drawContent() }
-                        }) {
-                            Image(
-                                bitmap = frozenRow,
-                                contentDescription = tile.title,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.FillBounds,
-                            )
-                        }
-                        Box(Modifier.fillMaxSize().graphicsLayer {
-                            alpha = StoryLaunchMotion.titleOpacity(scene.progress())
-                        }.drawWithContent {
-                            clipRect(left = plateRight) { this@drawWithContent.drawContent() }
-                        }) {
-                            Image(
-                                bitmap = frozenRow,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.FillBounds,
-                            )
-                        }
+                        // Preserve the exact tapped row until the shared
+                    // midpoint crossfade takes ownership. A second clipped
+                    // copy of the same texture was unnecessary work and could
+                    // shimmer or show twice on reversal.
+                    Image(
+                        bitmap = frozenRow,
+                        contentDescription = tile.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
                     }
                     sourceForeground != null ->
                         CompositionLocalProvider(LocalStoryTileTitleOpacity provides {
