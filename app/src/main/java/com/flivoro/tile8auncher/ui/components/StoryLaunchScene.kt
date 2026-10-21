@@ -36,9 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -51,8 +48,6 @@ import com.flivoro.tile8auncher.ui.animation.FlipReverseReason
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.animation.StoryLaunchMotion
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.math.max
@@ -66,9 +61,6 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
         StoryLaunchMotion.traveledPhase(progress(), state.timing)
     }
     var viewport by mutableStateOf(Rect.Zero)
-    var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
-    var sourceImage by mutableStateOf<ImageBitmap?>(null)
-    var sourceDraws by mutableStateOf(0)
     // Return has no bitmap-readback prerequisite. Prepare its ownership gate
     // immediately so the first composed Back frame does not briefly expose
     // the stationary original tile before the launch effect hides it.
@@ -137,29 +129,24 @@ internal fun Modifier.storyLaunchActor(
     val potentialSource = sourceCandidate && scene.isSelected(id) &&
         scene.state.sourceBounds.width > 1f && scene.state.sourceBounds.height > 1f
     val token = remember(scene, id) { Any() }
-    val layer = if (potentialSource) rememberGraphicsLayer() else null
     val measured = this.onGloballyPositioned {
         bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
         // Claim the source as soon as Android lays it out. Relying on a
         // draw pass can deadlock when a returning cell is culled at alpha=0:
         // no sourceOwner is published, the overlay cannot crossfade into it,
         // and the tile pops back only after the overlay is removed.
-        if (layer != null && scene.sourceOwner == null && scene.matchesSourceBounds(bounds)) {
+        if (potentialSource && scene.sourceOwner == null && scene.matchesSourceBounds(bounds)) {
             scene.sourceOwner = token
-            scene.sourceLayer = layer
         }
     }
-    if (layer != null) {
-        DisposableEffect(scene, layer) {
+    if (potentialSource) {
+        DisposableEffect(scene, token) {
             onDispose {
-                if (scene.sourceOwner === token) {
-                    scene.sourceLayer = null
-                    scene.sourceOwner = null
-                }
+                if (scene.sourceOwner === token) scene.sourceOwner = null
             }
         }
     }
-    fun ownsSource(): Boolean = layer != null && (scene.sourceOwner === token ||
+    fun ownsSource(): Boolean = potentialSource && (scene.sourceOwner === token ||
         (scene.sourceOwner == null && scene.matchesSourceBounds(bounds)))
     return measured.graphicsLayer {
         val viewport = scene.viewport
@@ -205,22 +192,19 @@ internal fun Modifier.storyLaunchActor(
             cameraDistance = maxOf(viewport.width * 3f, viewport.height * 2f)
         }
     }.drawWithContent {
-        if (ownsSource() && layer != null) {
-            // Keep the real cell visible during preparation. Nested text/icon
-            // RenderNodes need a completed draw before they can be snapshotted.
-            // Ownership transfers only once the complete image is available.
-            if (scene.sourceImage == null && !scene.sourcePrepared) {
-                layer.record { this@drawWithContent.drawContent() }
-                drawLayer(layer)
-                if (scene.sourceDraws < 2) scene.sourceDraws++
-            } else if (scene.returning &&
-                scene.traveledPhase <= StoryLaunchMotion.RETURN_HANDOFF_TRAVEL) {
+        if (ownsSource()) {
+            // One real tile is visible during initial preparation. Once the
+            // moving material plane starts, the original selected tile yields
+            // all pixels; on Back it resumes only when the moving plane has
+            // reached practically identical geometry. No bitmap clone, extra
+            // colored tile, or offscreen RenderNode is ever painted.
+            if (!scene.sourcePrepared || (scene.returning &&
+                scene.traveledPhase <= StoryLaunchMotion.RETURN_HANDOFF_TRAVEL)) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
                 drawContent()
             }
             if (scene.sourceOwner !== token) scene.sourceOwner = token
-            if (scene.sourceLayer !== layer) scene.sourceLayer = layer
             // Freeze geometry while departing: transformed parent rows must
             // never feed their moving coordinates back into the source anchor.
             if (!scene.sourceMeasured && scene.progress() <= .001f && bounds.width > 0f) {
@@ -251,28 +235,6 @@ internal fun StoryLaunchOverlay(
     val reverseReason by rememberUpdatedState(state.reverseReason)
     var finalFrameDrawn by remember(scene) { mutableStateOf(false) }
     var firstFrameDrawn by remember(scene) { mutableStateOf(false) }
-    suspend fun cacheSourceArtwork() {
-        if (scene.sourceImage != null || state.sourceBounds.width <= 1f ||
-            state.sourceBounds.height <= 1f) return
-        val layer = withTimeoutOrNull(500L) {
-            snapshotFlow { scene.sourceLayer.takeIf { scene.sourceDraws >= 2 } }
-                .first { it != null }
-        } ?: return
-        try {
-            // Complete the window draw that populated the child RenderNodes.
-            withFrameNanos { }
-            // Exactly one readback before the motion clock. Nested RenderNode
-            // references can disappear when an offscreen/transparent row is
-            // culled; a cached image retains real glyphs, wallpaper and colors.
-            scene.sourceImage = layer.toImageBitmap()
-            // The snapshot is already complete; one more idle vsync would
-            // leave the Back surface paused before it starts shrinking.
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            android.util.Log.w("MosaicStory", "Could not freeze source artwork", failure)
-        }
-    }
     LaunchedEffect(scene, state.direction) {
         scene.returning = state.direction == FlipAnimationDirection.REVERSE
         val duration = StoryLaunchMotion.effectiveDuration(
@@ -280,10 +242,11 @@ internal fun StoryLaunchOverlay(
         if (state.direction == FlipAnimationDirection.FORWARD) {
             finalFrameDrawn = false
             progress.snapTo(0f)
-            // Give the real selected cell one drawing pass to publish its display
-            // list. Shortcuts with no visible cell use the cached fallback below.
+            // Submit the original selected tile once, then transfer ALL
+            // painting responsibility to the single expanding panel. The old
+            // 500ms GPU bitmap readback had no remaining consumer and could
+            // stall the animation before its first moving frame.
             withFrameNanos { }
-            cacheSourceArtwork()
             scene.sourcePrepared = true
             progress.animateTo(1f, tween(duration, easing = LinearEasing))
             snapshotFlow { finalFrameDrawn }.first { it }
@@ -364,7 +327,7 @@ internal fun StoryLaunchOverlay(
             // Publish the foreground face and hide that cell in the same frame.
             alpha = if (state.direction == FlipAnimationDirection.FORWARD &&
                 state.sourceBounds.width > 1f && state.sourceBounds.height > 1f &&
-                scene.sourceImage == null && !scene.sourcePrepared) 0f else returnOwnership
+                !scene.sourcePrepared) 0f else returnOwnership
             transformOrigin = TransformOrigin(f.pivotX, f.pivotY)
             scaleX = f.bounds.width / w
             scaleY = f.bounds.height / h
