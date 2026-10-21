@@ -63,7 +63,7 @@ internal object StoryLaunchMotion {
     // Blend to the real source cell over the final third of RETURN travel.
     // Crossfade its painted pixels rather than dropping the moving tile just
     // before the original cell resumes its drawing ownership.
-    fun returnToSourceOpacity(travel: Float): Float = 1f - ease(0f, .12f, progress(travel))
+    fun returnToSourceOpacity(travel: Float): Float = 1f - ease(0f, .035f, progress(travel))
 
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
