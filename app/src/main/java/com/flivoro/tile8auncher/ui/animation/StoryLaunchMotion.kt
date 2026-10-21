@@ -59,10 +59,13 @@ internal object StoryLaunchMotion {
     // The same channel reverses continuously on Back.
     fun iconOnlyOpacity(raw: Float): Float = ease(.18f, .50f, progress(raw))
 
-    // Blend to the real source cell over the final third of RETURN travel.
-    // Crossfade its painted pixels rather than dropping the moving tile just
-    // before the original cell resumes its drawing ownership.
-    fun returnToSourceOpacity(travel: Float): Float = 1f - ease(0f, .035f, progress(travel))
+    // Transfer source-cell ownership only when the animated rectangle is
+    // geometrically indistinguishable from the cell. Previously the crossover
+    // occupied the last 3.5% of travel: the real tile appeared while the
+    // moving panel was still visibly larger, which looked like a bounce.
+    internal const val RETURN_HANDOFF_TRAVEL = .004f
+    fun returnToSourceOpacity(travel: Float): Float =
+        1f - ease(0f, RETURN_HANDOFF_TRAVEL, progress(travel))
 
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
@@ -142,7 +145,7 @@ internal object StoryLaunchMotion {
     // Share the already-eased display phase with the neighbors; no cubic Bézier
     // inversion needs to run separately for every tile and overlay layer.
     fun panelAtTravel(style: MasterLaunchAnimation, travel: Float, source: Rect, viewport: Rect,
-        rawProgress: Float = travel): StoryPanelFrame {
+        rawProgress: Float = travel, returning: Boolean = false): StoryPanelFrame {
         val arc = if (travel > 0f && travel < 1f) sin(PI * travel).toFloat() else 0f
         val lift = viewport.height * .045f
         var widthProgress = travel
@@ -208,7 +211,13 @@ internal object StoryLaunchMotion {
             }
             else -> error("Not a story animation: $style")
         }
-        val compression = if (style == MasterLaunchAnimation.FOCUS ||
+        // Keep the pressed-in flourish on OPEN, but not on Back. On a wide
+        // All Apps row, source.width can be almost the viewport width, so the
+        // old press term actually made Ripple/Door narrower than the original
+        // tile near travel=0. The final frames then expanded BACK to 100%:
+        // a mathematically real, visible rebound. Reversal stays monotonic.
+        val compression = if (returning ||
+            style == MasterLaunchAnimation.FOCUS ||
             style == MasterLaunchAnimation.ARC || style == MasterLaunchAnimation.UNFOLD) 1f
             else 1f - .035f * press
         val width = mix(source.width * compression, viewport.width, widthProgress)
