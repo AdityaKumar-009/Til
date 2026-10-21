@@ -797,8 +797,10 @@ private fun PCSettingsAppContent(
                     .verticalScroll(rememberScrollState()).padding(18.dp),
             ) {
                 Text("Choose app-opening animation", color = Color(0xFF5133AB), fontSize = 20.sp)
+                Text("Four subtle optional motions; existing saved presets remain usable.",
+                    color = Color(0xFF666666), fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
-                MasterLaunchAnimation.entries.forEach { style ->
+                MasterLaunchAnimation.selectableChoices.forEach { style ->
                     Column(
                         Modifier.fillMaxWidth()
                             .clickable {
