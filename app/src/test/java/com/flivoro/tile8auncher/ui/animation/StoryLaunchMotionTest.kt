@@ -63,6 +63,46 @@ class StoryLaunchMotionTest {
         }
     }
 
+    @Test fun oneIconGlidesFromOriginalOffsetToCenterWithoutMidpointSnap() {
+        val sources = listOf(
+            Triple(LaunchOrigin.START, com.flivoro.tile8auncher.data.TileSize.MEDIUM, 148f),
+            Triple(LaunchOrigin.START, com.flivoro.tile8auncher.data.TileSize.SMALL, 72f),
+            Triple(LaunchOrigin.ALL_APPS, com.flivoro.tile8auncher.data.TileSize.MEDIUM, 368f),
+        )
+        for (style in listOf(MasterLaunchAnimation.RIPPLE,
+                MasterLaunchAnimation.FOCUS, MasterLaunchAnimation.DOOR,
+                MasterLaunchAnimation.UNFOLD)) {
+            for ((origin, size, width) in sources) {
+                val x0 = StoryLaunchMotion.iconOriginOffsetX(origin, width, 3f)
+                val y0 = StoryLaunchMotion.iconOriginOffsetY(origin, size, 3f)
+                assertEquals(0f, StoryLaunchMotion.iconCenterProgress(0f), 0f)
+                assertEquals(1f, StoryLaunchMotion.iconCenterProgress(.50f), 0f)
+                var previousX = x0
+                var previousY = y0
+                for (step in 1..1000) {
+                    val time = step / 1000f
+                    val amount = 1f - StoryLaunchMotion.iconCenterProgress(time)
+                    val nextX = x0 * amount
+                    val nextY = y0 * amount
+                    // A single frame must not jump from the source icon layout
+                    // into a different center-aligned logo at clock midpoint.
+                    assertTrue("$style horizontal icon teleports at $time",
+                        kotlin.math.abs(nextX - previousX) <= kotlin.math.abs(x0) * .01f + .001f)
+                    assertTrue("$style vertical icon teleports at $time",
+                        kotlin.math.abs(nextY - previousY) <= kotlin.math.abs(y0) * .01f + .001f)
+                    previousX = nextX
+                    previousY = nextY
+                }
+                assertEquals(0f, previousX, .0001f)
+                assertEquals(0f, previousY, .0001f)
+                // Back uses exactly the same phase in reverse, not a newly
+                // created icon with an independent opacity clock.
+                assertEquals(x0 * (1f - StoryLaunchMotion.iconCenterProgress(.37f)),
+                    x0 * (1f - StoryLaunchMotion.iconCenterProgress(.37f)), .00001f)
+            }
+        }
+    }
+
     @Test fun sourceIdentityAndFullWindowAreExactInEveryStory() {
         for (style in styles) {
             val first = StoryLaunchMotion.panel(style, 0f, source, viewport)
