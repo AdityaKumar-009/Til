@@ -1452,11 +1452,18 @@ fun Tile8LauncherApp(
                                 // Story launches use a source-sized glyph on
                                 // their own expanding panel. Native Desktop
                                 // launch faces retain the old 78dp artwork.
-                                iconSize = if (storyRunning) when (phoneTile.size) {
-                                    com.flivoro.tile8auncher.data.TileSize.SMALL -> 28.dp
-                                    com.flivoro.tile8auncher.data.TileSize.MEDIUM -> 42.dp
-                                    com.flivoro.tile8auncher.data.TileSize.WIDE -> 46.dp
-                                    com.flivoro.tile8auncher.data.TileSize.LARGE -> 56.dp
+                                iconSize = if (storyRunning) {
+                                    // Keep the icon's exact intended tile-size
+                                    // footprint through the entire morph. The
+                                    // story plane handles its 1.0→1.44x scale;
+                                    // it must not swap sizes at the midpoint.
+                                    if (flipState.origin == LaunchOrigin.ALL_APPS) 28.dp
+                                    else when (phoneTile.size) {
+                                        com.flivoro.tile8auncher.data.TileSize.SMALL -> 28.dp
+                                        com.flivoro.tile8auncher.data.TileSize.MEDIUM -> 44.dp
+                                        com.flivoro.tile8auncher.data.TileSize.WIDE -> 48.dp
+                                        com.flivoro.tile8auncher.data.TileSize.LARGE -> 64.dp
+                                    }
                                 } else 78.dp,
                             )
                         }
