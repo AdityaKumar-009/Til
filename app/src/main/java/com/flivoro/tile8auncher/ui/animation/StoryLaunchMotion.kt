@@ -67,6 +67,12 @@ internal object StoryLaunchMotion {
     fun returnToSourceOpacity(travel: Float): Float =
         1f - ease(0f, RETURN_HANDOFF_TRAVEL, progress(travel))
 
+    /** Only one surface can own the selected tile's material. After launch
+     * preparation its stationary cell draws NOTHING until the animated plane
+     * reaches the exact original bounds at the end of Back. */
+    fun shouldDrawOriginalCell(prepared: Boolean, returning: Boolean, travel: Float): Boolean =
+        !prepared || (returning && progress(travel) <= RETURN_HANDOFF_TRAVEL)
+
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
     // A single continuous easing replaces the stitched Desktop sample data,
