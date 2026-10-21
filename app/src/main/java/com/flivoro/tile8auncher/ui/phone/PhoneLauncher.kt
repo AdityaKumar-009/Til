@@ -3055,7 +3055,15 @@ internal fun PhoneLaunchSourceFace(
     } else null
     val faceTile = tile.copy(
         colorValue = resolvedColor,
-        iconGlyph = nativeGlyph ?: tile.iconGlyph,
+        // The Desktop live-tile template paints an opaque gradient within its
+        // CONTENT, bypassing WindowsTileFace(backgroundAlpha=0). When that
+        // template is used as the story's foreground it creates a second
+        // small rectangle inside the expanding panel. The panel itself owns
+        // every material pixel; the foreground only renders its glyph/title.
+        tileType = if (foregroundOnly && tile.tileType == TileType.DESKTOP)
+            TileType.APP else tile.tileType,
+        iconGlyph = nativeGlyph ?: tile.iconGlyph.takeIf { it.isNotBlank() }
+            ?: if (foregroundOnly && tile.tileType == TileType.DESKTOP) "desktop" else "",
     )
     val classicScale = when {
         mode != LauncherUiMode.PHONE_8 -> 1f
