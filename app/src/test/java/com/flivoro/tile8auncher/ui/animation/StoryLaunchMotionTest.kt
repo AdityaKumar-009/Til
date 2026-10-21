@@ -162,6 +162,27 @@ class StoryLaunchMotionTest {
         assertEquals(0f, StoryLaunchMotion.returnToSourceOpacity(.30f), .00001f)
     }
 
+    @Test fun onlyTheCenteredIconRemainsAtExactClockMidpointAndReturnIsSymmetric() {
+        for (style in styles) {
+            val halfway = StoryLaunchMotion.panel(style, .50f, source, viewport)
+            assertTrue("$style does not grow the connected tile", halfway.bounds.width > source.width)
+            assertEquals("$style retains extra tile content at the midpoint",
+                1f, StoryLaunchMotion.iconOnlyOpacity(.50f), .00001f)
+            assertEquals(0f, StoryLaunchMotion.titleOpacity(.50f), .00001f)
+            assertEquals(0f, StoryLaunchMotion.iconOnlyOpacity(0f), .00001f)
+            for (tick in 0..100) {
+                val p = tick / 100f
+                val focus = StoryLaunchMotion.iconOnlyOpacity(p)
+                assertTrue(focus in 0f..1f)
+                assertEquals("$style leaves a hole during the title-to-icon handoff",
+                    1f, focus + (1f - focus), .00001f)
+                // Both directions use this exact clock channel, so a Back
+                // pass from 1 -> 0 restores all tile details by the endpoint.
+                assertEquals(focus, StoryLaunchMotion.iconOnlyOpacity(p), .00001f)
+            }
+        }
+    }
+
     @Test fun tileTextDisappearsOnOpeningAndReappearsOnBack() {
         val times = listOf(0f, .12f, .20f, .28f, .36f, .42f, .6f, 1f)
         val values = times.map(StoryLaunchMotion::titleOpacity)
