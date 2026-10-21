@@ -41,7 +41,7 @@ enum class MasterLaunchAnimation(val title: String, val detail: String) {
     GLIDE("Glide", "Draw the app forward on a smooth, sliding sheet"),
     FOCUS("Focus", "Bring the tile straight into focus as the mosaic softly recedes"),
     ARC("Arc", "Carry the tile along a gentle arc and settle into the app"),
-    UNFOLD("Unfold", "Widen the tile into a sheet as nearby rows gently make room"),
+    UNFOLD("Uncover", "Reveal the app by widening the tile into a continuous sheet"),
 
     ;
 
@@ -55,7 +55,7 @@ enum class MasterLaunchAnimation(val title: String, val detail: String) {
         // effects. Older saved choices remain fully readable and runnable,
         // so curating this list does not reset users or break existing presets.
         val selectableChoices: List<MasterLaunchAnimation> = entries.filterNot {
-            it == DOOR || it == PAGE_TURN || it == ARC || it == UNFOLD
+            it == LIFT || it == GLIDE || it == PAGE_TURN || it == ARC
         }
     }
 }
