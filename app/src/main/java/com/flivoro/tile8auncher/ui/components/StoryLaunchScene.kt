@@ -209,7 +209,8 @@ internal fun Modifier.storyLaunchActor(
                 layer.record { this@drawWithContent.drawContent() }
                 drawLayer(layer)
                 if (scene.sourceDraws < 2) scene.sourceDraws++
-            } else if (scene.returning && scene.traveledPhase < .035f) {
+            } else if (scene.returning &&
+                scene.traveledPhase <= StoryLaunchMotion.RETURN_HANDOFF_TRAVEL) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
                 drawContent()
@@ -337,7 +338,7 @@ internal fun StoryLaunchOverlay(
             derivedStateOf {
                 StoryLaunchMotion.panelAtTravel(
                     state.masterLaunchAnimation, scene.traveledPhase, source, viewport,
-                    scene.progress(),
+                    scene.progress(), returning = scene.returning,
                 )
             }
         }
@@ -442,6 +443,17 @@ internal fun StoryLaunchOverlay(
             }, contentAlignment = Alignment.Center) {
                 val frozenRow = scene.sourceImage
                 when {
+                    // During Back, reuse the EXACT pixels the real source tile
+                    // displayed at launch. A separately composed Lumia glyph
+                    // and tile title can differ slightly in size/placement, so
+                    // switching from that approximation to the live cell at
+                    // the last frame made the source appear to pop or rebound.
+                    scene.returning && frozenRow != null -> Image(
+                        bitmap = frozenRow,
+                        contentDescription = tile.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
                     // On Phone All Apps the selected source is a wide, transparent
                     // *row*, with its real icon plate aligned to the leading edge.
                     // Rendering a generic centered Start tile here changes both
