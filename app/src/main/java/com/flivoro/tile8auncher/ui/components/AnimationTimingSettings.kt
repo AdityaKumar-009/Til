@@ -195,6 +195,7 @@ fun AnimationTimingSettings(
                             LaunchTiming.MIN_DURATION_MILLIS,
                             LaunchTiming.MAX_DURATION_MILLIS,
                         ),
+                        durationOverridden = true,
                     ),
                 )
             },
