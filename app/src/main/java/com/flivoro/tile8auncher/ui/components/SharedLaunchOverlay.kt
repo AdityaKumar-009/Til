@@ -171,19 +171,27 @@ internal fun SharedLaunchOverlay(
             style, viewportHeightCss,
             state.origin == com.flivoro.tile8auncher.ui.animation.LaunchOrigin.ALL_APPS,
         )
-        LaunchedEffect(tile.id, state.sourceBounds, state.direction, style) {
+        val playbackDuration = if (state.timing.durationMillis !=
+            com.flivoro.tile8auncher.data.LaunchTiming.DEFAULT_DURATION_MILLIS)
+            state.timing.sanitized().durationMillis else duration
+        val playbackCurve = if (state.timing.curve ==
+            com.flivoro.tile8auncher.data.TimeCurve.REFERENCE) LinearEasing
+        else androidx.compose.animation.core.Easing { state.timing.transform(it) }
+        LaunchedEffect(tile.id, state.sourceBounds, state.direction, style, state.timing) {
             if (state.direction == FlipAnimationDirection.FORWARD) {
                 lastFramePresented = false
                 progress.snapTo(0f)
-                progress.animateTo(1f, tween(duration, easing = LinearEasing))
+                progress.animateTo(1f, tween(playbackDuration, easing = playbackCurve))
                 snapshotFlow { lastFramePresented }.first { it }
                 withFrameNanos { }
                 finishForward()
             } else {
                 firstFramePresented = false
-                val remaining = (duration * progress.value.coerceIn(0f, 1f)).roundToInt()
+                val remaining = (playbackDuration * progress.value.coerceIn(0f, 1f)).roundToInt()
                 if (remaining > 0) {
-                    progress.animateTo(0f, tween(remaining, easing = LinearEasing))
+                    progress.animateTo(0f, tween(remaining, easing = if (state.timing.curve ==
+                        com.flivoro.tile8auncher.data.TimeCurve.REFERENCE) LinearEasing
+                    else androidx.compose.animation.core.Easing { state.timing.transform(it) }))
                 } else progress.snapTo(0f)
                 snapshotFlow { firstFramePresented }.first { it }
                 withFrameNanos { }
