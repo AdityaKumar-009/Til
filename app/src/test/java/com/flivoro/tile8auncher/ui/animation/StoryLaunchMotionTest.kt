@@ -215,6 +215,30 @@ class StoryLaunchMotionTest {
         }
     }
 
+    @Test fun rippleReturnNeighborsDoNotPlayASecondWaveOrScaleBounce() {
+        val other = Rect(210f, 145f, 350f, 293f)
+        var previous = StoryLaunchMotion.neighborAtTravel(
+            MasterLaunchAnimation.RIPPLE, 0f, other, source, viewport,
+            returning = true)
+        assertEquals(1f, previous.scale, .00001f)
+        assertEquals(0f, previous.rotationX, .00001f)
+        assertEquals(0f, previous.rotationY, .00001f)
+        for (tick in 1..1000) {
+            val move = tick / 1000f
+            val next = StoryLaunchMotion.neighborAtTravel(
+                MasterLaunchAnimation.RIPPLE, move, other, source, viewport,
+                returning = true)
+            assertTrue("Ripple neighbor rebounds while reversing", next.scale <= previous.scale + .0001f)
+            assertEquals("Ripple reintroduces a rotation on return", 0f, next.rotationX, .0001f)
+            assertEquals("Ripple reintroduces a rotation on return", 0f, next.rotationY, .0001f)
+            previous = next
+        }
+        // The opening wave is unchanged; only the backward pulse is removed.
+        val opening = StoryLaunchMotion.neighborAtTravel(
+            MasterLaunchAnimation.RIPPLE, .55f, other, source, viewport)
+        assertTrue(kotlin.math.abs(opening.rotationX) + kotlin.math.abs(opening.rotationY) > .01f)
+    }
+
     @Test fun finalCellHandoffOnlyHappensAtSubpixelGeometry() {
         val handoff = StoryLaunchMotion.RETURN_HANDOFF_TRAVEL
         assertEquals(1f, StoryLaunchMotion.returnToSourceOpacity(0f), 0f)
