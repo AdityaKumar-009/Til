@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +62,13 @@ import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** Fade only the title layer during optional story launch and reverse. */
+@Composable
+private fun Modifier.storyTitleFade(): Modifier {
+    val alpha = LocalStoryTileTitleOpacity.current
+    return this.graphicsLayer { this.alpha = alpha() }
+}
 
 @Composable
 fun WindowsTileView(
@@ -522,7 +530,8 @@ private fun StaticAppTileContent(
                 maxLines = 1,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 8.dp, bottom = 6.dp),
+                    .padding(start = 8.dp, bottom = 6.dp)
+                    .storyTitleFade(),
             )
         }
     }
@@ -715,7 +724,8 @@ private fun BoxScope.LiveTileBranding(
         color = labelColor,
         maxLines = 1,
         modifier = Modifier
-            .align(Alignment.BottomStart),
+            .align(Alignment.BottomStart)
+            .storyTitleFade(),
     )
     if (count > 0) {
         LiveTileBadge(
