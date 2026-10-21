@@ -301,7 +301,15 @@ data class LaunchTiming(
     val customY2: Float = DEFAULT_CUSTOM_Y2,
     val strength: Float = DEFAULT_STRENGTH,
     val steps: Int = DEFAULT_STEPS,
+    // A fresh installation follows each Windows/story preset's native length.
+    // Once the user moves the duration slider, even selecting exactly 650ms
+    // must be honored rather than silently reverting to the reference length.
+    val durationOverridden: Boolean = false,
 ) {
+    fun playbackDuration(referenceDurationMillis: Int): Int =
+        if (durationOverridden || durationMillis != DEFAULT_DURATION_MILLIS)
+            sanitized().durationMillis else referenceDurationMillis
+
     /** Maps a progress value to the selected motion curve. */
     fun transform(fraction: Float): Float {
         val input = normalizedFraction(fraction)
