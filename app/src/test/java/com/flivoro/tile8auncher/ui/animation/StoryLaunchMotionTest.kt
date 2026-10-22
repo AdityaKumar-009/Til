@@ -302,12 +302,14 @@ class StoryLaunchMotionTest {
                 }
                 val cell = StoryLaunchMotion.shouldDrawOriginalCell(style,
                     prepared = true, returning = true, travel = travel)
-                assertEquals("$style draws real source before geometry settles",
-                    travel <= handoff, cell)
+                assertEquals("$style draws two partially opaque tiles in the final tail",
+                    travel == 0f, cell)
                 val opacity = StoryLaunchMotion.returnToSourceOpacity(style, travel)
                 assertTrue(opacity in 0f..1f)
                 if (!cell) assertEquals("$style faded animated plane before source appeared",
                     0f, opacity, .00001f)
+                if (cell) assertEquals("$style did not reveal original fully at the endpoint",
+                    1f, opacity, .00001f)
                 if (tick > 0) {
                     val last = StoryLaunchMotion.returnGeometryTravel(style, (tick - 1) / 1000f)
                     val current = StoryLaunchMotion.returnGeometryTravel(style, travel)
