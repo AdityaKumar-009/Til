@@ -279,6 +279,56 @@ class StoryLaunchMotionTest {
         assertTrue(kotlin.math.abs(opening.rotationX) + kotlin.math.abs(opening.rotationY) > .01f)
     }
 
+    @Test fun quieterReturnPresetsSettleBeforeSourceHandoffWithoutRebounding() {
+        val quiet = listOf(MasterLaunchAnimation.FOCUS,
+            MasterLaunchAnimation.DOOR, MasterLaunchAnimation.UNFOLD)
+        val anchors = listOf(source, Rect(16f, 145f, 384f, 209f),
+            Rect(16f, 145f, 384f, 293f))
+        for (style in quiet) for (anchor in anchors) {
+            val handoff = StoryLaunchMotion.returnHandoffTravel(style)
+            assertTrue("$style must settle before swapping renderers", handoff > 0.001f)
+            val exact = StoryLaunchMotion.panelAtTravel(
+                style, 0f, anchor, viewport, 0f, returning = true)
+            assertEquals(anchor, exact.bounds)
+            for (tick in 0..1000) {
+                val travel = tick / 1000f
+                val frame = StoryLaunchMotion.panelAtTravel(style,
+                    travel, anchor, viewport, travel, returning = true)
+                if (travel <= handoff) {
+                    assertEquals("$style is still resizing at the source-cell handoff",
+                        anchor, frame.bounds)
+                    assertEquals("$style still rotates at the handoff",
+                        0f, frame.rotationX + frame.rotationY + frame.rotationZ, 0f)
+                }
+                val cell = StoryLaunchMotion.shouldDrawOriginalCell(style,
+                    prepared = true, returning = true, travel = travel)
+                assertEquals("$style draws real source before geometry settles",
+                    travel <= handoff, cell)
+                val opacity = StoryLaunchMotion.returnToSourceOpacity(style, travel)
+                assertTrue(opacity in 0f..1f)
+                if (!cell) assertEquals("$style faded animated plane before source appeared",
+                    0f, opacity, .00001f)
+                if (tick > 0) {
+                    val last = StoryLaunchMotion.returnGeometryTravel(style, (tick - 1) / 1000f)
+                    val current = StoryLaunchMotion.returnGeometryTravel(style, travel)
+                    assertTrue("$style reverses course near the source", current >= last - .00001f)
+                }
+            }
+            val before = StoryLaunchMotion.returnGeometryTravel(style, .1199f)
+            val after = StoryLaunchMotion.returnGeometryTravel(style, .1201f)
+            assertTrue("$style joins original trajectory discontinuously",
+                after - before < .00035f)
+        }
+        for (tick in 0..1000) {
+            val travel = tick / 1000f
+            assertEquals("Ripple reverse geometry must remain unchanged",
+                travel, StoryLaunchMotion.returnGeometryTravel(
+                    MasterLaunchAnimation.RIPPLE, travel), .00001f)
+            assertEquals(StoryLaunchMotion.RETURN_HANDOFF_TRAVEL,
+                StoryLaunchMotion.returnHandoffTravel(MasterLaunchAnimation.RIPPLE), 0f)
+        }
+    }
+
     @Test fun finalCellHandoffOnlyHappensAtSubpixelGeometry() {
         val handoff = StoryLaunchMotion.RETURN_HANDOFF_TRAVEL
         assertEquals(1f, StoryLaunchMotion.returnToSourceOpacity(0f), 0f)
