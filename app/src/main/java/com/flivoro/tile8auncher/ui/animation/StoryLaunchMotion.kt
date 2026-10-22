@@ -91,6 +91,40 @@ internal object StoryLaunchMotion {
     fun shouldDrawOriginalCell(prepared: Boolean, returning: Boolean, travel: Float): Boolean =
         !prepared || (returning && progress(travel) <= RETURN_HANDOFF_TRAVEL)
 
+    // These three quieter stories used to finish their last few return frames
+    // while still resizing/rotating the moving panel. The real Start tile
+    // then took over at its exact bounds, making the last frame feel bouncy.
+    // Smooth their reverse-only GEOMETRY into the original pose *before* the
+    // renderer handoff. Ripple and the original Windows modes are unaffected.
+    private const val QUIET_RETURN_SETTLE_START = .12f
+    private const val QUIET_RETURN_SETTLE_END = .02f
+    private fun quietReturnStyle(style: MasterLaunchAnimation): Boolean =
+        style == MasterLaunchAnimation.FOCUS ||
+            style == MasterLaunchAnimation.DOOR ||
+            style == MasterLaunchAnimation.UNFOLD
+
+    fun returnGeometryTravel(style: MasterLaunchAnimation, travel: Float): Float {
+        val value = progress(travel)
+        if (!quietReturnStyle(style) || value >= QUIET_RETURN_SETTLE_START) return value
+        if (value <= QUIET_RETURN_SETTLE_END) return 0f
+        val distance = QUIET_RETURN_SETTLE_START - QUIET_RETURN_SETTLE_END
+        val u = ((value - QUIET_RETURN_SETTLE_END) / distance).coerceIn(0f, 1f)
+        // Cubic Hermite, f(0)=f'(0)=0, f(1)=start, f'(1)=1.
+        // No extra easing discontinuity at the seam and no reverse overshoot.
+        return (3f * u * u - 2f * u * u * u) * QUIET_RETURN_SETTLE_START +
+            (u * u * u - u * u) * distance
+    }
+
+    fun returnHandoffTravel(style: MasterLaunchAnimation): Float =
+        if (quietReturnStyle(style)) QUIET_RETURN_SETTLE_END else RETURN_HANDOFF_TRAVEL
+
+    fun returnToSourceOpacity(style: MasterLaunchAnimation, travel: Float): Float =
+        1f - ease(0f, returnHandoffTravel(style), progress(travel))
+
+    fun shouldDrawOriginalCell(style: MasterLaunchAnimation,
+        prepared: Boolean, returning: Boolean, travel: Float): Boolean =
+        !prepared || (returning && progress(travel) <= returnHandoffTravel(style))
+
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
     // A single continuous easing replaces the stitched Desktop sample data,
@@ -170,10 +204,12 @@ internal object StoryLaunchMotion {
     // inversion needs to run separately for every tile and overlay layer.
     fun panelAtTravel(style: MasterLaunchAnimation, travel: Float, source: Rect, viewport: Rect,
         rawProgress: Float = travel, returning: Boolean = false): StoryPanelFrame {
-        val arc = if (travel > 0f && travel < 1f) sin(PI * travel).toFloat() else 0f
+        val geometryTravel = if (returning) returnGeometryTravel(style, travel)
+            else travel
+        val arc = if (geometryTravel > 0f && geometryTravel < 1f) sin(PI * geometryTravel).toFloat() else 0f
         val lift = viewport.height * .045f
-        var widthProgress = travel
-        var heightProgress = travel
+        var widthProgress = geometryTravel
+        var heightProgress = geometryTravel
         var dx = 0f
         var dy = 0f
         var rx = 0f
@@ -181,7 +217,7 @@ internal object StoryLaunchMotion {
         var rz = 0f
         var pivotX = .5f
         var pivotY = .5f
-        val press = (256f / 27f) * travel * (1f - travel) * (1f - travel) * (1f - travel)
+        val press = (256f / 27f) * geometryTravel * (1f - geometryTravel) * (1f - geometryTravel) * (1f - geometryTravel)
         when (style) {
             MasterLaunchAnimation.LIFT -> {
                 // A pressed tile lifts and opens into a broad landing.
@@ -189,8 +225,8 @@ internal object StoryLaunchMotion {
                 rx = -9f * arc
             }
             MasterLaunchAnimation.DOOR -> {
-                widthProgress = shape(travel, -.16f)
-                heightProgress = shape(travel, -.24f)
+                widthProgress = shape(geometryTravel, -.16f)
+                heightProgress = shape(geometryTravel, -.24f)
                 ry = -64f * arc
                 pivotX = 0f
                 dx = -viewport.width * .055f * arc
@@ -199,15 +235,15 @@ internal object StoryLaunchMotion {
                 dy = lift * .12f * press
             }
             MasterLaunchAnimation.PAGE_TURN -> {
-                widthProgress = shape(travel, -.32f)
-                heightProgress = shape(travel, .12f)
+                widthProgress = shape(geometryTravel, -.32f)
+                heightProgress = shape(geometryTravel, .12f)
                 rx = 58f * arc
                 pivotY = 0f
                 dy = -lift * 1.25f * arc
             }
             MasterLaunchAnimation.GLIDE -> {
-                widthProgress = shape(travel, .12f)
-                heightProgress = shape(travel, -.16f)
+                widthProgress = shape(geometryTravel, .12f)
+                heightProgress = shape(geometryTravel, -.16f)
                 dx = viewport.width * (.055f * arc - .025f * press)
                 dy = -lift * .35f * arc
             }
@@ -228,8 +264,8 @@ internal object StoryLaunchMotion {
             MasterLaunchAnimation.UNFOLD -> {
                 // Width leads and height follows on the SAME clock, so opening
                 // the sheet never pauses at a seam between two stages.
-                widthProgress = shape(travel, .65f)
-                heightProgress = shape(travel, -.55f)
+                widthProgress = shape(geometryTravel, .65f)
+                heightProgress = shape(geometryTravel, -.55f)
                 rx = -10f * arc
                 dy = -lift * .40f * arc
             }
@@ -238,7 +274,7 @@ internal object StoryLaunchMotion {
         // Keep the pressed-in flourish on OPEN, but not on Back. On a wide
         // All Apps row, source.width can be almost the viewport width, so the
         // old press term actually made Ripple/Door narrower than the original
-        // tile near travel=0. The final frames then expanded BACK to 100%:
+        // tile near geometryTravel=0. The final frames then expanded BACK to 100%:
         // a mathematically real, visible rebound. Reversal stays monotonic.
         val compression = if (returning ||
             style == MasterLaunchAnimation.FOCUS ||
@@ -246,8 +282,8 @@ internal object StoryLaunchMotion {
             else 1f - .035f * press
         val width = mix(source.width * compression, viewport.width, widthProgress)
         val height = mix(source.height * compression, viewport.height, heightProgress)
-        val cx = mix(source.center.x, viewport.center.x, travel) + dx
-        val cy = mix(source.center.y, viewport.center.y, travel) + dy
+        val cx = mix(source.center.x, viewport.center.x, geometryTravel) + dx
+        val cy = mix(source.center.y, viewport.center.y, geometryTravel) + dy
         // The spatial motion is strongly front-loaded: at half of the clock
         // it has almost finished expanding. Revealing the app using traveled
         // distance made the original tile vanish mid-launch and exposed a
@@ -262,10 +298,10 @@ internal object StoryLaunchMotion {
             bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
             rotationX = rx, rotationY = ry, pivotX = pivotX, pivotY = pivotY,
             sourceAlpha = 1f - reveal,
-            surfaceAlpha = ease(0f, .30f, travel),
+            surfaceAlpha = ease(0f, .30f, geometryTravel),
             contentAlpha = reveal,
-            sourceScale = compression * mix(1f, artworkScale, travel),
-            backdropAlpha = .50f * ease(0f, 1f, travel),
+            sourceScale = compression * mix(1f, artworkScale, geometryTravel),
+            backdropAlpha = .50f * ease(0f, 1f, geometryTravel),
             rotationZ = rz,
         )
     }
