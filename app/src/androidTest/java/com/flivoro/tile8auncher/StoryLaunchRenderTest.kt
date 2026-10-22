@@ -27,6 +27,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.data.AppInfo
@@ -45,6 +46,8 @@ import com.flivoro.tile8auncher.ui.components.LocalStoryLaunchScene
 import com.flivoro.tile8auncher.ui.components.StoryLaunchOverlay
 import com.flivoro.tile8auncher.ui.components.StoryLaunchScene
 import com.flivoro.tile8auncher.ui.phone.PhoneLauncherSurface
+import com.flivoro.tile8auncher.ui.phone.PhoneLaunchSourceFace
+import com.flivoro.tile8auncher.ui.phone.PhoneLaunchDestinationIcon
 import com.flivoro.tile8auncher.ui.start.StartScreen
 import org.junit.Assert.*
 import org.junit.Rule
@@ -161,7 +164,21 @@ class StoryLaunchRenderTest {
                                 onOpenAppInfo = {}, onUninstallApp = {}, onNavigateToStart = {})
                         }
                         if (scene != null && overlay.value) {
-                            StoryLaunchOverlay(scene.state, remember(scene) { Animatable(0f) }, {}, {})
+                            val phone = mode != LauncherUiMode.DESKTOP
+                            StoryLaunchOverlay(scene.state, remember(scene) { Animatable(0f) }, {}, {},
+                                sourceForeground = if (phone) { modifier ->
+                                    PhoneLaunchSourceFace(clickedTile, mode, repository, modifier,
+                                        sourceOrigin = origin, foregroundOnly = true, detailsOnly = true)
+                                } else null,
+                                sourceBackground = if (phone) { modifier ->
+                                    PhoneLaunchSourceFace(clickedTile, mode, repository, modifier,
+                                        sourceBounds = clickedBounds, sourceOrigin = origin, backgroundOnly = true)
+                                } else null,
+                                destinationIcon = if (phone) { modifier ->
+                                    PhoneLaunchDestinationIcon(clickedTile, mode, repository, modifier,
+                                        sourceOrigin = origin,
+                                        iconSize = if (origin == LaunchOrigin.ALL_APPS) 28.dp else 44.dp)
+                                } else null)
                         }
                     }
                 }
@@ -199,17 +216,17 @@ class StoryLaunchRenderTest {
             compose.mainClock.advanceTimeBy(48)
             compose.waitUntil(15_000) {
                 compose.mainClock.advanceTimeByFrame()
-                scene.sourceImage != null
+                scene.sourcePrepared && scene.sourceOwner != null
             }
             val first = shot()
             compose.runOnIdle {
-                assertNotNull("$mode/$origin/$style did not capture its REAL source cell", scene.sourceLayer)
+                assertNotNull("$mode/$origin/$style did not capture its REAL source cell", scene.sourceOwner)
                 assertTrue(scene.capturedSourceBounds.width > 0f)
             }
             val initialDifference = difference(baseline, first)
             if (initialDifference >= .04) {
                 save(baseline, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-baseline")
-                save(first, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-first")
+                save(baseline, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-baseline")
             }
             assertTrue("$mode/$origin/$style changed the source artwork at time zero",
                 initialDifference < .04)
@@ -226,7 +243,9 @@ class StoryLaunchRenderTest {
                 // than judging continuity from a single midpoint screenshot.
                 compose.runOnIdle { overlay.value = true }
                 save(first, "cross-story-sequence-${origin.name}-${style.name}-000")
-                for (time in listOf(.08f, .24f, .40f)) {
+                val samples = if (style == MasterLaunchAnimation.PASSAGE || style == MasterLaunchAnimation.CASCADE)
+                    (1..36).map { it / 36f } else listOf(.08f, .24f, .40f)
+                for (time in samples) {
                     compose.runOnIdle { sample.floatValue = time }
                     save(shot(), "cross-story-sequence-${origin.name}-${style.name}-${(time * 1000).toInt()}")
                 }
@@ -251,13 +270,14 @@ class StoryLaunchRenderTest {
                 difference(middle, shot()) < .006)
             // Render the return, including the point where transparent child
             // layers become visible again, instead of teleporting past it.
+            compose.runOnIdle { scene.returning = true }
             for (step in 16 downTo 0) {
                 compose.runOnIdle { sample.floatValue = .52f * step / 16f }
                 compose.mainClock.advanceTimeByFrame()
                 compose.waitForIdle()
             }
             val returned = shot()
-            val returnDifference = difference(first, returned)
+            val returnDifference = difference(baseline, returned)
             if (returnDifference >= .006) {
                 save(first, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-first")
                 save(returned, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-return")

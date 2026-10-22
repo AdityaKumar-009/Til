@@ -42,16 +42,18 @@ enum class MasterLaunchAnimation(val title: String, val detail: String) {
     FOCUS("Focus", "Bring the tile straight into focus as the mosaic softly recedes"),
     ARC("Arc", "Carry the tile along a gentle arc and settle into the app"),
     UNFOLD("Uncover", "Reveal the app by widening the tile into a continuous sheet"),
+    PASSAGE("Passage", "Open a tall doorway from the tile as nearby columns gently part"),
+    CASCADE("Cascade", "Let the mosaic fall away row by row as the tile rolls into the app"),
 
     ;
 
     val isStory: Boolean
         get() = this == LIFT || this == DOOR || this == RIPPLE ||
             this == PAGE_TURN || this == GLIDE || this == FOCUS ||
-            this == ARC || this == UNFOLD
+            this == ARC || this == UNFOLD || this == PASSAGE || this == CASCADE
 
     companion object {
-        // Focus the picker on the four quieter, visually distinct optional
+        // Focus the picker on the quieter, visually distinct optional
         // effects. Older saved choices remain fully readable and runnable,
         // so curating this list does not reset users or break existing presets.
         val selectableChoices: List<MasterLaunchAnimation> = entries.filterNot {

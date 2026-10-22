@@ -34,7 +34,7 @@ def tap_settings():
     return False
 
 
-for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE", "FOCUS", "ARC", "UNFOLD"):
+for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE", "FOCUS", "ARC", "UNFOLD", "PASSAGE", "CASCADE"):
     adb("shell", "am", "force-stop", PKG)
     adb("shell", "pm", "clear", PKG)
     uid = re.search(r"uid:(\d+)", adb("shell", "pm", "list", "packages", "-U", PKG)).group(1)

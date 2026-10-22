@@ -9,6 +9,7 @@ import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.data.TimeCurve
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.sin
 
@@ -31,6 +32,8 @@ internal object StoryLaunchMotion {
         MasterLaunchAnimation.FOCUS -> 520
         MasterLaunchAnimation.ARC -> 560
         MasterLaunchAnimation.UNFOLD -> 580
+        MasterLaunchAnimation.PASSAGE -> 580
+        MasterLaunchAnimation.CASCADE -> 600
         else -> error("Not a story animation: $style")
     }
 
@@ -103,6 +106,22 @@ internal object StoryLaunchMotion {
             style == MasterLaunchAnimation.DOOR ||
             style == MasterLaunchAnimation.UNFOLD
 
+    private fun isFlowStory(style: MasterLaunchAnimation): Boolean =
+        style == MasterLaunchAnimation.PASSAGE || style == MasterLaunchAnimation.CASCADE
+
+    private fun exactSourceHandoff(style: MasterLaunchAnimation): Boolean =
+        quietReturnStyle(style) || isFlowStory(style)
+
+    // Passage/Cascade have zero endpoint velocity in their spatial path in
+    // BOTH directions. This avoids a special reverse-only correction, so even
+    // an immediate Back retraces the exact current pose without a jump.
+    private fun geometryPhase(style: MasterLaunchAnimation, travel: Float,
+        returning: Boolean): Float = when {
+        isFlowStory(style) -> ease(0f, 1f, progress(travel))
+        returning -> returnGeometryTravel(style, travel)
+        else -> travel
+    }
+
     fun returnGeometryTravel(style: MasterLaunchAnimation, travel: Float): Float {
         val value = progress(travel)
         if (!quietReturnStyle(style) || value >= QUIET_RETURN_SETTLE_START) return value
@@ -124,13 +143,13 @@ internal object StoryLaunchMotion {
     // geometry is already identical to the Start tile in the final tail, so
     // simply transfer ownership at EXACT progress=0. Ripple remains untouched.
     fun returnToSourceOpacity(style: MasterLaunchAnimation, travel: Float): Float =
-        if (quietReturnStyle(style))
+        if (exactSourceHandoff(style))
             if (progress(travel) <= 0f) 1f else 0f
         else returnToSourceOpacity(travel)
 
     fun shouldDrawOriginalCell(style: MasterLaunchAnimation,
         prepared: Boolean, returning: Boolean, travel: Float): Boolean =
-        !prepared || (returning && if (quietReturnStyle(style))
+        !prepared || (returning && if (exactSourceHandoff(style))
             progress(travel) <= 0f else progress(travel) <= RETURN_HANDOFF_TRAVEL)
 
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
@@ -212,8 +231,7 @@ internal object StoryLaunchMotion {
     // inversion needs to run separately for every tile and overlay layer.
     fun panelAtTravel(style: MasterLaunchAnimation, travel: Float, source: Rect, viewport: Rect,
         rawProgress: Float = travel, returning: Boolean = false): StoryPanelFrame {
-        val geometryTravel = if (returning) returnGeometryTravel(style, travel)
-            else travel
+        val geometryTravel = geometryPhase(style, travel, returning)
         val arc = if (geometryTravel > 0f && geometryTravel < 1f) sin(PI * geometryTravel).toFloat() else 0f
         val lift = viewport.height * .045f
         var widthProgress = geometryTravel
@@ -277,6 +295,22 @@ internal object StoryLaunchMotion {
                 rx = -10f * arc
                 dy = -lift * .40f * arc
             }
+            MasterLaunchAnimation.PASSAGE -> {
+                // A narrow doorway opens vertically, then admits the full
+                // app. Both axes overlap on one clock: no pause or second card.
+                widthProgress = shape(geometryTravel, -.70f)
+                heightProgress = shape(geometryTravel, .80f)
+            }
+            MasterLaunchAnimation.CASCADE -> {
+                // The upper edge leads the lower edge like a sheet unrolling.
+                // A shallow roll supplies depth; its squared envelope reaches
+                // zero with zero velocity at both the tile and app endpoints.
+                widthProgress = shape(geometryTravel, .28f)
+                val roll = 16f * geometryTravel * geometryTravel *
+                    (1f - geometryTravel) * (1f - geometryTravel)
+                rx = -12f * roll
+                pivotY = 0f
+            }
             else -> error("Not a story animation: $style")
         }
         // Keep the pressed-in flourish on OPEN, but not on Back. On a wide
@@ -286,12 +320,26 @@ internal object StoryLaunchMotion {
         // a mathematically real, visible rebound. Reversal stays monotonic.
         val compression = if (returning ||
             style == MasterLaunchAnimation.FOCUS ||
-            style == MasterLaunchAnimation.ARC || style == MasterLaunchAnimation.UNFOLD) 1f
+            style == MasterLaunchAnimation.ARC || style == MasterLaunchAnimation.UNFOLD ||
+            isFlowStory(style)) 1f
             else 1f - .035f * press
         val width = mix(source.width * compression, viewport.width, widthProgress)
         val height = mix(source.height * compression, viewport.height, heightProgress)
         val cx = mix(source.center.x, viewport.center.x, geometryTravel) + dx
         val cy = mix(source.center.y, viewport.center.y, geometryTravel) + dy
+        val bounds = if (isFlowStory(style)) {
+            // Interpolate the edges themselves. A wide row and a corner tile
+            // then remain anchored inside the window as their aspect changes;
+            // center/size interpolation on different phases can overshoot.
+            val topProgress = if (style == MasterLaunchAnimation.CASCADE)
+                shape(geometryTravel, .35f) else heightProgress
+            val bottomProgress = if (style == MasterLaunchAnimation.CASCADE)
+                shape(geometryTravel, -.35f) else heightProgress
+            Rect(mix(source.left, viewport.left, widthProgress),
+                mix(source.top, viewport.top, topProgress),
+                mix(source.right, viewport.right, widthProgress),
+                mix(source.bottom, viewport.bottom, bottomProgress))
+        } else Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f)
         // The spatial motion is strongly front-loaded: at half of the clock
         // it has almost finished expanding. Revealing the app using traveled
         // distance made the original tile vanish mid-launch and exposed a
@@ -303,7 +351,7 @@ internal object StoryLaunchMotion {
         val artworkScale = minOf(1.44f, viewport.width / source.width,
             viewport.height / source.height).coerceAtLeast(1f)
         return StoryPanelFrame(
-            bounds = Rect(cx - width / 2f, cy - height / 2f, cx + width / 2f, cy + height / 2f),
+            bounds = bounds,
             rotationX = rx, rotationY = ry, pivotX = pivotX, pivotY = pivotY,
             sourceAlpha = 1f - reveal,
             surfaceAlpha = ease(0f, .30f, geometryTravel),
@@ -329,12 +377,16 @@ internal object StoryLaunchMotion {
             MasterLaunchAnimation.RIPPLE -> .035f + distance * .23f
             MasterLaunchAnimation.PAGE_TURN -> .03f +
                 ((bounds.center.y - viewport.top) / h).coerceIn(0f, 1f) * .15f
+            MasterLaunchAnimation.PASSAGE -> .02f + abs(dx) * .18f + abs(dy) * .05f
+            MasterLaunchAnimation.CASCADE -> .02f +
+                ((bounds.center.y - viewport.top) / h).coerceIn(0f, 1f) * .28f
             else -> .025f + distance * .10f
         }
         // Propagation is still distance ordered, but each neighbor accelerates
         // smoothly from rest rather than starting a second fast-out clock.
-        val move = ease(delay, 1f, travel)
-        val fade = 1f - ease(delay + .10f, 1f, travel)
+        val phase = if (isFlowStory(style)) geometryPhase(style, travel, returning) else travel
+        val move = ease(delay, 1f, phase)
+        val fade = 1f - ease(delay + .10f, 1f, phase)
         val side = if (bounds.center.x < source.center.x) -1f else 1f
         return when (style) {
             MasterLaunchAnimation.LIFT -> StoryNeighborFrame(fade,
@@ -377,6 +429,22 @@ internal object StoryLaunchMotion {
                 StoryNeighborFrame(fade, dx * w * .10f * move,
                     vertical * h * .22f * move, scale = 1f - .05f * move,
                     rotationX = -vertical * 6f * move)
+            }
+            MasterLaunchAnimation.PASSAGE -> {
+                // A continuous horizontal weight keeps a tile on the center
+                // line still instead of arbitrarily choosing a left/right side.
+                val horizontal = (dx * 5f).coerceIn(-1f, 1f)
+                StoryNeighborFrame(fade, horizontal * w * .32f * move,
+                    dy * h * .04f * move, scale = 1f - .07f * move,
+                    rotationY = -horizontal * 8f * move)
+            }
+            MasterLaunchAnimation.CASCADE -> {
+                // Top-to-bottom propagation makes the mosaic yield in rows.
+                // Every channel is monotone, including Back: no second pulse.
+                val row = ((bounds.center.y - viewport.top) / h).coerceIn(0f, 1f)
+                StoryNeighborFrame(fade, dx * w * .04f * move,
+                    h * (.24f + .08f * row) * move, scale = 1f - .12f * move,
+                    rotationX = -12f * move, pivotY = 0f)
             }
             else -> error("Not a story animation: $style")
         }
