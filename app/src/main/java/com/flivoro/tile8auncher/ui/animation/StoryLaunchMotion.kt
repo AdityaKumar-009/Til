@@ -118,12 +118,20 @@ internal object StoryLaunchMotion {
     fun returnHandoffTravel(style: MasterLaunchAnimation): Float =
         if (quietReturnStyle(style)) QUIET_RETURN_SETTLE_END else RETURN_HANDOFF_TRAVEL
 
+    // A crossfade of two separate semi-transparent tile layers is not fully
+    // opaque under normal source-over blending: at 50/50 it leaks 25% of the
+    // wallpaper and looks like a little second bounce. For Focus/Door/Uncover,
+    // geometry is already identical to the Start tile in the final tail, so
+    // simply transfer ownership at EXACT progress=0. Ripple remains untouched.
     fun returnToSourceOpacity(style: MasterLaunchAnimation, travel: Float): Float =
-        1f - ease(0f, returnHandoffTravel(style), progress(travel))
+        if (quietReturnStyle(style))
+            if (progress(travel) <= 0f) 1f else 0f
+        else returnToSourceOpacity(travel)
 
     fun shouldDrawOriginalCell(style: MasterLaunchAnimation,
         prepared: Boolean, returning: Boolean, travel: Float): Boolean =
-        !prepared || (returning && progress(travel) <= returnHandoffTravel(style))
+        !prepared || (returning && if (quietReturnStyle(style))
+            progress(travel) <= 0f else progress(travel) <= RETURN_HANDOFF_TRAVEL)
 
     // Match the launch timing preset's MATERIAL_EMPHASIZED_DECELERATE curve
     // (cubic-bezier(0.05, 0.70, 0.10, 1.00)) exactly in the optional stories.
