@@ -161,7 +161,8 @@ internal fun Modifier.storyLaunchActor(
             // the full-screen overlay until its image is prepared.
             alpha = if (scene.returning && scene.sourcePrepared &&
                 scene.sourceOwner === token)
-                StoryLaunchMotion.returnToSourceOpacity(scene.traveledPhase)
+                StoryLaunchMotion.returnToSourceOpacity(
+                    scene.state.masterLaunchAnimation, scene.traveledPhase)
             else 1f
             translationX = 0f
             translationY = 0f
@@ -199,7 +200,8 @@ internal fun Modifier.storyLaunchActor(
             // reached practically identical geometry. No bitmap clone, extra
             // colored tile, or offscreen RenderNode is ever painted.
             if (StoryLaunchMotion.shouldDrawOriginalCell(
-                    scene.sourcePrepared, scene.returning, scene.traveledPhase)) {
+                    scene.state.masterLaunchAnimation, scene.sourcePrepared,
+                    scene.returning, scene.traveledPhase)) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
                 drawContent()
@@ -321,7 +323,8 @@ internal fun StoryLaunchOverlay(
             // Fade the overlay out ONLY as its real source cell fades in;
             // never end the animation before both tiles have shared frames.
             val returnOwnership = if (scene.returning && scene.sourceOwner != null)
-                1f - StoryLaunchMotion.returnToSourceOpacity(scene.traveledPhase)
+                1f - StoryLaunchMotion.returnToSourceOpacity(
+                    scene.state.masterLaunchAnimation, scene.traveledPhase)
             else 1f
             // During forward preparation the original cell is still drawing.
             // Publish the foreground face and hide that cell in the same frame.
