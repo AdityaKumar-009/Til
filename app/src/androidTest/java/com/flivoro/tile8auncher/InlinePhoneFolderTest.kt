@@ -46,6 +46,7 @@ class InlinePhoneFolderTest {
         compose.onNodeWithText("Folder").performTouchInput { click() }
         compose.mainClock.advanceTimeBy(600)
         compose.onNodeWithTag("phone-expanded-folder").assertIsDisplayed()
+        compose.captureFidelity("mobile-inline-folder")
         val after = compose.onNodeWithText("Tile d").fetchSemanticsNode().boundsInRoot.top
         assertTrue("Following tiles must make space inline", after > before)
         compose.onNodeWithText("Tile b").performTouchInput { click() }

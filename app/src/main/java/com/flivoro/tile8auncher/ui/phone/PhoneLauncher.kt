@@ -712,6 +712,7 @@ fun PhoneLauncherSurface(
             }.getOrDefault(false)
         }
 
+    val appRoles = remember(mode, LauncherFeatureRuntime.iconsRevision) { readPhoneAppRoles(context) }
     fun appTile(app: AppInfo): TileModel = TileModel(
         id = "phone_app_${app.packageName}",
         title = app.label,
@@ -721,7 +722,7 @@ fun PhoneLauncherSurface(
         // the package is user-installed or a system app. Only the default
         // Phone/Messages Metro launchers intentionally follow the theme accent.
         colorValue = when {
-            isPhoneOrMessagesApp(app.label) ->
+            appRoles.glyph(app.packageName, app.label) != null ->
                 StartPersonalization.wallpaperAccentArgb
             else -> appsRepository.getDiscoTileAccentColor(app.packageName)
                 ?: StartPersonalization.wallpaperAccentArgb

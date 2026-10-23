@@ -267,6 +267,7 @@ class PhoneMotionRenderTest {
             }
         }
         val finalExit = capture("exit-$exitEnd-handoff")
+        compose.captureFidelity("$prefix-native-handoff")
         compose.runOnIdle { assertEquals("Expected one completed handoff", 1, completions) }
         assertTrue("Start content must be black at handoff", centralBrightness(finalExit) < .01)
         compose.runOnIdle { selected.value = null }

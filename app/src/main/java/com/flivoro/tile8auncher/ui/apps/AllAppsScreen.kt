@@ -122,6 +122,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.flivoro.tile8auncher.ui.start.desktopStartInput
+import androidx.compose.foundation.gestures.scrollBy
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -148,6 +150,7 @@ fun AllAppsScreen(
     onOpenAppInfo: (packageName: String) -> Unit,
     onUninstallApp: (packageName: String) -> Unit,
     onNavigateToStart: () -> Unit,
+    onCharmsClick: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     searchFocusRequest: Int = 0,
     initialSearchQuery: String = "",
@@ -489,6 +492,21 @@ fun AllAppsScreen(
                     }
 
                     Box(Modifier.fillMaxSize()
+                        .desktopStartInput(
+                            enabled = searchFocusEnabled && borrowedLaunchStyle == null && searchQuery.isBlank(),
+                            onZoom = { zoomIn -> if (sortMode == AppSortMode.NAME) showAlphabetOverview = !zoomIn },
+                            onEscape = {
+                                if (alphabetSemanticActive) showAlphabetOverview = false else onNavigateToStart()
+                                true
+                            },
+                            onSearch = { query ->
+                                searchQuery = query
+                                searchFocus.requestFocus()
+                                keyboard?.show()
+                            },
+                            onCharms = onCharmsClick,
+                            onScroll = { delta -> scope.launch { listState.scrollBy(delta * 48f * borrowedDensity) } },
+                        )
                         .onGloballyPositioned { borrowedViewportBounds = it.boundsInWindow() }) {
                         LazyRow(
                             state = listState,

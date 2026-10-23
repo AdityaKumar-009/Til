@@ -25,6 +25,7 @@ class PhoneSettingsRoutingTest {
                 appsRepository = AppsRepository(context), onClose = {})
         } }
         compose.onNodeWithTag("phone-native-settings").assertIsDisplayed()
+        compose.captureFidelity("mobile-settings-root")
         compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
         compose.onNodeWithTag("til-advanced-settings-content").assertIsDisplayed()
     }

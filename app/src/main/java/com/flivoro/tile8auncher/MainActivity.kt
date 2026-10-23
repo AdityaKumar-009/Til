@@ -1621,6 +1621,7 @@ fun Tile8LauncherApp(
                         listState = appsScroll,
                         searchFocusRequest = searchFocusRequest,
                         initialSearchQuery = typedSearchRequest,
+                        onCharmsClick = { if (entranceReady) showCharms = true },
                         searchFocusEnabled = entranceReady && appsFullyVisible && !showCharms && activeInAppTile == null,
                         sections = categorizedApps,
                         appsRepository = appsRepository,

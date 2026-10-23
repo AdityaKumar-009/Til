@@ -37,7 +37,7 @@ internal object UnlockEntranceMotionOverride {
  * Windows 8.1 Start entrance fit.
  *
  * STARTUP remains fitted to the repository's separate 1920x1080/60-fps comparison capture.
- * RETURN is fitted independently to every encoded frame of test.mp4 around 56.033-56.633 s.
+ * RETURN is fitted to distinct observed poses of test.mp4 around 56.033-56.633 s.
  * test.mp4 is 30 fps, so actual observations are ~33.333 ms apart; values between those samples
  * are continuous interpolation rather than invented 10 ms source frames.
  *
@@ -102,7 +102,19 @@ internal object StartEntranceMotion {
         0f, 33.333f, 66.667f, 100f, 133.333f, 166.667f, 200f, 233.333f, 266.667f,
         300f, 333.333f, 366.667f, 400f, 433.333f, 466.667f, 500f, 533.333f, 566.667f, 600f,
     )
-    private val returnTravel = MotionCurve(
+    // Repeated encoded frames and rounded coordinate plateaus are not extra
+    // timing observations. Keep the first observed pose, then interpolate to
+    // the next distinct pose without inserting a stop/restart. Initial/final
+    // visibility holds remain meaningful and are retained.
+    private fun distinctPoseCurve(times: FloatArray, values: FloatArray): MotionCurve {
+        val keep = times.indices.filter { i ->
+            i == 0 || i == times.lastIndex || values[i] != values[i - 1] ||
+                values[i] == values.first() || values[i] == values.last()
+        }
+        return MotionCurve(keep.map { times[it] }.toFloatArray(),
+            keep.map { values[it] }.toFloatArray())
+    }
+    private val returnTravel = distinctPoseCurve(
         returnTime,
         floatArrayOf(
             // t=0 is invisible; 94.656 px extrapolates the measured first-frame deceleration.
@@ -127,7 +139,7 @@ internal object StartEntranceMotion {
             0f,
         ),
     )
-    private val returnGrowth = MotionCurve(
+    private val returnGrowth = distinctPoseCurve(
         returnTime,
         floatArrayOf(
             .680000f,
@@ -141,7 +153,7 @@ internal object StartEntranceMotion {
             1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f,
         ),
     )
-    private val returnOpacity = MotionCurve(
+    private val returnOpacity = distinctPoseCurve(
         returnTime,
         floatArrayOf(
             0f,
@@ -159,7 +171,7 @@ internal object StartEntranceMotion {
         0f, 33.333f, 66.667f, 100f, 133.333f, 166.667f, 200f, 233.333f,
         266.667f, 300f, 333.333f, 366.667f, 600f,
     )
-    private val returnHeaderOpacity = MotionCurve(
+    private val returnHeaderOpacity = distinctPoseCurve(
         returnHeaderTime,
         floatArrayOf(
             0f, 0f, .068f, .071f, .258f, .390f, .581f, .711f,
