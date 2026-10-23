@@ -134,6 +134,8 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
+                compose.onNodeWithTag("phone-native-settings").assertExists()
+                compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
                 awaitUi("$mode Mosaic Settings content") {
                     compose.onAllNodesWithTag("til-advanced-settings-content")
                         .fetchSemanticsNodes().isNotEmpty()
@@ -146,6 +148,8 @@ class LauncherModeSwitchTest {
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse("Activity finished while selecting $mode", compose.activity.isFinishing)
                 compose.onNodeWithText("✕").performClick()
+                compose.onNodeWithTag("phone-native-settings").assertExists()
+                compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
                 awaitUi("$mode Start screen after closing Settings") {
                     compose.onAllNodesWithTag("phone-navigation-state")
                         .fetchSemanticsNodes().isNotEmpty()
@@ -181,8 +185,12 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
+                compose.onNodeWithTag("phone-native-settings").assertExists()
+                compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
                 compose.onNodeWithTag("til-advanced-settings-content").assertExists()
                 compose.onNodeWithText("✕").performClick()
+                compose.onNodeWithTag("phone-native-settings").assertExists()
+                compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
                 compose.waitForIdle()
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse(compose.activity.isFinishing)

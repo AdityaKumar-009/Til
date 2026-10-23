@@ -125,6 +125,7 @@ internal fun WindowsTileFace(
     backgroundContent: (@Composable () -> Unit)? = null,
     /** Phone mode callers can retain their existing per-mode stock tile color policy. */
     allowAppDerivedBackground: Boolean = true,
+    contentOverride: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // The default Disco style paints every app tile with the extracted
@@ -172,7 +173,9 @@ internal fun WindowsTileFace(
         // Keep the tile's colored face on its outer layer. Windows Phone 8.1's
         // home-return transition turns the inner icon/text layer independently.
         Box(Modifier.fillMaxSize().then(innerModifier)) {
-        if (effectiveTile.size == TileSize.SMALL) {
+        if (contentOverride != null) {
+            contentOverride()
+        } else if (effectiveTile.size == TileSize.SMALL) {
             // Compact Windows-style templates keep glanceable built-in information usable even
             // at 1x1. App notification tiles still stay logo-first and use a corner count.
             SmallTileContent(

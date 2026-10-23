@@ -37,6 +37,7 @@ import com.flivoro.tile8auncher.ui.phone.LocalPhoneMotionSampleMillis
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -47,6 +48,13 @@ import kotlin.math.abs
 class PhoneMotionRenderTest {
     @get:Rule val compose = createComposeRule()
     private var capturePrefix = ""
+    private var fixtureWallpaper: File? = null
+
+    @After fun removeFixtureWallpaper() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        StartPersonalization.setCustomWallpaperUri(context, null)
+        fixtureWallpaper?.delete()
+    }
 
     @Test fun mobileExitHoldsItsFinalFrameAndReturnRestoresTheSurface() {
         captureMode(LauncherUiMode.MOBILE_10, "", 16, 608, 640, 384)
@@ -76,6 +84,23 @@ class PhoneMotionRenderTest {
             else com.flivoro.tile8auncher.features.PhoneBackgroundStyle.FULL_SCREEN)
         StartPersonalization.ensureLoaded(context)
         StartPersonalization.setCustomWallpaperUri(context, null)
+        if (mode == LauncherUiMode.PHONE_8) {
+            // The native tile-picture fixture must have bright, deterministic
+            // pixels. Procedural purple is mostly below the brightness probe's
+            // threshold; it cannot prove that a colorful tile was actually drawn.
+            val bitmap = Bitmap.createBitmap(64, 128, Bitmap.Config.ARGB_8888)
+            for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                bitmap.setPixel(x, y, if ((x / 16 + y / 16) % 2 == 0)
+                    android.graphics.Color.rgb(0, 164, 239)
+                else android.graphics.Color.rgb(227, 0, 140))
+            }
+            fixtureWallpaper = File(context.cacheDir, "motion-tile-picture.png").also { file ->
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            bitmap.recycle()
+            StartPersonalization.setCustomWallpaperUri(context,
+                android.net.Uri.fromFile(checkNotNull(fixtureWallpaper)).toString())
+        }
         val colors = listOf(0xFF00A4EF, 0xFFE3008C, 0xFF008A00, 0xFFF09609, 0xFF603CBA)
         val classicSizes = listOf(TileSize.MEDIUM, TileSize.SMALL, TileSize.SMALL,
             TileSize.SMALL, TileSize.SMALL, TileSize.MEDIUM, TileSize.MEDIUM,
@@ -145,6 +170,7 @@ class PhoneMotionRenderTest {
         }
         compose.mainClock.advanceTimeBy(if (mode == LauncherUiMode.PHONE_8) 2000 else 1000)
         val resting = capture("00-rest")
+        compose.captureFidelity("${mode.name.lowercase()}-native-rest")
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
         // Both WP8.1 and W10M must advance with the finger *before* pointer-up.

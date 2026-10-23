@@ -15,9 +15,17 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -77,6 +85,10 @@ internal fun Modifier.phoneToolkitTilePress(
     val latestOnPressStart by rememberUpdatedState(onPressStart)
     val density = LocalDensity.current.density
     var bounds by remember { mutableStateOf(Rect.Zero) }
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    fun currentBounds(): Rect = coordinates?.takeIf { it.isAttached }?.let {
+        Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
+    } ?: bounds
     var target by remember { mutableStateOf(PhoneTiltFrame(0f, 0f, 0f)) }
     var pressed by remember { mutableStateOf(false) }
     var wasPressed by remember { mutableStateOf(false) }
@@ -102,7 +114,16 @@ internal fun Modifier.phoneToolkitTilePress(
         }
     }
     this
-        .onGloballyPositioned { bounds = it.boundsInWindow() }
+        .onGloballyPositioned {
+            coordinates = it
+            bounds = currentBounds()
+        }
+        .semantics(mergeDescendants = true) {
+            role = Role.Button
+            if (!enabled) disabled()
+            onClick { if (enabled) latestOnClick(currentBounds()); enabled }
+            onLongClick { if (enabled) latestOnLongClick(); enabled }
+        }
         .pointerInput(enabled) {
             if (!enabled) return@pointerInput
             detectTapGestures(
@@ -124,7 +145,7 @@ internal fun Modifier.phoneToolkitTilePress(
                         pressed = false
                     }
                 },
-                onTap = { latestOnClick(bounds) },
+                onTap = { latestOnClick(currentBounds()) },
                 onLongPress = { latestOnLongClick() },
             )
         }

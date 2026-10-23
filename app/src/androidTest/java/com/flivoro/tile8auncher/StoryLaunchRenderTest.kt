@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -166,7 +167,8 @@ class StoryLaunchRenderTest(
         }
         if (origin == LaunchOrigin.ALL_APPS) compose.waitUntil(15_000) {
             compose.mainClock.advanceTimeByFrame()
-            compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().isNotEmpty()
+            val rows = compose.onAllNodes(hasText("Alpha") and hasClickAction())
+            rows.fetchSemanticsNodes().indices.any { rows[it].isDisplayed() }
         }
         // Exercise the real click callback: Start supplies its full tile;
         // Desktop Apps supplies the icon plate; phone Apps supplies its row.
@@ -174,7 +176,8 @@ class StoryLaunchRenderTest(
         if (origin == LaunchOrigin.ALL_APPS && mode != LauncherUiMode.DESKTOP) {
             // Dispatch the row's real semantics action. A text coordinate may
             // fall under the sticky header/recent-apps layer after panorama.
-            compose.onAllNodes(hasText("Alpha") and hasClickAction())[0].performClick()
+            val rows = compose.onAllNodes(hasText("Alpha") and hasClickAction())
+            rows[rows.fetchSemanticsNodes().indices.first { rows[it].isDisplayed() }].performClick()
         } else {
             compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha",
                 useUnmergedTree = true)[0].performTouchInput { click() }

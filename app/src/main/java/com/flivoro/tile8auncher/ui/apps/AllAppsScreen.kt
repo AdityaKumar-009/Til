@@ -52,6 +52,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -124,6 +125,14 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import com.flivoro.tile8auncher.ui.start.desktopStartInput
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.onKeyEvent
+import android.view.KeyEvent as AndroidKeyEvent
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -1207,6 +1216,9 @@ private fun AppListItem(
 ) {
     val context = LocalContext.current
     val iconCoordinates = remember { TileCoordinatesHolder() }
+    val interaction = remember(app.packageName) { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val latestOnLongClick by rememberUpdatedState(onLongClick)
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
     val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
         AppIconStyle.DISCO_LAYERED
@@ -1241,7 +1253,27 @@ private fun AppListItem(
             .fillMaxWidth()
             .height(rowHeight)
             .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+            .background(if (pressed) Color.White.copy(alpha = .12f) else Color.Transparent)
+            .onKeyEvent { event ->
+                val key = event.nativeKeyEvent
+                if (key.action == AndroidKeyEvent.ACTION_UP &&
+                    (key.keyCode == AndroidKeyEvent.KEYCODE_MENU ||
+                        (key.isShiftPressed && key.keyCode == AndroidKeyEvent.KEYCODE_F10))) {
+                    onLongClick(); true
+                } else false
+            }
+            .pointerInput(app.packageName) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (currentEvent.buttons.isSecondaryPressed) {
+                        latestOnLongClick()
+                        down.consume()
+                    }
+                }
+            }
             .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
                 onClick = {
                     val bounds = iconCoordinates.coordinates?.takeIf { it.isAttached }?.boundsInWindow() ?: Rect.Zero
                     onClick(bounds)

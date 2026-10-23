@@ -27,7 +27,7 @@ on:
 
 # Cancel superseded builds on the same branch so APK artifacts correspond to latest code.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:

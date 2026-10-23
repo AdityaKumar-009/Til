@@ -1667,6 +1667,14 @@ fun PhoneLauncherSurface(
                                         else phoneAllAppsFallbackSizeSp(plateSideDp)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
+                                    var rowCoordinates by remember {
+                                        mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null)
+                                    }
+                                    fun currentRowBounds(): Rect = rowCoordinates
+                                        ?.takeIf { it.isAttached }?.let {
+                                            Rect(it.positionInWindow(),
+                                                Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                                        } ?: bounds
                                     val rowInteraction = remember(app.packageName) { MutableInteractionSource() }
                                     val rowPressed by rowInteraction.collectIsPressedAsState()
                                     val listIndex = (positions[letter] ?: 0) + appIndex +
@@ -1691,11 +1699,12 @@ fun PhoneLauncherSurface(
                                             .storyLaunchActor("phone_app_${app.packageName}", LaunchOrigin.ALL_APPS)
                                             .padding(bottom = 0.dp)
                                             .onGloballyPositioned {
-                                                bounds = it.boundsInWindow()
+                                                rowCoordinates = it
                                                 mobileBounds = Rect(
                                                     it.positionInWindow(),
                                                     Size(it.size.width.toFloat(), it.size.height.toFloat()),
                                                 )
+                                                bounds = mobileBounds
                                             }
                                             .then(if (if (isLaunching)
                                                 exitMotionMode == LauncherUiMode.PHONE_8
@@ -1777,12 +1786,12 @@ fun PhoneLauncherSurface(
                                                         if (rowColor != null)
                                                             launchedApp.copy(colorValue = rowColor)
                                                         else launchedApp,
-                                                        bounds, LaunchOrigin.ALL_APPS,
+                                                        currentRowBounds(), LaunchOrigin.ALL_APPS,
                                                     )
                                                 },
                                                 onLongClick = {
                                                     editing = "app:${app.packageName}"
-                                                    appContextBounds = bounds
+                                                    appContextBounds = currentRowBounds()
                                                 },
                                             )
                                             .background(if (isTen && (rowPressed ||
@@ -2296,6 +2305,8 @@ private fun PhoneStartGrid(
     folderPreviews: Map<String, List<TileModel>>,
     expandedFolder: PhoneFolderExpansion? = null,
     onDragOutside: ((String) -> Unit)? = null,
+    photoOriginYPx: Float = 0f,
+    sharedPhotoHeightPx: Float? = null,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
     onExitEdit: () -> Unit,
@@ -2391,8 +2402,8 @@ private fun PhoneStartGrid(
                 (side + (cell + gap) * slot.column +
                     (cell * slot.columns + gap * (slot.columns - 1)) / 2).value,
                 (topInsetPx - scrollOffsetPx) / density +
-                    ((cell + gap) * slot.row +
-                        (cell * slot.rows + gap * (slot.rows - 1)) / 2).value,
+                    rowTopPx(slot.row, cellStepPx) / density +
+                        ((cell * slot.rows + gap * (slot.rows - 1)) / 2).value,
                 viewportWidthCssPx,
             )
         }
@@ -2552,14 +2563,15 @@ private fun PhoneStartGrid(
                                     modifier = Modifier.fillMaxSize(),
                                     wallpaperStyle = wallpaperStyle,
                                     tileLeftPx = (side + (cell + gap) * pos.column).value * density,
-                                    tileTopPx = ((cell + gap) * pos.row).value * density,
+                                    tileTopPx = photoOriginYPx + rowTopPx(pos.row, cellStepPx),
                                     gridWidthPx = gridWidthForPhoto.value * density,
-                                    gridHeightPx = ((cell + gap) * heightRows).value * density,
+                                    gridHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
                                     inverseTileProjection = inverseTileProjection,
                                 )
                             }
                         } else null,
                         repository = appsRepository,
+                        folderChildren = folderPreviews[tile.id].orEmpty(),
                         resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier
                             .offset(x = tileLeft, y = displacedTop)
@@ -2597,25 +2609,6 @@ private fun PhoneStartGrid(
                             )
                         },
                     )
-                    folderPreviews[tile.id]?.let { children ->
-                        PhoneFolderPreview(
-                            children = children,
-                            repository = appsRepository,
-                            modifier = Modifier
-                                .offset(x = tileLeft, y = displacedTop)
-                                .size(
-                                    width = cell * pos.columns + gap * (pos.columns - 1),
-                                    height = cell * pos.rows + gap * (pos.rows - 1),
-                                )
-                                .zIndex(1f)
-                                .graphicsLayer {
-                                    if (isSelectedForEdit) {
-                                        translationX = tileDragOffset.x
-                                        translationY = tileDragOffset.y
-                                    }
-                                },
-                        )
-                    }
                     if (isSelectedForEdit && deletingTileId != editKey &&
                         (!classicEditing || !classicEditIntro)) {
                         Box(Modifier
@@ -2774,6 +2767,8 @@ private fun PhoneStartGrid(
                         onResizeTile = onResizeTile, onUnpinTile = folder.onRemoveChild,
                         onMoveTile = folder.onReorderChild, onMergeTile = folder.onReorderChild,
                         folderPreviews = emptyMap(), onDragOutside = folder.onRemoveChild,
+                        photoOriginYPx = photoOriginYPx + cellStepPx * insertionRow + 48f * density,
+                        sharedPhotoHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
                         onClick = onClick, onLongClick = onLongClick, onExitEdit = onExitEdit,
                     )
                 }
@@ -2809,6 +2804,7 @@ private fun PhoneTile(
     onLongClick: () -> Unit,
     onPressStart: (() -> Unit)? = null,
     tiltEnabled: Boolean = true,
+    folderChildren: List<TileModel> = emptyList(),
 ) {
     // Read the master timebase during graphics rendering, not during composition.
     // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
@@ -2950,6 +2946,14 @@ private fun PhoneTile(
     WindowsTileFace(
         tile = faceTile,
         appIcon = icon,
+        contentOverride = if (folderChildren.isNotEmpty()) ({
+            Box(Modifier.fillMaxSize()) {
+                PhoneFolderPreview(folderChildren, repository, Modifier.fillMaxSize())
+                if (tile.size != TileSize.SMALL) Text(tile.title,
+                    color = Color.White, fontSize = 11.sp, maxLines = 1,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
+            }
+        }) else null,
         // The complete WP8.1 color policy is resolved above. Prevent the
         // icon-face compositor from silently painting white on top of it.
         allowAppDerivedBackground = false,

@@ -18,6 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.flivoro.tile8auncher.features.LiveTileNotificationStore
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -172,13 +181,16 @@ internal fun phoneFolderInsertionRow(slots: List<PhoneTileSlot>, folderIndex: In
 
 @Composable
 internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean) {
+    var draft by remember(expansion.folder.id) { mutableStateOf(expansion.folder.name) }
     Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        BasicTextField(value = expansion.folder.name, onValueChange = expansion.onRename,
+        BasicTextField(value = draft, onValueChange = { draft = it; expansion.onRename(it) },
             enabled = enabled, singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White,
                 fontSize = 22.sp, fontWeight = FontWeight.Light),
-            modifier = Modifier.weight(1f).testTag("phone-folder-title")
+            modifier = Modifier.weight(1f).onFocusChanged {
+                if (!it.isFocused && draft.isBlank()) draft = expansion.folder.name
+            }.testTag("phone-folder-title")
                 .semantics { contentDescription = "Folder name" })
         Text("⌃", color = Color.White, fontSize = 28.sp,
             modifier = Modifier.size(48.dp).clickable(enabled = enabled, onClick = expansion.onDismiss)
@@ -193,25 +205,31 @@ internal fun PhoneFolderPreview(
     repository: AppsRepository,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        children.take(4).chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                row.forEach { tile ->
-                    val icon = rememberAppIcon(repository, tile.packageName)
-                    Box(
-                        Modifier.padding(2.dp).size(27.dp)
-                            .background(Color(tile.colorValue)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (tile.iconGlyph.isBlank() && icon != null) {
-                            Image(bitmap = icon, contentDescription = null,
-                                modifier = Modifier.size(18.dp))
-                        } else {
-                            MetroIcon(glyph = tile.iconGlyph.ifEmpty { "app" },
-                                color = Color.White, size = 17.dp)
+    val context = LocalContext.current
+    @Suppress("UNUSED_VARIABLE") val revision = LauncherFeatureRuntime.liveTilesRevision
+    BoxWithConstraints(modifier.padding(6.dp)) {
+        val side = (minOf(maxWidth, maxHeight - 14.dp) / 2 - 4.dp).coerceAtLeast(8.dp)
+        Column(Modifier.align(Alignment.Center).padding(bottom = 10.dp),
+            verticalArrangement = Arrangement.Center) {
+            children.take(4).chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    row.forEach { tile ->
+                        val icon = rememberAppIcon(repository, tile.packageName)
+                        val liveCount = if (LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName))
+                            LiveTileNotificationStore.latest(context, tile.packageName)?.count ?: 0 else 0
+                        Box(Modifier.padding(2.dp).size(side).background(Color(tile.colorValue)),
+                            contentAlignment = Alignment.Center) {
+                            if (tile.iconGlyph.isBlank() && icon != null) {
+                                Image(bitmap = icon, contentDescription = null,
+                                    modifier = Modifier.size(side * .66f))
+                            } else {
+                                MetroIcon(glyph = tile.iconGlyph.ifEmpty { "app" },
+                                    color = Color.White, size = side * .62f)
+                            }
+                            if (liveCount > 0) Text(if (liveCount > 99) "99+" else liveCount.toString(),
+                                color = Color.White, fontSize = 8.sp,
+                                modifier = Modifier.align(Alignment.BottomEnd).background(Color.Black)
+                                    .padding(horizontal = 1.dp))
                         }
                     }
                 }
