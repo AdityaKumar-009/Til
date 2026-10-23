@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,8 +38,8 @@ internal fun PhoneNativeSettingsSurface(
 ) {
     val context = LocalContext.current
     val isTen = mode == LauncherUiMode.MOBILE_10
-    var page by remember(mode) { mutableStateOf<String?>(null) }
-    var filter by remember(mode) { mutableStateOf("") }
+    var page by rememberSaveable(mode) { mutableStateOf<String?>(null) }
+    var filter by rememberSaveable(mode) { mutableStateOf("") }
     val accent = StartPersonalization.accentColor
     // Subscribe to preference changes so theme/density choices refresh immediately.
     @Suppress("UNUSED_VARIABLE")
@@ -48,7 +49,8 @@ internal fun PhoneNativeSettingsSurface(
         runCatching { context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
     BackHandler { back() }
-    Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()
+        .testTag("phone-native-settings")) {
         Row(Modifier.fillMaxWidth().height(50.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("←", color = Color.White, fontSize = 29.sp,
                 modifier = Modifier.clickable { back() }.padding(horizontal = 21.dp))
@@ -150,18 +152,7 @@ internal fun PhoneNativeSettingsSurface(
                 PhoneSettingsRow("TIL launcher settings", "Launcher customization") { onLauncherSettings() }
             }
         }
-        Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clickable { back() }.padding(horizontal = 28.dp)) {
-                PhoneNavGlyph(PhoneNavKey.BACK, Modifier.size(25.dp))
-            }
-            Box(Modifier.clickable { onClose() }.padding(horizontal = 28.dp)) {
-                PhoneNavGlyph(PhoneNavKey.START, Modifier.size(25.dp))
-            }
-            Box(Modifier.clickable { page = null; filter = "" }.padding(horizontal = 28.dp)) {
-                PhoneNavGlyph(PhoneNavKey.SEARCH, Modifier.size(25.dp))
-            }
-        }
+
     }
 }
 

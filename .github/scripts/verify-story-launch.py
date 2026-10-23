@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise all optional compositors in the actual R8 optimized APK, including Settings Back."""
 import re
+import json
+from pathlib import Path
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -49,6 +51,7 @@ for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE", "FOCUS", "ARC", "U
     adb("shell", "am", "start", "-W", "-n", f"{PKG}/{PKG}.MainActivity")
     wait_for(lambda: "Ready PHONE_8," in adb("logcat", "-d", "-s", "MosaicStartup:I"), f"{style} startup")
     time.sleep(1.2)  # Wait for the native cold-start entrance to settle.
+    adb("shell", "dumpsys", "gfxinfo", PKG, "reset")
     adb("shell", "input", "tap", "540", "108")  # Existing Action Center shortcut.
     wait_for(tap_settings, f"{style} All settings shortcut")
     wait_for(lambda: f"{style} forward complete" in adb("logcat", "-d", "-s", "MosaicStory:I"), f"{style} forward")
@@ -59,4 +62,13 @@ for style in ("LIFT", "DOOR", "RIPPLE", "PAGE_TURN", "GLIDE", "FOCUS", "ARC", "U
     crashes = adb("logcat", "-d", "-s", "AndroidRuntime:E")
     if "FATAL EXCEPTION" in crashes or "VerifyError" in crashes:
         raise RuntimeError(f"{style} optimized runtime failed:\n{crashes}")
+    report_dir = Path("app/build/motion-performance")
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / f"{style}-framestats.txt").write_text(adb("shell", "dumpsys", "gfxinfo", PKG, "framestats"))
+    (report_dir / f"{style}-events.txt").write_text(adb("logcat", "-d", "-v", "monotonic", "-s", "MosaicStory:I"))
+    (report_dir / "environment.json").write_text(json.dumps({
+        "device": adb("shell", "getprop", "ro.product.model").strip(),
+        "sdk": adb("shell", "getprop", "ro.build.version.sdk").strip(),
+        "build": "performance (R8)", "kind": "emulator presentation timestamps; not physical-device certification",
+    }, indent=2))
     print(f"Optimized {style}: Settings opening and Back return passed.", flush=True)

@@ -351,7 +351,7 @@ private fun CompactWeatherTileContent(contentColor: Color, logoModifier: Modifie
     ) {
         MetroIcon(glyph = "weather", color = contentColor, size = 20.dp, modifier = logoModifier)
         Text(
-            "24°",
+            "Demo",
             color = contentColor,
             style = WindowsTypography.titleMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
             maxLines = 1,
@@ -878,12 +878,12 @@ private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Mod
         if (isWide) {
             Column(modifier = Modifier.align(Alignment.CenterStart)) {
                 Text(
-                    text = "24°",
+                    text = "Demo",
                     style = WindowsTypography.displayLarge.copy(fontSize = 38.sp, fontWeight = FontWeight.Light),
                     color = contentColor,
                 )
                 Text(
-                    text = "Mostly Sunny",
+                    text = "Sample weather",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
                     color = contentColor.copy(alpha = 0.9f),
                 )
@@ -899,7 +899,7 @@ private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Mod
                 MetroIcon(glyph = "weather", color = contentColor, size = 36.dp, modifier = logoModifier)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "24° Sunny",
+                    text = "Demo weather",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
                     color = contentColor,
                 )

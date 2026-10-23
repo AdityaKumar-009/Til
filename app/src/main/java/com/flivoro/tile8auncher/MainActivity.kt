@@ -808,6 +808,7 @@ fun Tile8LauncherApp(
     }
     var showCharms by remember { mutableStateOf(false) }
     var searchFocusRequest by remember { mutableIntStateOf(0) }
+    var typedSearchRequest by remember { mutableStateOf("") }
     var drawerResetRequest by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -957,7 +958,8 @@ fun Tile8LauncherApp(
         if (entranceReady) currentScreen = LauncherScreen.ALL_APPS
     }
 
-    fun searchApps() {
+    fun searchApps(initialQuery: String = "") {
+        typedSearchRequest = initialQuery
         if (!entranceReady) return
         showCharms = false
         if (activeInAppTile != null) onCloseInAppTile()
@@ -1607,6 +1609,7 @@ fun Tile8LauncherApp(
                         tileWallpaperStyle = wallpaperStyle,
                         onPowerClick = { if (entranceReady) showPowerDialog = true },
                         onSearchClick = { searchApps() },
+                        onTypeToSearch = { searchApps(it) },
                         onCharmsClick = { if (entranceReady) showCharms = true },
                         onAddAppsClick = { if (entranceReady) showPinAppsDialog = true },
                         onNavigateToAllApps = { navigateToAllApps() },
@@ -1617,6 +1620,7 @@ fun Tile8LauncherApp(
                     AllAppsScreen(
                         listState = appsScroll,
                         searchFocusRequest = searchFocusRequest,
+                        initialSearchQuery = typedSearchRequest,
                         searchFocusEnabled = entranceReady && appsFullyVisible && !showCharms && activeInAppTile == null,
                         sections = categorizedApps,
                         appsRepository = appsRepository,

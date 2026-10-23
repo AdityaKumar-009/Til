@@ -5,12 +5,15 @@ import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import java.text.Normalizer
+import java.text.Collator
+import java.util.Locale
 
 /** Shared by startup preparation and the rendered Start surface. */
 internal fun phoneStartSeed(
     tiles: List<TileModel>,
     catalog: List<AppInfo>,
     mode: LauncherUiMode,
+    roles: PhoneAppRoles = PhoneAppRoles(),
 ): List<TileModel> {
     val byPackage = catalog.associateBy(AppInfo::packageName)
     val desktopById = tiles.associateBy(TileModel::id).mapValues { (id, tile) ->
@@ -21,10 +24,10 @@ internal fun phoneStartSeed(
         }
     }
     val dialer = catalog.firstOrNull {
-        it.label.equals("Phone", true) || it.label.equals("Dialer", true)
+        roles.glyph(it.packageName, it.label) == "wp81_phone"
     }
     val messages = catalog.firstOrNull {
-        it.label.equals("Messages", true) || it.label.equals("Messaging", true)
+        roles.glyph(it.packageName, it.label) == "wp81_messages"
     }
     val topAppIds = listOfNotNull(dialer, messages).map { "app:" + it.packageName }
     val stockIds = if (mode == LauncherUiMode.MOBILE_10) listOf(
@@ -47,8 +50,9 @@ internal fun phoneStartSeed(
 
 /** Same #, A..Z, international order as the phone drawer, including folded accented labels. */
 internal fun phoneAlphabetGroup(label: String): String {
-    val initial = label.firstOrNull()
-    val folded = Normalizer.normalize(label, Normalizer.Form.NFD)
+    val clean = label.trimStart()
+    val initial = clean.firstOrNull()
+    val folded = Normalizer.normalize(clean, Normalizer.Form.NFD)
         .firstOrNull()?.uppercaseChar()
     return when {
         initial == null -> "&"
@@ -58,12 +62,14 @@ internal fun phoneAlphabetGroup(label: String): String {
     }
 }
 
-internal fun phoneAppsInDisplayOrder(apps: List<AppInfo>): List<AppInfo> = apps.sortedWith(
-    compareBy<AppInfo> {
+internal fun phoneAppsInDisplayOrder(apps: List<AppInfo>, locale: Locale = Locale.getDefault()): List<AppInfo> {
+    val collator = Collator.getInstance(locale).apply { strength = Collator.PRIMARY }
+    return apps.sortedWith(compareBy<AppInfo> {
         when (val group = phoneAlphabetGroup(it.label)) {
             "#" -> 0
             "&" -> 27
             else -> group[0] - 'A' + 1
         }
-    }.thenComparator { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.label, b.label) },
-)
+    }.thenComparator { a, b -> collator.compare(a.label, b.label) }
+        .thenBy { it.packageName }.thenBy { it.activityName })
+}

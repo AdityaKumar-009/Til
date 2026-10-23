@@ -20,6 +20,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -168,8 +172,14 @@ class StoryLaunchRenderTest(
         // Exercise the real click callback: Start supplies its full tile;
         // Desktop Apps supplies the icon plate; phone Apps supplies its row.
         // Text bounds alone describe none of those launch surfaces correctly.
-        compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha",
-            useUnmergedTree = true)[0].performTouchInput { click() }
+        if (origin == LaunchOrigin.ALL_APPS && mode != LauncherUiMode.DESKTOP) {
+            // Dispatch the row's real semantics action. A text coordinate may
+            // fall under the sticky header/recent-apps layer after panorama.
+            compose.onAllNodes(hasText("Alpha") and hasClickAction())[0].performClick()
+        } else {
+            compose.onAllNodesWithText(if (origin == LaunchOrigin.START) "Story 0" else "Alpha",
+                useUnmergedTree = true)[0].performTouchInput { click() }
+        }
         compose.mainClock.advanceTimeBy(700)
         val baseline = shot()
         assertTrue("$mode/$origin did not deliver its real launch bounds", clickedBounds.width > 1f)
@@ -194,6 +204,8 @@ class StoryLaunchRenderTest(
             compose.runOnIdle {
                 assertNotNull("$mode/$origin/$style did not capture its REAL source cell", scene.sourceOwner)
                 assertTrue(scene.capturedSourceBounds.width > 0f)
+                assertTrue("Recorded source must have drawable dimensions: ${scene.sourceLayer?.size}",
+                    (scene.sourceLayer?.size?.width ?: 0) > 1)
             }
             val initialDifference = difference(baseline, first)
             if (initialDifference >= .04) {

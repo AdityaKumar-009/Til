@@ -235,6 +235,7 @@ fun StartScreen(
     onSearchClick: () -> Unit,
     onAddAppsClick: () -> Unit,
     onNavigateToAllApps: () -> Unit,
+    onTypeToSearch: (String) -> Unit = { onSearchClick() },
     onCharmsClick: () -> Unit = {},
     onTilesChanged: (List<TileModel>) -> Unit = {},
     initialWallpaperScrollPx: Float = 0f,
@@ -985,6 +986,23 @@ fun StartScreen(
 
     Box(
         modifier = modifier
+            .desktopStartInput(
+                enabled = interactionEnabled && !entranceRunning && launchingTileId == null,
+                onZoom = { zoomIn ->
+                    if (zoomIn) { if (showBandOverview) zoomBackToSemanticOrigin() }
+                    else if (!showBandOverview) openBandOverview()
+                },
+                onEscape = {
+                    when {
+                        showBandOverview -> { zoomBackToSemanticOrigin(); true }
+                        selectedTileIds.isNotEmpty() -> { selectedTileIds = emptySet(); true }
+                        else -> false
+                    }
+                },
+                onSearch = onTypeToSearch,
+                onCharms = onCharmsClick,
+                onScroll = { delta -> scope.launch { listState.scrollBy(delta * 48f * dragDensity.density) } },
+            )
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()

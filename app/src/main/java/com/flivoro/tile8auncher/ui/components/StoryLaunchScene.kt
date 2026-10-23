@@ -118,7 +118,7 @@ internal fun connectedStoryBackgroundAlpha(
 
 /**
  * Transfer drawing ownership of the selected, REAL tile to the launch plane.
- * Its drawing is recorded once and cached before travel, with no icon decode.
+ * Its display list is shared with the launch plane, with no bitmap readback.
  * Its original cell draws nothing, so there cannot be a stationary duplicate.
  * Every other physical tile/row samples the same spatial motion in graphicsLayer.
  */
@@ -203,11 +203,13 @@ internal fun Modifier.storyLaunchActor(
         }
     }.drawWithContent {
         if (ownsSource()) {
-            // Cache the actual display list once. No bitmap/GPU readback or
-            // per-frame recording; retain labels, app art and photo crop at t=0.
-            if (scene.sourceLayer == null && capturedLayer != null) {
+            // Keep one display list attached to its real child RenderNodes.
+            // Re-record when this actor is invalidated: child graphics layers
+            // may be rebuilt after interaction/focus changes. A once-only list
+            // can retain a discarded child and render a blank Start tile.
+            if (capturedLayer != null) {
                 capturedLayer.record { this@drawWithContent.drawContent() }
-                scene.sourceLayer = capturedLayer
+                if (scene.sourceLayer !== capturedLayer) scene.sourceLayer = capturedLayer
             }
             // One real tile is visible during initial preparation. Once the
             // moving material plane starts, the original selected tile yields
@@ -219,7 +221,7 @@ internal fun Modifier.storyLaunchActor(
                     scene.returning, scene.traveledPhase)) {
                 // Reveal the original rendered glyph, title and wallpaper
                 // while its overlaid twin is still shrinking toward the cell.
-                drawContent()
+                if (capturedLayer != null) drawLayer(capturedLayer) else drawContent()
             }
             if (scene.sourceOwner !== token) scene.sourceOwner = token
             // Freeze geometry while departing: transformed parent rows must

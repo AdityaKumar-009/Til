@@ -150,6 +150,7 @@ fun AllAppsScreen(
     onNavigateToStart: () -> Unit,
     listState: LazyListState = rememberLazyListState(),
     searchFocusRequest: Int = 0,
+    initialSearchQuery: String = "",
     searchFocusEnabled: Boolean = true,
     borrowedLaunchStyle: MasterLaunchAnimation? = null,
     borrowedLaunchPackage: String? = null,
@@ -204,6 +205,7 @@ fun AllAppsScreen(
 
     LaunchedEffect(searchFocusRequest, searchFocusEnabled) {
         if (searchFocusEnabled && searchFocusRequest > handledSearchRequest) {
+            searchQuery = initialSearchQuery
             searchFocus.requestFocus()
             keyboard?.show()
             handledSearchRequest = searchFocusRequest

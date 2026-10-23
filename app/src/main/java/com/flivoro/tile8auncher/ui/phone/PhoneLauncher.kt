@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -436,7 +437,7 @@ fun PhoneLauncherSurface(
     // huge Mail/Calendar columns, Desktop, PC settings, and Reading List.
     // Saved user orders take precedence: this never migrates or clears existing pins.
     val phoneSeed = remember(tiles, catalog, mode) {
-        phoneStartSeed(tiles, catalog, mode)
+        phoneStartSeed(tiles, catalog, mode, readPhoneAppRoles(context))
     }
     // Wait for the actual launcher catalogue before sealing the one-time
     // default layout. Otherwise Phone/Messages appear on some cold starts
@@ -491,8 +492,7 @@ fun PhoneLauncherSurface(
         }
     }
     val foldersById = remember(phoneFolders) { phoneFolders.associateBy(PhoneFolder::id) }
-    var openFolderId by remember(mode) { mutableStateOf<String?>(null) }
-    var openFolderBounds by remember(mode) { mutableStateOf(Rect.Zero) }
+    var openFolderId by rememberSaveable(mode) { mutableStateOf<String?>(null) }
     val densityRevision = LauncherFeatureRuntime.launcherModeRevision
     val phoneTilePictureMode = remember(mode, densityRevision) {
         LauncherFeatureStore.backgroundStyle(context, mode) ==
@@ -679,9 +679,7 @@ fun PhoneLauncherSurface(
     }
     val hidden = LauncherFeatureStore.hiddenPackages(context) + LauncherFeatureStore.privatePackages(context)
     val visibleApps = remember(catalog, hidden) {
-        catalog.filter { it.packageName !in hidden }.sortedWith(
-            compareBy(String.CASE_INSENSITIVE_ORDER) { it.label },
-        )
+        phoneAppsInDisplayOrder(catalog.filter { it.packageName !in hidden })
     }
     val showRecentlyInstalledPhoneApps = remember(mode, densityRevision) {
         mode == LauncherUiMode.MOBILE_10 &&
@@ -791,6 +789,45 @@ fun PhoneLauncherSurface(
         folderRevision++
         editing = null
         openFolderId = null
+    }
+
+    val expandedFolder = openFolderId?.let { folderId ->
+        phoneFolders.firstOrNull { it.id == folderId }?.let { folder ->
+            PhoneFolderExpansion(
+                folder = folder,
+                children = folderPreviews[folderId].orEmpty(),
+                onRemoveChild = { childId ->
+                    val remaining = PhoneFolderStore.removeChild(context, mode, folderId, childId)
+                    val index = order.indexOf(folderId).coerceAtLeast(0)
+                    val result = order.toMutableList()
+                    if (remaining.size < 2) {
+                        result.remove(folderId)
+                        result.addAll(index.coerceAtMost(result.size), remaining + childId)
+                        openFolderId = null
+                    } else {
+                        result.add((index + 1).coerceAtMost(result.size), childId)
+                    }
+                    saveOrder(result)
+                    folderRevision++
+                },
+                onRename = { name ->
+                    PhoneFolderStore.rename(context, mode, folderId, name)
+                    folderRevision++
+                },
+                onReorderChild = { from, to ->
+                    val children = folder.children.toMutableList()
+                    if (from in children && to in children && from != to) {
+                        children.remove(from)
+                        children.add(children.indexOf(to), from)
+                        PhoneFolderStore.save(context, mode, phoneFolders.map {
+                            if (it.id == folderId) it.copy(children = children) else it
+                        })
+                        folderRevision++
+                    }
+                },
+                onDismiss = { openFolderId = null },
+            )
+        }
     }
 
     // Handle only a NEW Home request. Relaunching/recomposing the phone surface must not
@@ -988,6 +1025,7 @@ fun PhoneLauncherSurface(
                             editingTileId = editing.takeIf { !showApps },
                             deletingTileId = deletingTileId,
                             folderPreviews = folderPreviews,
+                            expandedFolder = expandedFolder,
                             onResizeTile = { id ->
                                 tileFor(id)?.let { tile ->
                                     val size = if (isClassicPhone) {
@@ -1063,8 +1101,7 @@ fun PhoneLauncherSurface(
                                         else tile.id
                                     } else editing = null
                                 } else if (tile.id.startsWith("phone_folder_")) {
-                                    openFolderId = tile.id
-                                    openFolderBounds = bounds
+                                    openFolderId = tile.id.takeUnless { openFolderId == it }
                                 } else onLaunch(tile, bounds, LaunchOrigin.START)
                             },
                             onLongClick = { editing = it },
@@ -1833,10 +1870,12 @@ fun PhoneLauncherSurface(
                                         "#", "A", "B", "C", "D", "E", "F", "G",
                                         "H", "I", "J", "K", "L", "M", "N",
                                         "O", "P", "Q", "R", "S", "T", "U",
-                                        "V", "W", "X", "Y", "Z",
+                                        "V", "W", "X", "Y", "Z", "&",
                                     )
                                     val count = if (isTen) 5 else 6
-                                    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                                    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp)
+                                        .clickable(interactionSource = remember { MutableInteractionSource() },
+                                            indication = null, onClick = {}),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         letters.chunked(count).forEach { chunk ->
                                             Row(Modifier.fillMaxWidth(),
@@ -1844,7 +1883,7 @@ fun PhoneLauncherSurface(
                                                 chunk.forEach { letter ->
                                                     val available = letter in positions
                                                     Box(
-                                                        Modifier.weight(1f).height(48.dp)
+                                                        Modifier.weight(1f).heightIn(min = 48.dp)
                                                             .background(if (available) accent else Color(0xFF292929))
                                                             .clickable(enabled = available) {
                                                                 alphabetOpen = false
@@ -1854,7 +1893,9 @@ fun PhoneLauncherSurface(
                                                             },
                                                         contentAlignment = Alignment.Center,
                                                     ) {
-                                                        Text(if (isTen) letter else letter.lowercase(),
+                                                        if (letter == "&") DiscoGlobeSymbol(
+                                                            if (available) Color.White else Color.Gray)
+                                                        else Text(letter,
                                                             color = if (available) Color.White else Color.Gray,
                                                             fontSize = 24.sp, fontWeight = FontWeight.Light)
                                                     }
@@ -2141,42 +2182,6 @@ fun PhoneLauncherSurface(
 
     }
 
-    openFolderId?.let { folderId ->
-        phoneFolders.firstOrNull { it.id == folderId }?.let { folder ->
-            PhoneFolderSurface(
-                folder = folder,
-                children = folder.children.mapNotNull { tileFor(it) },
-                repository = appsRepository,
-                onOpenChild = { childId ->
-                    tileFor(childId)?.let { child ->
-                        openFolderId = null
-                        onLaunch(child, openFolderBounds, LaunchOrigin.START)
-                    }
-                },
-                onRemoveChild = { childId ->
-                    val remaining = PhoneFolderStore.removeChild(context, mode, folderId, childId)
-                    val index = order.indexOf(folderId).coerceAtLeast(0)
-                    val result = order.toMutableList()
-                    if (remaining.size < 2) {
-                        result.remove(folderId)
-                        result.addAll(index.coerceAtMost(result.size), remaining + childId)
-                        openFolderId = null
-                    } else {
-                        result.add((index + 1).coerceAtMost(result.size), childId)
-                    }
-                    saveOrder(result)
-                    folderRevision++
-                },
-                onRename = { name ->
-                    PhoneFolderStore.rename(context, mode, folderId, name)
-                    folderRevision++
-                },
-                onUngroup = { ungroupFolder(folderId) },
-                onDismiss = { openFolderId = null },
-            )
-        }
-    }
-
     // Native Windows Phone uses a compact menu beside the held app row.
     editing?.takeIf { showApps && it.startsWith("app:") }?.let { id ->
         val pkg = id.removePrefix("app:")
@@ -2288,11 +2293,21 @@ private fun PhoneStartGrid(
     onMoveTile: (String, String) -> Unit,
     onMergeTile: (String, String) -> Unit,
     folderPreviews: Map<String, List<TileModel>>,
+    expandedFolder: PhoneFolderExpansion? = null,
+    onDragOutside: ((String) -> Unit)? = null,
     onClick: (TileModel, Rect) -> Unit,
     onLongClick: (String) -> Unit,
     onExitEdit: () -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
+    var displayedFolder by remember { mutableStateOf(expandedFolder) }
+    LaunchedEffect(expandedFolder) { if (expandedFolder != null) displayedFolder = expandedFolder }
+    val folderIndex = tiles.indexOfFirst { it.id == displayedFolder?.folder?.id }
+    val insertionRow = remember(slots, folderIndex) { phoneFolderInsertionRow(slots, folderIndex) }
+    val childRows = remember(displayedFolder?.children, columns) {
+        packPhoneTiles(displayedFolder?.children.orEmpty().map(TileModel::size), columns)
+            .maxOfOrNull { it.row + it.rows } ?: 0
+    }
     val classicEditing = mode == LauncherUiMode.PHONE_8 && editingTileId != null
     // Disco has a 500ms .home-menu-back-intro before its fully edited state.
     // The held tile grows to 112% during that phase, then settles at 105%.
@@ -2344,11 +2359,21 @@ private fun PhoneStartGrid(
             maxWidth * if (columns == 6) .025f else (25f / 480f)
         } else 10.dp
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
+        val expansionHeight by animateDpAsState(
+            targetValue = if (expandedFolder != null && folderIndex >= 0)
+                (cell + gap) * childRows + 58.dp else 0.dp,
+            animationSpec = tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            label = "phone-inline-folder-space",
+        )
+        val expansionPx = with(LocalDensity.current) { expansionHeight.toPx() }
+        fun rowTopPx(row: Int, step: Float): Float = row * step +
+            if (folderIndex >= 0 && row >= insertionRow) expansionPx else 0f
+
         val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
         val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 25.dp).toPx() }
         val visibleSlotIndices = slots.indices.filter { index ->
             val slot = slots[index]
-            val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
+            val top = topInsetPx + rowTopPx(slot.row, cellStepPx) - scrollOffsetPx
             val slotHeightPx = (cell * slot.rows + gap * (slot.rows - 1)).value * density
             val leftCss = (side + (cell + gap) * slot.column).value
             val widthCss = (cell * slot.columns + gap * (slot.columns - 1)).value
@@ -2372,7 +2397,7 @@ private fun PhoneStartGrid(
         }
         val firstForwardWavePosition = visibleSlotIndices.minOfOrNull { forwardWavePositions[it] } ?: 0f
         val visibleTops = slots.mapNotNull { slot ->
-            val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
+            val top = topInsetPx + rowTopPx(slot.row, cellStepPx) - scrollOffsetPx
             val slotHeight = slot.rows * cellStepPx
             if (top + slotHeight > 0f && top < viewportHeightPx) top else null
         }
@@ -2388,12 +2413,12 @@ private fun PhoneStartGrid(
             slots.indices.toList()
         } else slots.indices.filter { index ->
             val slot = slots[index]
-            val top = topInsetPx + slot.row * cellStepPx - scrollOffsetPx
+            val top = topInsetPx + rowTopPx(slot.row, cellStepPx) - scrollOffsetPx
             val height = (cell * slot.rows + gap * (slot.rows - 1)).value * density
             shouldComposePhoneStartTile(top, top + height, viewportHeightPx) ||
                 tiles[index].id == launchingTileId
         }
-        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows)
+        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows + expansionHeight)
             .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
                 onClick = onExitEdit)) {
             // Picture pixels are part of each tile's transformed face below.
@@ -2402,7 +2427,7 @@ private fun PhoneStartGrid(
                 val tile = tiles[index]
                 val pos = slots[index]
                 val rowFraction = MobileStartMotion.rowFraction(
-                    topInsetPx + pos.row * cellStepPx - scrollOffsetPx,
+                    topInsetPx + rowTopPx(pos.row, cellStepPx) - scrollOffsetPx,
                     firstVisibleTop, lastVisibleTop,
                 )
                 key(tile.id) {
@@ -2494,6 +2519,8 @@ private fun PhoneStartGrid(
                             stiffness = Spring.StiffnessMedium),
                         label = "phone-reflow-y",
                     )
+                    val displacedTop = tileTop +
+                        if (folderIndex >= 0 && pos.row >= insertionRow) expansionHeight else 0.dp
                     PhoneTile(
                         tile = tile, mode = mode,
                         launchMotionMode = launchMotionMode,
@@ -2534,7 +2561,7 @@ private fun PhoneStartGrid(
                         repository = appsRepository,
                         resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier
-                            .offset(x = tileLeft, y = tileTop)
+                            .offset(x = tileLeft, y = displacedTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                   height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(if (isSelectedForEdit) 4f else 0f)
@@ -2574,7 +2601,7 @@ private fun PhoneStartGrid(
                             children = children,
                             repository = appsRepository,
                             modifier = Modifier
-                                .offset(x = tileLeft, y = tileTop)
+                                .offset(x = tileLeft, y = displacedTop)
                                 .size(
                                     width = cell * pos.columns + gap * (pos.columns - 1),
                                     height = cell * pos.rows + gap * (pos.rows - 1),
@@ -2591,7 +2618,7 @@ private fun PhoneStartGrid(
                     if (isSelectedForEdit && deletingTileId != editKey &&
                         (!classicEditing || !classicEditIntro)) {
                         Box(Modifier
-                            .offset(x = tileLeft, y = tileTop)
+                            .offset(x = tileLeft, y = displacedTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                 height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(5f)
@@ -2621,7 +2648,10 @@ private fun PhoneStartGrid(
                                         val fromSlot = slots[index]
                                         val currentCenterX = (fromSlot.column + fromSlot.columns * .5f) * cellStepPx + moved.x
                                         val currentCenterY = (fromSlot.row + fromSlot.rows * .5f) * cellStepPx + moved.y
-                                        if (moved.getDistance() > cellStepPx * .22f) {
+                                        if (onDragOutside != null && (currentCenterY < 0f ||
+                                            currentCenterY > heightRows * cellStepPx)) {
+                                            onDragOutside(editKey)
+                                        } else if (moved.getDistance() > cellStepPx * .22f) {
                                             val destination = slots.indices
                                                 .filter { it != index }
                                                 .minByOrNull { target ->
@@ -2724,6 +2754,29 @@ private fun PhoneStartGrid(
                     }
                 }
             }
+            displayedFolder?.takeIf { folderIndex >= 0 && expansionHeight > 0.dp }?.let { folder ->
+                Column(Modifier.fillMaxWidth().offset(y = (cell + gap) * insertionRow)
+                    .height(expansionHeight).clipToBounds().testTag("phone-expanded-folder")) {
+                    PhoneFolderHeader(folder, interactionEnabled && !isLaunching && expandedFolder != null)
+                    PhoneStartGrid(
+                        tiles = folder.children, columns = columns,
+                        scrollOffsetPx = scrollOffsetPx - ((cellStepPx * insertionRow) + (48f * density)).roundToInt(),
+                        elapsedMillis = elapsedMillis, surfaceBounds = surfaceBounds,
+                        viewportBounds = viewportBounds, viewportHeightPx = viewportHeightPx,
+                        interactionEnabled = interactionEnabled && expandedFolder != null,
+                        launchingTileId = launchingTileId, isLaunching = isLaunching,
+                        resumeUsesBackMotion = resumeUsesBackMotion, mode = mode,
+                        launchMotionMode = launchMotionMode, hideOriginalTileId = hideOriginalTileId,
+                        tileOpacity = tileOpacity, wallpaperStyle = wallpaperStyle,
+                        mobileTilePictureMode = mobileTilePictureMode, appsRepository = appsRepository,
+                        editingTileId = editingTileId, deletingTileId = deletingTileId,
+                        onResizeTile = onResizeTile, onUnpinTile = folder.onRemoveChild,
+                        onMoveTile = folder.onReorderChild, onMergeTile = folder.onReorderChild,
+                        folderPreviews = emptyMap(), onDragOutside = folder.onRemoveChild,
+                        onClick = onClick, onLongClick = onLongClick, onExitEdit = onExitEdit,
+                    )
+                }
+            }
         }
     }
 }
@@ -2773,8 +2826,10 @@ private fun PhoneTile(
     )
     val icon = visual.icon
     val classicStockTile = tile.id.startsWith("tile_")
-    val classicPrimaryAppTile = tile.id.startsWith("phone_app_") &&
-        isPhoneOrMessagesApp(tile.title)
+    val roleGlyph = remember(context, tile.packageName, tile.title) {
+        readPhoneAppRoles(context).glyph(tile.packageName, tile.title)
+    }
+    val classicPrimaryAppTile = tile.id.startsWith("phone_app_") && roleGlyph != null
     val userChoseColor = PhoneLayoutStore.hasCustomColor(context, mode, tile.id)
     // Keep W10M on the same WP8.1 tile-color policy, including the
     // stock Metro accent, manual overrides and remembered brand plate.
@@ -2794,15 +2849,13 @@ private fun PhoneTile(
         mode != LauncherUiMode.PHONE_8 -> 1f
         // The Phone vector's intrinsic layout size includes the factor;
         // applying graphicsLayer scaling as well would double-enlarge it.
-        classicPrimaryAppTile && (tile.title.equals("Phone", true) ||
-            tile.title.equals("Dialer", true)) -> 1f
+        classicPrimaryAppTile && roleGlyph == "wp81_phone" -> 1f
         classicStockTile -> 1.5f
         else -> 1.22f
     }
     val wp81NativeGlyph = if (mode == LauncherUiMode.PHONE_8 &&
         classicPrimaryAppTile) {
-        if (tile.title.equals("Phone", true) ||
-            tile.title.equals("Dialer", true)) "wp81_phone" else "wp81_messages"
+        roleGlyph
     } else null
     val faceTile = if (wp81NativeGlyph != null)
         resolvedTile.copy(iconGlyph = wp81NativeGlyph) else resolvedTile
@@ -3049,12 +3102,10 @@ internal fun PhoneLaunchSourceFace(
         visual.accent.takeIf { !tile.packageName.isNullOrBlank() },
         customColor, layered, StartPersonalization.wallpaperAccentArgb,
     )
-    val primaryPhoneApp = tile.id.startsWith("phone_app_") &&
-        isPhoneOrMessagesApp(tile.title)
-    val nativeGlyph = if (mode == LauncherUiMode.PHONE_8 && primaryPhoneApp) {
-        if (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true))
-            "wp81_phone" else "wp81_messages"
-    } else null
+    val nativeGlyph = remember(context, mode, tile.packageName, tile.title) {
+        if (mode == LauncherUiMode.PHONE_8 && tile.id.startsWith("phone_app_"))
+            readPhoneAppRoles(context).glyph(tile.packageName, tile.title) else null
+    }
     val faceTile = tile.copy(
         colorValue = resolvedColor,
         // The Desktop live-tile template paints an opaque gradient within its
@@ -3215,11 +3266,10 @@ internal fun PhoneLaunchDestinationIcon(
         (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
-    val stockGlyph = if (mode == LauncherUiMode.PHONE_8 &&
-        tile.id.startsWith("phone_app_") && isPhoneOrMessagesApp(tile.title)) {
-        if (tile.title.equals("Phone", true) || tile.title.equals("Dialer", true))
-            "wp81_phone" else "wp81_messages"
-    } else null
+    val stockGlyph = remember(context, mode, tile.packageName, tile.title) {
+        if (mode == LauncherUiMode.PHONE_8 && tile.id.startsWith("phone_app_"))
+            readPhoneAppRoles(context).glyph(tile.packageName, tile.title) else null
+    }
     val glyph = stockGlyph ?: tile.iconGlyph
     Box(modifier, contentAlignment = Alignment.Center) {
         when {

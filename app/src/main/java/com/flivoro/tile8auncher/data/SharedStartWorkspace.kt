@@ -26,7 +26,7 @@ internal object SharedStartWorkspace {
         val mode = LauncherFeatureStore.launcherUiMode(context)
             .takeIf { it != LauncherUiMode.DESKTOP } ?: LauncherUiMode.PHONE_8
         val phoneOrder = if (savedOrders.isEmpty()) {
-            if (desktop.isEmpty()) emptyList() else phoneStartSeed(desktop, apps, mode).map(TileModel::id)
+            if (desktop.isEmpty()) emptyList() else phoneStartSeed(desktop, apps, mode, com.flivoro.tile8auncher.ui.phone.readPhoneAppRoles(context)).map(TileModel::id)
         }
             else savedOrders.flatMap(::readOrder).distinct()
         // Keep the exact old data as a one-time recovery backup, then merge without dropping pins.
