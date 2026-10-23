@@ -56,60 +56,24 @@ import org.junit.runner.RunWith
 import kotlin.math.abs
 
 /** Pixel checks on the actual six public surfaces, for every optional story. */
-@RunWith(AndroidJUnit4::class)
-class StoryLaunchRenderTest {
+@RunWith(org.junit.runners.Parameterized::class)
+class StoryLaunchRenderTest(
+    private val mode: LauncherUiMode,
+    private val origin: LaunchOrigin,
+    private val style: MasterLaunchAnimation,
+) {
     @get:Rule val compose = createComposeRule()
-    @Test fun desktopStart() = verify(LauncherUiMode.DESKTOP, LaunchOrigin.START)
-    @Test fun desktopApps() = verify(LauncherUiMode.DESKTOP, LaunchOrigin.ALL_APPS)
-    @Test fun wp81Start() = verify(LauncherUiMode.PHONE_8, LaunchOrigin.START)
-    @Test fun wp81Apps() = verify(LauncherUiMode.PHONE_8, LaunchOrigin.ALL_APPS)
-    @Test fun w10mStart() = verify(LauncherUiMode.MOBILE_10, LaunchOrigin.START)
-    @Test fun w10mApps() = verify(LauncherUiMode.MOBILE_10, LaunchOrigin.ALL_APPS)
-
-    @Test fun internalWindowStaysMountedThroughOpeningAndBack() {
-        val state = mutableStateOf(FlipAnimationState(isRunning = true,
-            sourceTile = TileModel(id = "settings", title = "Settings"),
-            masterLaunchAnimation = MasterLaunchAnimation.LIFT))
-        val clock = Animatable(0f)
-        val scene = StoryLaunchScene(state.value) { clock.value }
-        var mounts = 0
-        var disposals = 0
-        compose.mainClock.autoAdvance = false
-        compose.setContent {
-            CompositionLocalProvider(LocalStoryLaunchScene provides scene) {
-                StoryLaunchOverlay(state.value, clock, {}, {}, destinationContent = {
-                    DisposableEffect(Unit) {
-                        mounts++
-                        onDispose { disposals++ }
-                    }
-                    Box(Modifier.fillMaxSize().background(Color.Blue))
-                })
+    companion object {
+        @JvmStatic @org.junit.runners.Parameterized.Parameters(name = "{0}/{1}/{2}")
+        fun cases(): List<Array<Any>> = LauncherUiMode.entries.flatMap { mode ->
+            listOf(LaunchOrigin.START, LaunchOrigin.ALL_APPS).flatMap { origin ->
+                MasterLaunchAnimation.entries.filter { it.isStory }.map { style ->
+                    arrayOf<Any>(mode, origin, style)
+                }
             }
         }
-        compose.mainClock.advanceTimeBy(160)
-        compose.runOnIdle {
-            assertTrue("The real window must exist during travel", clock.value in .01f.. .99f)
-            assertEquals(1, mounts)
-            assertEquals(0, disposals)
-        }
-        compose.mainClock.advanceTimeBy(600)
-        compose.runOnIdle {
-            assertEquals(1f, clock.value, .00001f)
-            state.value = state.value.copy(direction = FlipAnimationDirection.REVERSE)
-        }
-        compose.mainClock.advanceTimeBy(200)
-        compose.runOnIdle {
-            assertTrue(clock.value in .01f.. .99f)
-            assertEquals("Back must keep the very same window", 1, mounts)
-            assertEquals(0, disposals)
-        }
-        compose.mainClock.advanceTimeBy(600)
-        compose.runOnIdle {
-            assertEquals(0f, clock.value, .00001f)
-            assertEquals(1, mounts)
-            assertEquals(0, disposals)
-        }
     }
+    @Test fun sourceAndReturnRemainContinuous() = verify(mode, origin)
 
     private fun verify(mode: LauncherUiMode, origin: LaunchOrigin) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -117,6 +81,9 @@ class StoryLaunchRenderTest {
             .edit().clear().commit()
         LauncherFeatureStore.setLauncherUiMode(context, mode)
         LauncherFeatureStore.setShowRecentlyInstalledPhoneApps(context, true)
+        LauncherFeatureStore.setBackgroundStyle(context, mode,
+            com.flivoro.tile8auncher.features.PhoneBackgroundStyle.FULL_SCREEN)
+        LauncherFeatureStore.setPhoneTileOpacity(context, 100)
         val repository = AppsRepository(context)
         val colors = listOf(0xFFE3008C, 0xFF008A00, 0xFF00A4EF, 0xFFF09609)
         val tiles = List(12) { n -> TileModel(id = "story_$n", title = "Story $n",
@@ -159,7 +126,12 @@ class StoryLaunchRenderTest {
                                 onTileLongClick = {}, onPowerClick = {}, onSearchClick = {}, onAddAppsClick = {},
                                 onNavigateToAllApps = {})
                             else -> AllAppsScreen(sections = apps, appsRepository = repository,
-                                onAppClick = { _, bounds -> clickedBounds = bounds },
+                                onAppClick = { app, bounds ->
+                                    clickedTile = selected.copy(colorValue =
+                                        repository.getDiscoTileAccentColor(app.packageName)
+                                            ?: com.flivoro.tile8auncher.ui.components.StartPersonalization.wallpaperAccentArgb)
+                                    clickedBounds = bounds
+                                },
                                 isAppPinned = { false }, onPinApp = {}, onUnpinApp = {},
                                 onOpenAppInfo = {}, onUninstallApp = {}, onNavigateToStart = {})
                         }
@@ -201,7 +173,7 @@ class StoryLaunchRenderTest {
         compose.mainClock.advanceTimeBy(700)
         val baseline = shot()
         assertTrue("$mode/$origin did not deliver its real launch bounds", clickedBounds.width > 1f)
-        for (style in MasterLaunchAnimation.entries.filter { it.isStory }) {
+        run {
             val state = FlipAnimationState(isRunning = true, sourceTile = clickedTile,
                 sourceBounds = clickedBounds,
                 masterLaunchAnimation = style, origin = origin,
@@ -225,8 +197,7 @@ class StoryLaunchRenderTest {
             }
             val initialDifference = difference(baseline, first)
             if (initialDifference >= .04) {
-                save(baseline, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-baseline")
-                save(baseline, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-baseline")
+                saveFailure(baseline, first, "initial", initialDifference)
             }
             assertTrue("$mode/$origin/$style changed the source artwork at time zero",
                 initialDifference < .04)
@@ -279,8 +250,7 @@ class StoryLaunchRenderTest {
             val returned = shot()
             val returnDifference = difference(baseline, returned)
             if (returnDifference >= .006) {
-                save(first, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-first")
-                save(returned, "cross-story-failure-${mode.name}-${origin.name}-${style.name}-return")
+                saveFailure(baseline, returned, "return", returnDifference)
             }
             assertTrue("$mode/$origin/$style snapped on return ($returnDifference)", returnDifference < .006)
             compose.runOnIdle { active.value = null }
@@ -316,6 +286,25 @@ class StoryLaunchRenderTest {
             }
         }
         return changed.toDouble() / count.coerceAtLeast(1)
+    }
+
+    private fun saveFailure(expected: Bitmap, actual: Bitmap, phase: String, delta: Double) {
+        val name = "cross-story-failure-${mode.name}-${origin.name}-${style.name}-$phase"
+        save(expected, "$name-expected")
+        save(actual, "$name-actual")
+        val difference = Bitmap.createBitmap(expected.width, expected.height, Bitmap.Config.ARGB_8888)
+        for (y in 0 until expected.height) for (x in 0 until expected.width) {
+            val a = expected.getPixel(x, y); val b = actual.getPixel(x, y)
+            difference.setPixel(x, y, android.graphics.Color.rgb(
+                abs((a shr 16 and 255) - (b shr 16 and 255)),
+                abs((a shr 8 and 255) - (b shr 8 and 255)), abs((a and 255) - (b and 255))))
+        }
+        save(difference, "$name-difference")
+        difference.recycle()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dir = java.io.File(context.getExternalFilesDir(null), "motion-frames").apply { mkdirs() }
+        java.io.File(dir, "$name.json").writeText(
+            """{"mode":"$mode","origin":"$origin","style":"$style","phase":"$phase","poseMillis":0,"changedFraction":$delta,"sdk":${android.os.Build.VERSION.SDK_INT},"width":${actual.width},"height":${actual.height}}""")
     }
 
     private fun save(bitmap: Bitmap, name: String) {

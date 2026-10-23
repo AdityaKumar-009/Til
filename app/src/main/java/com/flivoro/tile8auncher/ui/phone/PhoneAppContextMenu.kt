@@ -43,6 +43,20 @@ import androidx.compose.ui.window.PopupPositionProvider
 import kotlin.math.roundToInt
 import com.flivoro.tile8auncher.features.LauncherUiMode
 
+/** Window coordinates throughout, including cutouts and oversized text/menu content. */
+internal fun placeMobileAppMenu(row: IntRect, viewport: IntRect, menu: IntSize): IntOffset {
+    val left = viewport.left.coerceAtLeast(0)
+    val top = viewport.top.coerceAtLeast(0)
+    val right = viewport.right.coerceAtLeast(left)
+    val bottom = viewport.bottom.coerceAtLeast(top)
+    val below = row.bottom + menu.height <= bottom
+    return IntOffset(
+        row.left.coerceIn(left, (right - menu.width).coerceAtLeast(left)),
+        (if (below) row.bottom else row.top - menu.height)
+            .coerceIn(top, (bottom - menu.height).coerceAtLeast(top)),
+    )
+}
+
 /**
  * Disco's appList.js chooses the edge of the held row: below when 219px fits,
  * above when it would collide with the lower safe inset. The result is an
@@ -231,10 +245,21 @@ internal fun PhoneAppContextMenu(
             properties = PopupProperties(focusable = true),
         ) { menuContent() }
     } else {
-        // Keep Windows 10 Mobile's compact command strip unchanged.
         Popup(
-            alignment = Alignment.TopStart,
-            offset = IntOffset(xPx.coerceAtLeast(0), yPx.coerceAtLeast(0)),
+            popupPositionProvider = remember(rowBoundsInWindow, viewportBoundsInWindow) {
+                object : PopupPositionProvider {
+                    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
+                        layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset =
+                        placeMobileAppMenu(
+                            IntRect(rowBoundsInWindow.left.roundToInt(), rowBoundsInWindow.top.roundToInt(),
+                                rowBoundsInWindow.right.roundToInt(), rowBoundsInWindow.bottom.roundToInt()),
+                            IntRect(viewportBoundsInWindow.left.roundToInt(), viewportBoundsInWindow.top.roundToInt(),
+                                minOf(windowSize.width, viewportBoundsInWindow.right.roundToInt()),
+                                minOf(windowSize.height, viewportBoundsInWindow.bottom.roundToInt())),
+                            popupContentSize,
+                        )
+                }
+            },
             onDismissRequest = onDismiss,
             properties = PopupProperties(focusable = true),
         ) { menuContent() }

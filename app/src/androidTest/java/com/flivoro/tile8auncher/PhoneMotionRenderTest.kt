@@ -70,6 +70,8 @@ class PhoneMotionRenderTest {
             .edit().clear().commit()
         LauncherFeatureStore.setPhoneSmallColumns(context, mode, if (mode == LauncherUiMode.PHONE_8) 4 else 6)
         LauncherFeatureStore.setPhoneTileOpacity(context, 100)
+        LauncherFeatureStore.setBackgroundStyle(context, mode,
+            com.flivoro.tile8auncher.features.PhoneBackgroundStyle.FULL_SCREEN)
         StartPersonalization.ensureLoaded(context)
         StartPersonalization.setCustomWallpaperUri(context, null)
         val colors = listOf(0xFF00A4EF, 0xFFE3008C, 0xFF008A00, 0xFFF09609, 0xFF603CBA)

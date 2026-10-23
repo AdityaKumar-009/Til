@@ -10,6 +10,9 @@ collect_frames() {
         echo "Motion frame captures are missing."
         result=1
     fi
+    if adb shell test -d /sdcard/Android/data/com.flivoro.tile8auncher/files/motion-frames; then
+        adb pull /sdcard/Android/data/com.flivoro.tile8auncher/files/motion-frames app/build/motion-frames/metadata || result=1
+    fi
     exit "$result"
 }
 trap collect_frames EXIT

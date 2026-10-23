@@ -36,6 +36,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -69,6 +73,7 @@ internal class StoryLaunchScene(val state: FlipAnimationState, val progress: () 
     var returning by mutableStateOf(state.direction == FlipAnimationDirection.REVERSE)
     var capturedSourceBounds by mutableStateOf(state.sourceBounds)
     var sourceOwner by mutableStateOf<Any?>(null)
+    var sourceLayer by mutableStateOf<GraphicsLayer?>(null)
     var sourceMeasured = false
 
     fun matchesSourceBounds(bounds: Rect): Boolean {
@@ -129,6 +134,7 @@ internal fun Modifier.storyLaunchActor(
     val potentialSource = sourceCandidate && scene.isSelected(id) &&
         scene.state.sourceBounds.width > 1f && scene.state.sourceBounds.height > 1f
     val token = remember(scene, id) { Any() }
+    val capturedLayer = if (potentialSource) rememberGraphicsLayer() else null
     val measured = this.onGloballyPositioned {
         bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
         // Claim the source as soon as Android lays it out. Relying on a
@@ -142,7 +148,10 @@ internal fun Modifier.storyLaunchActor(
     if (potentialSource) {
         DisposableEffect(scene, token) {
             onDispose {
-                if (scene.sourceOwner === token) scene.sourceOwner = null
+                if (scene.sourceOwner === token) {
+                    scene.sourceOwner = null
+                    scene.sourceLayer = null
+                }
             }
         }
     }
@@ -194,6 +203,12 @@ internal fun Modifier.storyLaunchActor(
         }
     }.drawWithContent {
         if (ownsSource()) {
+            // Cache the actual display list once. No bitmap/GPU readback or
+            // per-frame recording; retain labels, app art and photo crop at t=0.
+            if (scene.sourceLayer == null && capturedLayer != null) {
+                capturedLayer.record { this@drawWithContent.drawContent() }
+                scene.sourceLayer = capturedLayer
+            }
             // One real tile is visible during initial preparation. Once the
             // moving material plane starts, the original selected tile yields
             // all pixels; on Back it resumes only when the moving plane has
@@ -312,6 +327,8 @@ internal fun StoryLaunchOverlay(
             }
         }
         fun frame() = currentFrame
+        fun reconstructedFaceAlpha(): Float = if (scene.sourceLayer == null) 1f
+            else StoryLaunchMotion.ease(0f, .16f, scene.traveledPhase)
 
         Box(Modifier.fillMaxSize().graphicsLayer {
             alpha = frame().backdropAlpha * (if (scene.returning) .25f else 1f)
@@ -344,6 +361,7 @@ internal fun StoryLaunchOverlay(
             // sized panels. Door/Page/Arc still use their original perspective.
             clip = true
         }) {
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = reconstructedFaceAlpha() }) {
         // Artwork and destination share ONE perspective plane and hinge. An
         // independent artwork rotation would visibly detach it from Door/Page.
         Box(Modifier.fillMaxSize().graphicsLayer {
@@ -474,6 +492,20 @@ internal fun StoryLaunchOverlay(
                 destinationContent()
             }
         }
+        }
+        // Initial artwork and bounded logo share the same transformed panel.
+        // Transparent All Apps gutters never become a solid row at time zero.
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            alpha = 1f - reconstructedFaceAlpha()
+        }.drawWithContent {
+            scene.sourceLayer?.let { layer ->
+                if (layer.size.width > 0 && layer.size.height > 0) {
+                    scale(size.width / layer.size.width, size.height / layer.size.height, Offset.Zero) {
+                        drawLayer(layer)
+                    }
+                }
+            }
+        })
         }
     }
 }

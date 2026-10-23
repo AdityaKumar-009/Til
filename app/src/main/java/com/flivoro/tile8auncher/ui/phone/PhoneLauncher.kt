@@ -21,6 +21,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -588,15 +590,14 @@ fun PhoneLauncherSurface(
             LauncherUiMode.PHONE_8, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
         )
     } else if (isLaunching && showApps) {
-        maxOf(PhoneMotionTimeline.totalMillis(exitMotionMode, listPhase, 6),
-            MobileStartMotion.EXIT_TOTAL_MS)
+        MobileAppsMotion.EXIT_TOTAL_MS
     } else if (isLaunching) {
         if (exitMotionMode == LauncherUiMode.MOBILE_10) MobileStartMotion.EXIT_TOTAL_MS
         else PhoneStartChoreography.totalMillis(
             LauncherUiMode.PHONE_8, exiting = true, viewportHeightCssPx = viewportHeightCssPx,
         )
     } else if (isTen && motionUsesBack && !isLaunching) {
-        MobileStartMotion.BACK_TOTAL_MS
+        if (showApps) MobileAppsMotion.BACK_TOTAL_MS else MobileStartMotion.BACK_TOTAL_MS
     } else if (isClassicPhone && motionUsesBack && !isLaunching && showApps) {
         PhoneStartChoreography.APPS_RETURN_TOTAL_MS
     } else if (isClassicPhone && !isLaunching && !motionUsesBack) {
@@ -643,6 +644,10 @@ fun PhoneLauncherSurface(
         surfaceBounds.width / densityScale, selected, letter, tileLeftCssPx, tileWidthCssPx,
     )
     fun mobileWallpaperAlpha(): Float = if (isLaunching && !exitUsesMobile) 1f
+    else if (showApps) MobileAppsMotion.chromeAlpha(
+        exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
+        returningFromApp = motionUsesBack && !isLaunching,
+    )
     else MobileStartMotion.wallpaperAlpha(
         exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
         returningFromApp = motionUsesBack && !isLaunching,
@@ -1332,23 +1337,11 @@ fun PhoneLauncherSurface(
                                         transformOrigin = TransformOrigin(motion.pivotX, .5f)
                                         cameraDistance = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX * densityScale
                                     } else {
-                                        val motion = MobileStartMotion.sample(
+                                        alpha = MobileAppsMotion.chromeAlpha(
                                             exiting = isLaunching,
                                             returningFromApp = motionUsesBack && !isLaunching,
-                                            elapsedMillis = if (isLaunching || motionUsesBack) sourceMotionMillis()
-                                                else MobileStartMotion.ENTRY_TOTAL_MS,
-                                            row = 0f,
-                                            centerX = toolbarBounds.center.x,
-                                            centerY = toolbarBounds.center.y,
-                                            viewportCenterX = surfaceBounds.center.x,
-                                            viewportCenterY = surfaceBounds.center.y,
+                                            elapsedMillis = sourceMotionMillis(),
                                         )
-                                        alpha = motion.alpha
-                                        translationX = motion.translationXPx
-                                        translationY = motion.translationYPx
-                                        scaleX = motion.scale
-                                        scaleY = motion.scale
-                                        transformOrigin = TransformOrigin.Center
                                     }
                                 }
                             }, verticalAlignment = Alignment.CenterVertically) {
@@ -1445,7 +1438,7 @@ fun PhoneLauncherSurface(
                                 lastVisibleListTop,
                             )
                             val backReturn = !exiting && motionUsesBack
-                            val motion = MobileStartMotion.sample(
+                            val motion = MobileAppsMotion.sample(
                                 exiting = exiting,
                                 elapsedMillis = when {
                                     exiting -> sourceMotionMillis()
@@ -1636,6 +1629,8 @@ fun PhoneLauncherSurface(
                                         else phoneAllAppsFallbackSizeSp(plateSideDp)
                                     var bounds by remember { mutableStateOf(Rect.Zero) }
                                     var mobileBounds by remember { mutableStateOf(Rect.Zero) }
+                                    val rowInteraction = remember(app.packageName) { MutableInteractionSource() }
+                                    val rowPressed by rowInteraction.collectIsPressedAsState()
                                     val listIndex = (positions[letter] ?: 0) + appIndex +
                                         (if (letter.isEmpty()) 0 else 1)
                                     val animationIndex = PhoneStartChoreography.appListAnimationIndex(
@@ -1650,7 +1645,7 @@ fun PhoneLauncherSurface(
                                             tileLeftCssPx = appListContentLeftCssPx,
                                             tileWidthCssPx = appListContentWidthCssPx,
                                         )
-                                    // W10M app launch/return uses the approved shared Start zoom.
+                                    // All Apps uses its separate row/chrome choreography.
                                     // Ordinary panorama swipes keep rows settled.
                                     Row(
                                         Modifier.fillMaxWidth()
@@ -1733,6 +1728,8 @@ fun PhoneLauncherSurface(
                                                     hideOriginalTileId == "app_${app.packageName}") alpha = 0f
                                             }
                                             .combinedClickable(
+                                                interactionSource = rowInteraction,
+                                                indication = null,
                                                 enabled = interactionEnabled && !isLaunching,
                                                 onClick = {
                                                     // Treat Mosaic Settings exactly like any held
@@ -1750,6 +1747,9 @@ fun PhoneLauncherSurface(
                                                     appContextBounds = bounds
                                                 },
                                             )
+                                            .background(if (isTen && (rowPressed ||
+                                                (isLaunching && exitTileId == "phone_app_${app.packageName}")))
+                                                Color(0xFF3A3A3A) else Color.Transparent)
                                             .padding(vertical = if (isClassicPhone) 0.dp else 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
