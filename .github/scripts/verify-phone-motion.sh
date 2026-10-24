@@ -22,10 +22,10 @@ adb shell wm density 480
 # Android 10 shows a first-time immersive navigation warning over screenshots.
 # The test emulator can acknowledge that system-only tutorial ahead of capture.
 adb shell settings put secure immersive_mode_confirmations confirmed
-# Fail quickly on the inline-folder interaction before the longer optimized
-# smoke/render matrix. Its captures survive AGP cleanup through MediaStore.
+# Fail quickly on folder and desktop-input interactions before the longer
+# optimized smoke/render matrix. Captures survive AGP cleanup through MediaStore.
 ./gradlew connectedDebugAndroidTest \
-    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.InlinePhoneFolderTest \
+    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.InlinePhoneFolderTest,com.flivoro.tile8auncher.DesktopInputTest \
     --stacktrace
 ./gradlew assemblePerformance --stacktrace
 adb install -r app/build/outputs/apk/performance/app-performance.apk
@@ -127,6 +127,10 @@ rm -f "$mode_pref_file"
 python3 .github/scripts/verify-story-launch.py
 
 ./gradlew connectedDebugAndroidTest --stacktrace
+# AGP replaces connected-test reports on the final persisted-mode smoke below.
+# Preserve the full matrix so the downloadable XML still proves all 100 cases.
+mkdir -p app/build/full-matrix-androidTest-results
+cp -a app/build/outputs/androidTest-results/connected/. app/build/full-matrix-androidTest-results/
 ./gradlew connectedDebugAndroidTest \
     -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.ExampleInstrumentedTest#persistWp81ModeForOptimizedStartupSmoke \
     --stacktrace

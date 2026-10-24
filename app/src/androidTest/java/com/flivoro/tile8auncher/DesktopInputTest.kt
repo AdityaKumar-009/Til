@@ -34,7 +34,13 @@ class DesktopInputTest {
                     onOpenAppInfo = {}, onUninstallApp = {}, onNavigateToStart = {})
             }
         }
-        compose.onNodeWithText("Alpha").performMouseInput { click(button = MouseButton.Secondary) }
+        // App metadata is enriched on Dispatchers.IO. Compose can be idle
+        // before that work publishes the row, especially on Android 10.
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText("Alpha").fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithText("Alpha").assertIsDisplayed()
+            .performMouseInput { click(button = MouseButton.Secondary) }
         compose.onNodeWithText("Pin to Start").assertIsDisplayed()
         compose.runOnIdle { assertEquals("A context-menu gesture must not launch the app", 0, launches) }
     }

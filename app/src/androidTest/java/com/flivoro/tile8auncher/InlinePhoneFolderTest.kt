@@ -55,14 +55,14 @@ class InlinePhoneFolderTest {
                 compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).isDisplayed()
             }
         } catch (failure: Throwable) {
-            compose.captureFidelity("mobile-inline-folder-failure")
+            compose.captureFidelity("cross-mobile-inline-folder-failure")
             throw AssertionError("Folder after tap:\n" +
                 compose.onRoot(useUnmergedTree = true).printToString(), failure)
         }
         compose.mainClock.advanceTimeBy(600)
         compose.waitForIdle()
         compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertIsDisplayed()
-        compose.captureFidelity("mobile-inline-folder")
+        compose.captureFidelity("cross-mobile-inline-folder")
         compose.onNodeWithTag("phone-folder-title").performTextReplacement("Travel")
         compose.runOnIdle { assertEquals("Travel", PhoneFolderStore.read(context, mode).single().name) }
         val after = compose.onNodeWithText("Tile d", useUnmergedTree = true)

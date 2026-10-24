@@ -219,6 +219,7 @@ jobs:
             app/build/motion-frames/**/cross-*.png
             app/build/motion-frames/**/*.json
             app/build/motion-performance
+            app/build/full-matrix-androidTest-results
             app/build/outputs/androidTest-results/connected
             app/build/reports/androidTests/connected
           if-no-files-found: warn
