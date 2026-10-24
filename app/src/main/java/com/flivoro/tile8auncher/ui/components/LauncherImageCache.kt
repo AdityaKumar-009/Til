@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.util.LruCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,6 +11,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.UUID
 import kotlin.math.max
 
 /**
@@ -23,36 +23,42 @@ import kotlin.math.max
  */
 internal object LauncherImageCache {
     private const val MAX_MEMORY_BYTES = 48 * 1024 * 1024
+    private const val MAX_PREVIEW_BYTES = 4 * 1024 * 1024
     private const val PREVIEW_MAX_SIDE = 640
     private const val PREVIEW_QUALITY = 86
+    private const val FULL_IMAGE_SIDE = 2560
+    private const val ACCENT_IMAGE_SIDE = 720
     private const val CACHE_DIR_NAME = "wallpaper_previews"
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val memory = object : LruCache<String, Bitmap>(MAX_MEMORY_BYTES) {
-        override fun sizeOf(key: String, value: Bitmap): Int =
-            value.allocationByteCount.coerceAtLeast(1)
-    }
+    private val memory = BitmapDecodeCache<String>(MAX_MEMORY_BYTES)
+    private val previews = BitmapDecodeCache<String>(MAX_PREVIEW_BYTES)
 
-    fun peek(uriString: String): Bitmap? = synchronized(memory) {
-        memory.get(uriString)
-    }
+    // Cache accent sampling and full wallpaper artwork at distinct resolutions.
+    private fun cacheKey(uriString: String, maxSide: Int): String = "$maxSide|$uriString"
+
+    fun peek(uriString: String): Bitmap? =
+        memory.peek(cacheKey(uriString, FULL_IMAGE_SIDE))
+            ?: memory.peek(cacheKey(uriString, ACCENT_IMAGE_SIDE))
 
     fun peekOrPreview(context: Context, uriString: String): Bitmap? {
         peek(uriString)?.let { return it }
-        return runCatching {
-            val file = previewFile(context.applicationContext, uriString)
-            if (!file.isFile || file.length() <= 0L) return@runCatching null
-            BitmapFactory.decodeFile(
-                file.absolutePath,
-                BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
-            )
-        }.getOrNull()
+        return previews.getOrDecode(uriString) {
+            runCatching {
+                val file = previewFile(context.applicationContext, uriString)
+                if (!file.isFile || file.length() <= 0L) return@runCatching null
+                BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
+                )
+            }.getOrNull()
+        }
     }
 
     fun preload(context: Context, uriString: String?, maxSide: Int = 2560) {
         val safe = uriString?.takeIf(String::isNotBlank) ?: return
-        if (peek(safe) != null) return
+        if (memory.peek(cacheKey(safe, maxSide)) != null) return
         val appContext = context.applicationContext
         ioScope.launch {
             getOrDecode(appContext, safe, maxSide)
@@ -60,25 +66,97 @@ internal object LauncherImageCache {
     }
 
     fun getOrDecode(context: Context, uriString: String, maxSide: Int = 2560): Bitmap? {
-        peek(uriString)?.let { return it }
-
-        val decoded = decodeContentUri(context.applicationContext, uriString, maxSide)
-            ?: return peekOrPreview(context, uriString)
-
-        val finalBitmap = synchronized(memory) {
-            memory.get(uriString)?.also {
-                if (it !== decoded && !decoded.isRecycled) decoded.recycle()
-            } ?: decoded.also { memory.put(uriString, it) }
+        var loadedHere = false
+        // A full decode may supply the accent sampler, never the reverse.
+        if (maxSide <= ACCENT_IMAGE_SIDE) {
+            memory.peek(cacheKey(uriString, FULL_IMAGE_SIDE))?.let { return it }
         }
-
-        ensurePreview(context.applicationContext, uriString, finalBitmap)
-        return finalBitmap
+        val bitmap = memory.getOrDecode(cacheKey(uriString, maxSide)) {
+            decodeContentUri(context.applicationContext, uriString, maxSide)?.also { loadedHere = true }
+        } ?: return peekOrPreview(context, uriString)
+        // Publish the full bitmap before saving its preview; other tiles can already use it.
+        if (loadedHere) ensurePreview(context.applicationContext, uriString, bitmap)
+        return bitmap
     }
 
     fun forget(uriString: String?) {
         val safe = uriString?.takeIf(String::isNotBlank) ?: return
-        synchronized(memory) { memory.remove(safe) }
+        memory.remove(cacheKey(safe, FULL_IMAGE_SIDE))
+        memory.remove(cacheKey(safe, ACCENT_IMAGE_SIDE))
+        previews.remove(safe)
     }
+
+    /**
+     * A user can replace large gallery images repeatedly. Retire only files
+     * imported into our own Start-wallpaper directory, never external content.
+     * Run cleanup off the UI thread after the replacement has been published.
+     */
+    fun retireImportedWallpaper(context: Context, uriString: String) {
+        forget(uriString)
+        val appContext = context.applicationContext
+        ioScope.launch {
+            runCatching {
+                val uri = Uri.parse(uriString)
+                if (uri.scheme == "file") {
+                    val directory = File(appContext.filesDir, "start_wallpapers").canonicalFile
+                    val path = uri.path
+                    if (path != null) {
+                        val file = File(path).canonicalFile
+                        if (file.parentFile == directory &&
+                            file.name.startsWith("start-") && file.name.endsWith(".img")) {
+                            file.delete()
+                        }
+                    }
+                }
+                previewFile(appContext, uriString).delete()
+            }
+        }
+    }
+
+    /**
+     * Import a selected gallery/file-provider image into our private persistent
+     * files directory. Gallery providers often grant temporary content URIs;
+     * storing those directly made wallpapers disappear after an Activity resume,
+     * app restart, or provider permission change.
+     *
+     * Call only from Dispatchers.IO. Never publish the new URI before its bytes
+     * are copied and verified as an image.
+     */
+    fun importWallpaper(context: Context, sourceUri: Uri): String? = runCatching {
+        val app = context.applicationContext
+        val directory = File(app.filesDir, "start_wallpapers")
+        check(directory.isDirectory || directory.mkdirs()) { "Cannot create wallpaper directory" }
+        val temp = File.createTempFile("import-", ".tmp", directory)
+        val target = File(directory, "start-${UUID.randomUUID()}.img")
+        try {
+            val input = app.contentResolver.openInputStream(sourceUri)
+                ?: error("Image provider returned no data")
+            input.use { stream ->
+                FileOutputStream(temp).use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    var copied = 0L
+                    while (true) {
+                        val size = stream.read(buffer)
+                        if (size < 0) break
+                        copied += size
+                        require(copied <= 48L * 1024L * 1024L) {
+                            "Wallpaper image is larger than 48 MB"
+                        }
+                        output.write(buffer, 0, size)
+                    }
+                }
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(temp.absolutePath, bounds)
+            require(bounds.outWidth > 0 && bounds.outHeight > 0) {
+                "Selected file is not a readable image"
+            }
+            check(temp.renameTo(target)) { "Failed to store wallpaper" }
+            Uri.fromFile(target).toString()
+        } finally {
+            if (temp.exists()) temp.delete()
+        }
+    }.getOrNull()
 
     private fun decodeContentUri(
         context: Context,

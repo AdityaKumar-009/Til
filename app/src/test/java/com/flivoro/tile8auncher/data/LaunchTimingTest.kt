@@ -7,6 +7,18 @@ import org.junit.Test
 class LaunchTimingTest {
 
     @Test
+    fun durationOverrideWorksForEveryAnimationEvenAtTheDefaultNumericValue() {
+        val nativeLengths = listOf(420, 520, 560, 600, 700, 940)
+        for (native in nativeLengths) {
+            assertEquals(native, LaunchTiming().playbackDuration(native))
+            assertEquals(350, LaunchTiming(durationMillis = 350,
+                durationOverridden = true).playbackDuration(native))
+            assertEquals(650, LaunchTiming(durationMillis = 650,
+                durationOverridden = true).playbackDuration(native))
+        }
+    }
+
+    @Test
     fun defaultTimingKeepsTheFittedWindowsMapping() {
         val timing = LaunchTiming()
 

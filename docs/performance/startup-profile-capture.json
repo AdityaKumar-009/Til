@@ -1,0 +1,22 @@
+{
+  "source_commit": "10e787d7c762e2c0e0f4eac9d27c24b62144aa78",
+  "api": 34,
+  "modes": {
+    "DESKTOP": {
+      "startup_rules": 15313,
+      "baseline_rules": 16397
+    },
+    "PHONE_8": {
+      "startup_rules": 14196,
+      "baseline_rules": 15405
+    },
+    "MOBILE_10": {
+      "startup_rules": 14665,
+      "baseline_rules": 15847
+    }
+  },
+  "startup_rules": 17104,
+  "baseline_rules": 18686,
+  "capture_build_type": "profileGeneration",
+  "capture_workflow_run": "https://github.com/AdityaKumar-009/Til/actions/runs/38883659213"
+}

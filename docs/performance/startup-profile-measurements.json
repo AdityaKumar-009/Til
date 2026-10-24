@@ -1,0 +1,1002 @@
+{
+  "schema_version": 1,
+  "environment": {
+    "api": 34,
+    "emulator": "pixel_2 x86_64, SwiftShader, Vulkan disabled",
+    "installed_apps": 12,
+    "iterations_per_side": 5
+  },
+  "method": "Same application code with app-specific profiles disabled (before) or enabled (after); AndroidX library profiles remain in both. Saved-data process cold starts. Fully drawn includes initial prepared UI, before entrance animations finish. Same emulator per comparison, different hosted runners between jobs. Ordinary does not force AOT; compiled installs each APK bundled profile and runs speed-profile. Host variation and fixed before/after order limit precision.",
+  "excluded_incomplete_runs": [
+    {
+      "run": 39066860649,
+      "attempt": 2,
+      "reason": "Emulator ColorBuffer failure; timed out after 60 seconds and preserved partial samples."
+    },
+    {
+      "run": 39069915594,
+      "attempt": 1,
+      "mode": "MOBILE_10",
+      "reason": "Control APK was force-stopped before persisting phone stable-render confirmation and recovered to Desktop on its next launch. Harness now waits for the real confirmation after recording timestamps."
+    }
+  ],
+  "comparisons": [
+    {
+      "run": 39066860649,
+      "attempt": 1,
+      "commit": "dd797c5f87f031a36c1f3459b6462da7fe0fc4f2",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "all_modes",
+      "condition": "compiled",
+      "mode": "DESKTOP",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          317,
+          469,
+          420,
+          545,
+          524
+        ],
+        "fully_drawn_ms": [
+          1212,
+          1358,
+          1293,
+          1326,
+          1254
+        ],
+        "preparation_ms": [
+          21,
+          23,
+          16,
+          30,
+          2
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1293
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          717,
+          488,
+          483,
+          663,
+          525
+        ],
+        "fully_drawn_ms": [
+          1432,
+          1350,
+          1420,
+          1584,
+          1383
+        ],
+        "preparation_ms": [
+          6,
+          10,
+          45,
+          11,
+          100
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1420
+      }
+    },
+    {
+      "run": 39066860649,
+      "attempt": 1,
+      "commit": "dd797c5f87f031a36c1f3459b6462da7fe0fc4f2",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "all_modes",
+      "condition": "compiled",
+      "mode": "PHONE_8",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          668,
+          279,
+          471,
+          483,
+          484
+        ],
+        "fully_drawn_ms": [
+          1266,
+          1020,
+          1266,
+          1249,
+          1129
+        ],
+        "preparation_ms": [
+          25,
+          5,
+          4,
+          19,
+          3
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1249
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          706,
+          514,
+          286,
+          453,
+          414
+        ],
+        "fully_drawn_ms": [
+          1354,
+          1113,
+          1059,
+          1094,
+          1080
+        ],
+        "preparation_ms": [
+          3,
+          2,
+          2,
+          11,
+          3
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1094
+      }
+    },
+    {
+      "run": 39066860649,
+      "attempt": 1,
+      "commit": "dd797c5f87f031a36c1f3459b6462da7fe0fc4f2",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "all_modes",
+      "condition": "compiled",
+      "mode": "MOBILE_10",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          388,
+          635,
+          467,
+          512,
+          514
+        ],
+        "fully_drawn_ms": [
+          965,
+          1088,
+          700,
+          836,
+          1211
+        ],
+        "preparation_ms": [
+          2,
+          1,
+          4,
+          10,
+          5
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 965
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          684,
+          431,
+          526,
+          552,
+          536
+        ],
+        "fully_drawn_ms": [
+          1034,
+          852,
+          907,
+          836,
+          1057
+        ],
+        "preparation_ms": [
+          13,
+          18,
+          13,
+          2,
+          14
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 907
+      }
+    },
+    {
+      "run": 39066860649,
+      "attempt": 1,
+      "commit": "dd797c5f87f031a36c1f3459b6462da7fe0fc4f2",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "all_modes",
+      "condition": "ordinary",
+      "mode": "DESKTOP",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          591,
+          516,
+          736,
+          604,
+          547
+        ],
+        "fully_drawn_ms": [
+          1376,
+          1521,
+          1524,
+          1433,
+          1348
+        ],
+        "preparation_ms": [
+          44,
+          6,
+          8,
+          3,
+          67
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1433
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          252,
+          663,
+          490,
+          293,
+          238
+        ],
+        "fully_drawn_ms": [
+          1184,
+          1580,
+          1351,
+          1197,
+          1272
+        ],
+        "preparation_ms": [
+          8,
+          9,
+          11,
+          3,
+          5
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1272
+      }
+    },
+    {
+      "run": 39066860649,
+      "attempt": 1,
+      "commit": "dd797c5f87f031a36c1f3459b6462da7fe0fc4f2",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "all_modes",
+      "condition": "ordinary",
+      "mode": "PHONE_8",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          558,
+          418,
+          523,
+          534,
+          523
+        ],
+        "fully_drawn_ms": [
+          1355,
+          1312,
+          1348,
+          1330,
+          1307
+        ],
+        "preparation_ms": [
+          32,
+          13,
+          11,
+          77,
+          5
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1330
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          286,
+          470,
+          496,
+          444,
+          479
+        ],
+        "fully_drawn_ms": [
+          1251,
+          1326,
+          1316,
+          1260,
+          1271
+        ],
+        "preparation_ms": [
+          16,
+          4,
+          4,
+          18,
+          10
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1271
+      }
+    },
+    {
+      "run": 39066860649,
+      "attempt": 1,
+      "commit": "dd797c5f87f031a36c1f3459b6462da7fe0fc4f2",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "all_modes",
+      "condition": "ordinary",
+      "mode": "MOBILE_10",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          281,
+          462,
+          490,
+          579,
+          416
+        ],
+        "fully_drawn_ms": [
+          1036,
+          1044,
+          1207,
+          1352,
+          1166
+        ],
+        "preparation_ms": [
+          6,
+          10,
+          48,
+          62,
+          23
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1166
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          480,
+          541,
+          468,
+          481,
+          256
+        ],
+        "fully_drawn_ms": [
+          1169,
+          1232,
+          1129,
+          1138,
+          993
+        ],
+        "preparation_ms": [
+          12,
+          8,
+          15,
+          11,
+          7
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1138
+      }
+    },
+    {
+      "run": 39068923256,
+      "attempt": 1,
+      "commit": "5d58392d9681c5a9446052573293a0ae6a83eb3a",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "one_mode",
+      "condition": "compiled",
+      "mode": "DESKTOP",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          549,
+          833,
+          822,
+          761,
+          789
+        ],
+        "fully_drawn_ms": [
+          1801,
+          1814,
+          1870,
+          1792,
+          1794
+        ],
+        "preparation_ms": [
+          29,
+          18,
+          10,
+          3,
+          3
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1801
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          723,
+          861,
+          823,
+          823,
+          925
+        ],
+        "fully_drawn_ms": [
+          1893,
+          1982,
+          1994,
+          1920,
+          2125
+        ],
+        "preparation_ms": [
+          15,
+          7,
+          16,
+          4,
+          14
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1982
+      }
+    },
+    {
+      "run": 39068923256,
+      "attempt": 1,
+      "commit": "5d58392d9681c5a9446052573293a0ae6a83eb3a",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "one_mode",
+      "condition": "ordinary",
+      "mode": "DESKTOP",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          706,
+          675,
+          808,
+          804,
+          703
+        ],
+        "fully_drawn_ms": [
+          1847,
+          1832,
+          1951,
+          1872,
+          1898
+        ],
+        "preparation_ms": [
+          16,
+          12,
+          7,
+          5,
+          22
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1872
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          879,
+          722,
+          711,
+          890,
+          838
+        ],
+        "fully_drawn_ms": [
+          2126,
+          1922,
+          1996,
+          2134,
+          2100
+        ],
+        "preparation_ms": [
+          11,
+          11,
+          18,
+          2,
+          4
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 2100
+      }
+    },
+    {
+      "run": 39068923256,
+      "attempt": 1,
+      "commit": "5d58392d9681c5a9446052573293a0ae6a83eb3a",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "one_mode",
+      "condition": "compiled",
+      "mode": "PHONE_8",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          657,
+          923,
+          853,
+          936,
+          765
+        ],
+        "fully_drawn_ms": [
+          1552,
+          1868,
+          1647,
+          1796,
+          1696
+        ],
+        "preparation_ms": [
+          13,
+          26,
+          9,
+          6,
+          7
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1696
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          713,
+          670,
+          859,
+          806,
+          853
+        ],
+        "fully_drawn_ms": [
+          1598,
+          1602,
+          1754,
+          1827,
+          1863
+        ],
+        "preparation_ms": [
+          61,
+          133,
+          24,
+          20,
+          99
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1754
+      }
+    },
+    {
+      "run": 39068923256,
+      "attempt": 1,
+      "commit": "5d58392d9681c5a9446052573293a0ae6a83eb3a",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "one_mode",
+      "condition": "ordinary",
+      "mode": "PHONE_8",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          800,
+          943,
+          789,
+          854,
+          989
+        ],
+        "fully_drawn_ms": [
+          1830,
+          2115,
+          1802,
+          1808,
+          2001
+        ],
+        "preparation_ms": [
+          24,
+          11,
+          4,
+          12,
+          16
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1830
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          1037,
+          710,
+          875,
+          796,
+          868
+        ],
+        "fully_drawn_ms": [
+          2154,
+          1885,
+          1916,
+          1871,
+          1966
+        ],
+        "preparation_ms": [
+          79,
+          75,
+          17,
+          135,
+          5
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1916
+      }
+    },
+    {
+      "run": 39068923256,
+      "attempt": 1,
+      "commit": "5d58392d9681c5a9446052573293a0ae6a83eb3a",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "one_mode",
+      "condition": "compiled",
+      "mode": "MOBILE_10",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          560,
+          822,
+          773,
+          884,
+          775
+        ],
+        "fully_drawn_ms": [
+          950,
+          1357,
+          1164,
+          1262,
+          1207
+        ],
+        "preparation_ms": [
+          53,
+          107,
+          14,
+          18,
+          9
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1207
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          610,
+          598,
+          685,
+          803,
+          599
+        ],
+        "fully_drawn_ms": [
+          1012,
+          1070,
+          1123,
+          1211,
+          1112
+        ],
+        "preparation_ms": [
+          6,
+          2,
+          15,
+          10,
+          19
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1112
+      }
+    },
+    {
+      "run": 39068923256,
+      "attempt": 1,
+      "commit": "5d58392d9681c5a9446052573293a0ae6a83eb3a",
+      "profiles": "baseline_and_startup",
+      "emulator_scope": "one_mode",
+      "condition": "ordinary",
+      "mode": "MOBILE_10",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          702,
+          598,
+          795,
+          779,
+          736
+        ],
+        "fully_drawn_ms": [
+          1436,
+          1385,
+          1447,
+          1463,
+          1434
+        ],
+        "preparation_ms": [
+          28,
+          6,
+          7,
+          10,
+          4
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1436
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          704,
+          690,
+          724,
+          329,
+          293
+        ],
+        "fully_drawn_ms": [
+          1408,
+          1476,
+          1465,
+          1216,
+          1109
+        ],
+        "preparation_ms": [
+          15,
+          36,
+          10,
+          20,
+          46
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1408
+      }
+    },
+    {
+      "run": 39069915594,
+      "attempt": 1,
+      "commit": "36507576e813f8a2fbbb1a3d99587a5a4521263f",
+      "profiles": "baseline_only",
+      "emulator_scope": "one_mode",
+      "condition": "compiled",
+      "mode": "PHONE_8",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          651,
+          862,
+          955,
+          795,
+          834
+        ],
+        "fully_drawn_ms": [
+          1540,
+          1750,
+          1777,
+          1527,
+          1631
+        ],
+        "preparation_ms": [
+          22,
+          4,
+          10,
+          3,
+          27
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1631
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          844,
+          946,
+          1128,
+          859,
+          913
+        ],
+        "fully_drawn_ms": [
+          1723,
+          1812,
+          1990,
+          1643,
+          1871
+        ],
+        "preparation_ms": [
+          122,
+          31,
+          26,
+          2,
+          49
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1812
+      }
+    },
+    {
+      "run": 39069915594,
+      "attempt": 1,
+      "commit": "36507576e813f8a2fbbb1a3d99587a5a4521263f",
+      "profiles": "baseline_only",
+      "emulator_scope": "one_mode",
+      "condition": "ordinary",
+      "mode": "PHONE_8",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          816,
+          1003,
+          793,
+          806,
+          822
+        ],
+        "fully_drawn_ms": [
+          2084,
+          1985,
+          1806,
+          1774,
+          1829
+        ],
+        "preparation_ms": [
+          122,
+          20,
+          71,
+          12,
+          10
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1829
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          970,
+          856,
+          435,
+          990,
+          914
+        ],
+        "fully_drawn_ms": [
+          1985,
+          1930,
+          1694,
+          2001,
+          1949
+        ],
+        "preparation_ms": [
+          92,
+          25,
+          15,
+          14,
+          6
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1949
+      }
+    },
+    {
+      "run": 39069915594,
+      "attempt": 1,
+      "commit": "36507576e813f8a2fbbb1a3d99587a5a4521263f",
+      "profiles": "baseline_only",
+      "emulator_scope": "one_mode",
+      "condition": "compiled",
+      "mode": "DESKTOP",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          808,
+          997,
+          946,
+          765,
+          816
+        ],
+        "fully_drawn_ms": [
+          1942,
+          2182,
+          2031,
+          1774,
+          1958
+        ],
+        "preparation_ms": [
+          6,
+          54,
+          14,
+          8,
+          9
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 1958
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          794,
+          890,
+          965,
+          1049,
+          865
+        ],
+        "fully_drawn_ms": [
+          2075,
+          2165,
+          2043,
+          2210,
+          1980
+        ],
+        "preparation_ms": [
+          15,
+          9,
+          7,
+          23,
+          114
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 2075
+      }
+    },
+    {
+      "run": 39069915594,
+      "attempt": 1,
+      "commit": "36507576e813f8a2fbbb1a3d99587a5a4521263f",
+      "profiles": "baseline_only",
+      "emulator_scope": "one_mode",
+      "condition": "ordinary",
+      "mode": "DESKTOP",
+      "before": {
+        "apps": 12,
+        "first_frame_ms": [
+          953,
+          797,
+          850,
+          799,
+          774
+        ],
+        "fully_drawn_ms": [
+          2222,
+          2076,
+          2228,
+          1994,
+          1952
+        ],
+        "preparation_ms": [
+          18,
+          25,
+          48,
+          19,
+          2
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 2076
+      },
+      "after": {
+        "apps": 12,
+        "first_frame_ms": [
+          1031,
+          1000,
+          959,
+          680,
+          1038
+        ],
+        "fully_drawn_ms": [
+          2273,
+          2275,
+          2294,
+          1963,
+          2233
+        ],
+        "preparation_ms": [
+          10,
+          118,
+          139,
+          10,
+          80
+        ],
+        "warm_reopens_reused": 3,
+        "median_fully_drawn_ms": 2273
+      }
+    }
+  ],
+  "decision": "Do not ship experimental app-specific profiles. Keep AndroidX library profiles. Combined-profile measurements repeatedly regressed precompiled Desktop; baseline-only measurements also regressed Desktop and WP8.1. Wallpaper decode sharing is validated separately by concurrency and memory-bound tests, without a whole-launch timing claim."
+}

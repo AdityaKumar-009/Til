@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ART rejects the R8-optimized Compose entry point when the W10M surface is first composed.
+# Keep only this large entry point unoptimized; R8 can still shrink and obfuscate the rest.
+-keepclassmembers class com.flivoro.tile8auncher.ui.phone.PhoneLauncherKt {
+    public static void PhoneLauncherSurface(...);
+}

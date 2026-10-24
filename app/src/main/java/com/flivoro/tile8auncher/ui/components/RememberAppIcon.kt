@@ -1,6 +1,8 @@
 package com.flivoro.tile8auncher.ui.components
 
 import android.content.Context
+import android.util.Log
+import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -14,6 +16,7 @@ import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.IconPackManager
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -36,6 +39,9 @@ fun cachedAppIconForCurrentStyle(
 ): ImageBitmap? {
     val name = packageName ?: return null
     return when (LauncherFeatureStore.appIconStyle(context)) {
+        AppIconStyle.DISCO_LAYERED ->
+            repository.getCachedDiscoLayeredAppIcon(name)
+                ?: repository.getCachedMonochromeAppIcon(name)
         AppIconStyle.DEFAULT ->
             IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
         AppIconStyle.ANDROID_ADAPTIVE ->
@@ -76,14 +82,22 @@ private object ResolvedStartIconCache {
 private object ResolvedAllAppsIconCache {
     @Volatile
     private var revision: Int = Int.MIN_VALUE
-    private val icons = ConcurrentHashMap<String, ImageBitmap>()
+
+    // Prewarming the whole installed-app list must not pin hundreds of full-size
+    // layered icons indefinitely. The repository keeps a separate disk-backed
+    // thumbnail cache, so recycling distant rows can restore them on demand.
+    private val icons = object : LruCache<String, ImageBitmap>(32 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            (value.width.toLong() * value.height.toLong() * 4L)
+                .coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     @Synchronized
     fun ensureRevision(currentRevision: Int) {
         // iconsRevision only moves forward. A cancelled/old preload may finish after the user has
         // already selected a new icon style; never let that stale generation clear the new cache.
         if (currentRevision <= revision) return
-        icons.clear()
+        icons.evictAll()
         revision = currentRevision
     }
 
@@ -105,7 +119,7 @@ private object ResolvedAllAppsIconCache {
         icon: ImageBitmap,
     ) {
         if (currentRevision != revision) return
-        icons[key(packageName, style, maxPx)] = icon
+        icons.put(key(packageName, style, maxPx), icon)
     }
 
     private fun key(packageName: String, style: AppIconStyle, maxPx: Int): String =
@@ -129,6 +143,10 @@ private fun cachedAllAppsIconForStyle(
     ResolvedAllAppsIconCache.get(packageName, style, maxPx, iconsRevision)?.let { return it }
 
     val icon = when (style) {
+    AppIconStyle.DISCO_LAYERED ->
+        repository.getCachedDiscoAllAppsIcon(packageName, maxPx)
+            ?: repository.getCachedDiscoLayeredAppIcon(packageName)
+            ?: repository.getCachedMonochromeAppIcon(packageName)
     AppIconStyle.DEFAULT ->
         IconPackManager.peekOverride(packageName, maxPx)
             ?: repository.getCachedAllAppsIcon(packageName, maxPx, monochrome = false)
@@ -192,6 +210,7 @@ private suspend fun resolveAllAppsIcon(
     )?.let { return it }
 
     val resolved = when (style) {
+        AppIconStyle.DISCO_LAYERED -> repository.loadDiscoAllAppsIcon(packageName, maxPx)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
                 IconPackManager.loadOverride(context.applicationContext, packageName, maxPx)
@@ -270,11 +289,13 @@ private suspend fun resolveStartAppIcon(
     packageName: String,
     style: AppIconStyle,
     iconsRevision: Int,
+    retainForStart: Boolean = true,
 ): ImageBitmap? {
     ResolvedStartIconCache.ensureRevision(iconsRevision)
     ResolvedStartIconCache.get(packageName, style, iconsRevision)?.let { return it }
 
     val resolved = when (style) {
+        AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(packageName)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
                 IconPackManager.loadOverride(context.applicationContext, packageName)
@@ -285,7 +306,7 @@ private suspend fun resolveStartAppIcon(
         AppIconStyle.WHITE_MONOCHROME -> repository.loadMonochromeAppIcon(packageName)
     }
 
-    if (resolved != null) {
+    if (resolved != null && retainForStart) {
         ResolvedStartIconCache.ensureRevision(iconsRevision)
         ResolvedStartIconCache.put(packageName, style, iconsRevision, resolved)
     }
@@ -304,19 +325,34 @@ suspend fun preloadStartIcons(
     packageNames: List<String>,
     style: AppIconStyle,
     iconsRevision: Int,
+    normalizeWp81: Boolean = false,
+    parallelism: Int = 4,
+    retainForStart: Boolean = true,
 ) {
     ResolvedStartIconCache.ensureRevision(iconsRevision)
-    packageNames.distinct().chunked(6).forEach { batch ->
+    packageNames.distinct().chunked(parallelism.coerceIn(1, 4)).forEach { batch ->
         coroutineScope {
             batch.map { packageName ->
                 async(Dispatchers.IO) {
-                    resolveStartAppIcon(
-                        context = context,
-                        repository = repository,
-                        packageName = packageName,
-                        style = style,
-                        iconsRevision = iconsRevision,
-                    )
+                    try {
+                        resolveStartAppIcon(
+                            context = context,
+                            repository = repository,
+                            packageName = packageName,
+                            style = style,
+                            iconsRevision = iconsRevision,
+                            retainForStart = retainForStart,
+                        )
+                        if (normalizeWp81 && style == AppIconStyle.DISCO_LAYERED) {
+                            repository.loadWp81NormalizedIcon(packageName)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        // An invalid third-party icon must not strand the HOME activity.
+                        Log.w("MosaicStartup", "Start icon: $packageName", error)
+                        null
+                    }
                 }
             }.awaitAll()
         }
@@ -344,6 +380,9 @@ fun rememberStartAppIcon(
         mutableStateOf(
             packageName?.let { name ->
                 ResolvedStartIconCache.get(name, iconStyle, iconsRevision) ?: when (iconStyle) {
+                    AppIconStyle.DISCO_LAYERED ->
+                        repository.getCachedDiscoLayeredAppIcon(name)
+                            ?: repository.getCachedMonochromeAppIcon(name)
                     AppIconStyle.DEFAULT ->
                         IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
                     AppIconStyle.ANDROID_ADAPTIVE ->
@@ -380,24 +419,32 @@ suspend fun preloadAllAppsIcons(
     packageNames: List<String>,
     style: AppIconStyle,
     iconsRevision: Int,
+    parallelism: Int = 4,
 ) {
     val maxPx = allAppsIconTargetPx(context)
     ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
 
     // Work in small batches. The repository has its own four-slot thumbnail semaphore, so this
     // gets the visible/nearby apps ready quickly without creating an unbounded decode storm.
-    packageNames.distinct().chunked(8).forEach { batch ->
+    packageNames.distinct().chunked(parallelism.coerceIn(1, 4)).forEach { batch ->
         coroutineScope {
             batch.map { packageName ->
                 async(Dispatchers.IO) {
-                    resolveAllAppsIcon(
-                        context = context,
-                        repository = repository,
-                        packageName = packageName,
-                        style = style,
-                        maxPx = maxPx,
-                        iconsRevision = iconsRevision,
-                    )
+                    try {
+                        resolveAllAppsIcon(
+                            context = context,
+                            repository = repository,
+                            packageName = packageName,
+                            style = style,
+                            maxPx = maxPx,
+                            iconsRevision = iconsRevision,
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.w("MosaicStartup", "All Apps icon: $packageName", error)
+                        null
+                    }
                 }
             }.awaitAll()
         }
@@ -423,6 +470,9 @@ fun rememberAppIcon(
         mutableStateOf(
             packageName?.let { name ->
                 when (iconStyle) {
+                    AppIconStyle.DISCO_LAYERED ->
+                        repository.getCachedDiscoLayeredAppIcon(name)
+                            ?: repository.getCachedMonochromeAppIcon(name)
                     AppIconStyle.DEFAULT ->
                         IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
                     AppIconStyle.ANDROID_ADAPTIVE ->
@@ -437,6 +487,7 @@ fun rememberAppIcon(
     LaunchedEffect(repository, packageName, iconsRevision, iconStyle) {
         val name = packageName ?: return@LaunchedEffect
         icon = when (iconStyle) {
+            AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(name)
             AppIconStyle.DEFAULT -> {
                 val override = withContext(Dispatchers.IO) {
                     IconPackManager.loadOverride(context.applicationContext, name)

@@ -90,6 +90,10 @@ fun sortEnhancedApps(items: List<EnhancedAppInfo>, mode: AppSortMode): List<Enha
     }
 }
 
+fun recentlyInstalledApps(items: List<EnhancedAppInfo>): List<EnhancedAppInfo> =
+    items.filter(EnhancedAppInfo::isNew)
+        .sortedByDescending(EnhancedAppInfo::firstInstallTime)
+
 fun sectionLabel(item: EnhancedAppInfo, mode: AppSortMode): String = when (mode) {
     AppSortMode.NAME -> item.app.label.trim().firstOrNull()?.uppercaseChar()
         ?.takeIf { it in 'A'..'Z' }?.toString() ?: "#"

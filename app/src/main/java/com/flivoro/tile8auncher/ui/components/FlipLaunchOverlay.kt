@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.flivoro.tile8auncher.data.FlipAnimationMode
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.data.TimeCurve
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.ui.animation.FlipAnimationDirection
@@ -49,7 +51,9 @@ import com.flivoro.tile8auncher.ui.animation.Quad
 import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.AllAppsLaunchMotion
 import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
+import com.flivoro.tile8auncher.ui.phone.sourceColorArrival
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
 import kotlin.math.cbrt
 import kotlin.math.roundToInt
@@ -62,9 +66,36 @@ fun FlipLaunchOverlay(
     onAnimationEnd: () -> Unit,
     onReverseAnimationEnd: (FlipReverseReason) -> Unit,
     destinationContent: (@Composable () -> Unit)? = null,
+    /** Optional real source renderer for phone skins borrowing Desktop motion. */
+    sourceFace: (@Composable (Modifier) -> Unit)? = null,
+    destinationIcon: (@Composable (Modifier) -> Unit)? = null,
+    sourceForeground: (@Composable (Modifier) -> Unit)? = null,
+    sourceBackground: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val tile = state.sourceTile ?: return
     if (!state.isRunning) return
+    if (state.masterLaunchAnimation.isStory) {
+        StoryLaunchOverlay(
+            state, progress, onAnimationEnd, onReverseAnimationEnd,
+            destinationContent = destinationContent,
+            sourceFace = sourceFace,
+            destinationIcon = destinationIcon,
+            sourceForeground = sourceForeground,
+            sourceBackground = sourceBackground,
+        )
+        return
+    }
+    if (state.masterLaunchAnimation == MasterLaunchAnimation.PHONE_8 ||
+        state.masterLaunchAnimation == MasterLaunchAnimation.MOBILE_10) {
+        SharedLaunchOverlay(
+            state = state,
+            progress = progress,
+            onAnimationEnd = onAnimationEnd,
+            onReverseAnimationEnd = onReverseAnimationEnd,
+            destinationContent = destinationContent,
+        )
+        return
+    }
     val modern = state.animationMode == FlipAnimationMode.MODERN
     val allApps = state.origin == LaunchOrigin.ALL_APPS
     val finishForward by rememberUpdatedState(onAnimationEnd)
@@ -108,8 +139,13 @@ fun FlipLaunchOverlay(
                         tween(durationMillis = reverseDuration, easing = LinearEasing),
                     )
                 }
-                // Submit the source frame before revealing the real tile underneath it.
-                snapshotFlow { sourceFrameDrawn }.first { it }
+                // Phone modes borrowing Desktop can temporarily unmount or cull
+                // the source face while Android returns. A face-specific draw
+                // acknowledgment must never hold the launcher hostage. Prefer
+                // the painted frame, but always release the reverse on completion.
+                withTimeoutOrNull(240L) {
+                    snapshotFlow { sourceFrameDrawn }.first { it }
+                }
                 withFrameNanos { }
                 finishReverse(latestReverseReason ?: FlipReverseReason.BACK)
             }
@@ -118,6 +154,12 @@ fun FlipLaunchOverlay(
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().clipToBounds()
+            .drawWithContent {
+                drawContent()
+                // The overlay itself is guaranteed to be on the returning
+                // window; its front face may be culled on phone displays.
+                if (progress.value <= .0001f && !sourceFrameDrawn) sourceFrameDrawn = true
+            }
             .pointerInput(Unit) {
                 // The launch owns input until its handoff, including taps outside the card.
                 awaitPointerEventScope {
@@ -140,7 +182,8 @@ fun FlipLaunchOverlay(
         val backPoints = remember { FloatArray(8) }
         val logoPoints = remember { FloatArray(8) }
         var sourceLogo by remember(state.sourceTile?.id, state.sourceBounds) { mutableStateOf<Rect?>(null) }
-        val sharedLogo = !allApps && destinationContent == null && tile.tileType !in listOf(
+        val sharedLogo = sourceFace == null && !allApps &&
+            destinationContent == null && tile.tileType !in listOf(
             TileType.CLOCK, TileType.CALENDAR, TileType.DESKTOP)
         val frontRect = remember(source.width, source.height) {
             floatArrayOf(0f, 0f, source.width, 0f, source.width, source.height, 0f, source.height)
@@ -148,35 +191,72 @@ fun FlipLaunchOverlay(
         val backRect = remember(width, height) {
             floatArrayOf(0f, 0f, width, 0f, width, height, 0f, height)
         }
-        fun frame(): LaunchFrame {
-            val time = progress.value
-            if (allApps) return AllAppsLaunchMotion.frame(
-                if (state.timing.curve == TimeCurve.REFERENCE) time
-                else AllAppsLaunchMotion.progressForExpansion(state.timing.transform(time)),
-                width, height)
-            val motionProgress = when {
-                state.timing.curve == TimeCurve.REFERENCE -> time
-                modern -> 1f - cbrt(1f - state.timing.transform(time))
-                else -> WindowsLaunchMotion.progressForRotation(state.timing.transform(time))
+        // Front, back and logo previously reconstructed the entire spatial
+        // projection independently every time they drew. On phone modes borrowing
+        // Desktop motion this tripled the motion-curve inversions and perspective
+        // calculations on the UI thread. One snapshot-derived frame is shared.
+        val currentFrame by remember(source, width, height, modern, allApps, state.timing) {
+            derivedStateOf {
+                val time = progress.value
+                if (allApps) {
+                    AllAppsLaunchMotion.frame(
+                        if (state.timing.curve == TimeCurve.REFERENCE) time
+                        else AllAppsLaunchMotion.progressForExpansion(state.timing.transform(time)),
+                        width, height,
+                    )
+                } else {
+                    val motionProgress = when {
+                        state.timing.curve == TimeCurve.REFERENCE -> time
+                        modern -> 1f - cbrt(1f - state.timing.transform(time))
+                        else -> WindowsLaunchMotion.progressForRotation(state.timing.transform(time))
+                    }
+                    WindowsLaunchMotion.frame(motionProgress, source, width, height, modern)
+                }
             }
-            return WindowsLaunchMotion.frame(motionProgress, source, width, height, modern)
         }
+        fun frame(): LaunchFrame = currentFrame
 
         Box(Modifier.fillMaxSize().onGloballyPositioned { windowOrigin = it.positionInWindow() }) {
             // Both faces have fixed layout dimensions. Progress is read only during
             // drawing, so animation does not remeasure text or icons every frame.
-            WindowsTileFace(tile, state.appIcon,
-                Modifier.requiredSize(with(density) { source.width.toDp() },
-                    with(density) { source.height.toDp() })
-                    .projectedFace(frontMatrix, frontRect, frontPoints,
-                        frame = ::frame, visible = { it.isFrontFace && !modern && !allApps },
-                        onDrawn = { if (progress.value <= 0f) sourceFrameDrawn = true }),
-                logoModifier = if (sharedLogo) Modifier
-                    .onGloballyPositioned {
-                        sourceLogo = it.boundsInWindow().translate(-windowOrigin)
-                    }
-                    .alpha(0f) else Modifier,
+            // One physical source actor, rendered using the visual rules of
+            // the INTERFACE mode, never a desktop-derived duplicate app icon.
+            val physicalSource = Modifier.requiredSize(
+                with(density) { source.width.toDp() },
+                with(density) { source.height.toDp() },
+            ).projectedFace(
+                frontMatrix, frontRect, frontPoints,
+                frame = ::frame, visible = { it.isFrontFace && !modern && !allApps },
+                onDrawn = { if (progress.value <= 0f) sourceFrameDrawn = true },
             )
+            if (sourceFace != null) {
+                sourceFace(physicalSource)
+            } else {
+                WindowsTileFace(tile, state.appIcon,
+                    physicalSource,
+                    backgroundAlpha = if (state.sourcePictureMode)
+                        sourceColorArrival(progress.value) else 1f,
+                    backgroundContent = if (state.sourcePictureMode) {
+                        {
+                            PhoneTilePicture(
+                                modifier = Modifier.fillMaxSize().graphicsLayer {
+                                    alpha = 1f - sourceColorArrival(progress.value)
+                                },
+                                wallpaperStyle = state.sourceWallpaperStyle,
+                                tileLeftPx = state.sourceBounds.left - windowOrigin.x,
+                                tileTopPx = state.sourceBounds.top - windowOrigin.y,
+                                gridWidthPx = width,
+                                gridHeightPx = height,
+                            )
+                        }
+                    } else null,
+                    logoModifier = if (sharedLogo) Modifier
+                        .onGloballyPositioned {
+                            sourceLogo = it.boundsInWindow().translate(-windowOrigin)
+                        }
+                        .alpha(0f) else Modifier,
+                )
+            }
             val iconSize = with(density) { (min(width, height) * .20f).toDp() }
                 .coerceIn(48.dp, 104.dp)
             Box(
@@ -193,8 +273,10 @@ fun FlipLaunchOverlay(
             ) {
                 if (destinationContent != null) {
                     destinationContent()
+                } else if (destinationIcon != null) {
+                    destinationIcon(Modifier.size(iconSize))
                 } else if (!sharedLogo) when {
-                    tile.iconGlyph.isNotEmpty() -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
+                    tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
                     state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.size(iconSize))
                     else -> MetroIcon("app", color = Color.White, size = iconSize)
                 }
@@ -212,7 +294,7 @@ fun FlipLaunchOverlay(
                         quad = { current -> WindowsLaunchMotion.logoQuad(current, source,
                             width, height, sourceLogo ?: Rect.Zero, logoSizePx) })) {
                     when {
-                        tile.iconGlyph.isNotEmpty() -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
+                        tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
                         state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.fillMaxSize())
                         else -> MetroIcon("app", color = Color.White, size = iconSize)
                     }

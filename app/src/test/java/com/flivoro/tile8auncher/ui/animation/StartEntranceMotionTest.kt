@@ -110,6 +110,21 @@ class StartEntranceMotionTest {
         assertEquals(EntranceFrame(0f, 1f, 1f), previous)
     }
 
+    @Test fun repeatedCapturePosesDoNotInsertMidFlightStops() {
+        // The source repeats poses at 100 and 300 ms. Quantized tail positions
+        // repeat at 433/467 ms. None is a real stop in the continuous motion.
+        for (range in listOf(70..120, 270..320, 410..490)) {
+            var previous = StartEntranceMotion.frame((range.first - 10) / 600f,
+                0f, StartEntranceKind.RETURN).offsetFraction
+            for (ms in range step 10) {
+                val current = StartEntranceMotion.frame(ms / 600f, 0f,
+                    StartEntranceKind.RETURN).offsetFraction
+                assertTrue("capture plateau at $ms ms", current < previous)
+                previous = current
+            }
+        }
+    }
+
     @Test fun wallpaperAnchorUsesSameMeasuredTravelAndSettlesMonotonically() {
         for (kind in StartEntranceKind.entries) {
             val duration = StartEntranceMotion.durationMillis(kind)
