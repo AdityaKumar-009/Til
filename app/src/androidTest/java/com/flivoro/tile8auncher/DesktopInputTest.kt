@@ -34,7 +34,7 @@ class DesktopInputTest {
                     onOpenAppInfo = {}, onUninstallApp = {}, onNavigateToStart = {})
             }
         }
-        compose.onNodeWithText("Alpha").performMouseInput { click(MouseButton.Secondary) }
+        compose.onNodeWithText("Alpha").performMouseInput { click(button = MouseButton.Secondary) }
         compose.onNodeWithText("Pin to Start").assertIsDisplayed()
         compose.runOnIdle { assertEquals("A context-menu gesture must not launch the app", 0, launches) }
     }
