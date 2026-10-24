@@ -18,6 +18,27 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class DesktopInputTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun rightClickOpensAppCommandsWithoutLaunching() {
+        val context = androidx.test.platform.app.InstrumentationRegistry
+            .getInstrumentation().targetContext
+        val repository = com.flivoro.tile8auncher.data.AppsRepository(context)
+        val app = com.flivoro.tile8auncher.data.AppInfo(
+            "Alpha", "com.example.alpha", "com.example.alpha.Main")
+        var launches = 0
+        compose.setContent {
+            androidx.compose.material3.MaterialTheme {
+                com.flivoro.tile8auncher.ui.apps.AllAppsScreen(
+                    sections = listOf(com.flivoro.tile8auncher.data.AppSection("A", listOf(app))),
+                    appsRepository = repository, onAppClick = { _, _ -> launches++ },
+                    isAppPinned = { false }, onPinApp = {}, onUnpinApp = {},
+                    onOpenAppInfo = {}, onUninstallApp = {}, onNavigateToStart = {})
+            }
+        }
+        compose.onNodeWithText("Alpha").performMouseInput { click(MouseButton.Secondary) }
+        compose.onNodeWithText("Pin to Start").assertIsDisplayed()
+        compose.runOnIdle { assertEquals("A context-menu gesture must not launch the app", 0, launches) }
+    }
+
     @Test fun keyboardAndPinchReachSemanticZoomAndSearch() {
         val requests = mutableListOf<Boolean>()
         val searches = mutableListOf<String>()

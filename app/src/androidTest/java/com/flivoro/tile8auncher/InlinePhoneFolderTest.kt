@@ -42,24 +42,33 @@ class InlinePhoneFolderTest {
             }
         }
         compose.mainClock.advanceTimeBy(1500)
-        val before = compose.onNodeWithText("Tile d").fetchSemanticsNode().boundsInRoot.top
-        compose.onNodeWithText("Folder").performTouchInput { click() }
+        val before = compose.onNodeWithText("Tile d", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top
+        compose.onNodeWithText("Folder", useUnmergedTree = true)
+            .assertIsDisplayed().performTouchInput { click() }
         // Expansion adds measured content before its height animation starts.
         // Interleave Android layout with virtual frames instead of sampling
         // the first (zero-height) layout after one uninterrupted clock jump.
-        compose.waitUntil(5_000) {
-            compose.mainClock.advanceTimeBy(100)
-            compose.onNodeWithTag("phone-expanded-folder").isDisplayed()
+        try {
+            compose.waitUntil(5_000) {
+                compose.mainClock.advanceTimeBy(100)
+                compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).isDisplayed()
+            }
+        } catch (failure: Throwable) {
+            compose.captureFidelity("mobile-inline-folder-failure")
+            throw AssertionError("Folder after tap:\n" +
+                compose.onRoot(useUnmergedTree = true).printToString(), failure)
         }
         compose.mainClock.advanceTimeBy(600)
         compose.waitForIdle()
-        compose.onNodeWithTag("phone-expanded-folder").assertIsDisplayed()
+        compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertIsDisplayed()
         compose.captureFidelity("mobile-inline-folder")
         compose.onNodeWithTag("phone-folder-title").performTextReplacement("Travel")
         compose.runOnIdle { assertEquals("Travel", PhoneFolderStore.read(context, mode).single().name) }
-        val after = compose.onNodeWithText("Tile d").fetchSemanticsNode().boundsInRoot.top
+        val after = compose.onNodeWithText("Tile d", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top
         assertTrue("Following tiles must make space inline", after > before)
-        compose.onNodeWithText("Tile b").performTouchInput { click() }
+        compose.onNodeWithText("Tile b", useUnmergedTree = true).performTouchInput { click() }
         compose.runOnIdle {
             assertEquals("b", launched?.id)
             assertTrue("Child source must be inside the expanded folder", bounds.top > 0 && bounds.height > 1f)
@@ -68,9 +77,11 @@ class InlinePhoneFolderTest {
         compose.onNodeWithContentDescription("Collapse folder").performClick()
         compose.waitUntil(5_000) {
             compose.mainClock.advanceTimeBy(100)
-            compose.onAllNodesWithTag("phone-expanded-folder").fetchSemanticsNodes().isEmpty()
+            compose.onAllNodesWithTag("phone-expanded-folder", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty()
         }
-        compose.onNodeWithTag("phone-expanded-folder").assertDoesNotExist()
-        assertEquals(before, compose.onNodeWithText("Tile d").fetchSemanticsNode().boundsInRoot.top, 1f)
+        compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertDoesNotExist()
+        assertEquals(before, compose.onNodeWithText("Tile d", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top, 1f)
     }
 }

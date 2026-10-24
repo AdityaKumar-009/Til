@@ -102,7 +102,7 @@ jobs:
           script: |
             python3 .github/scripts/benchmark-startup.py /tmp/til-startup-before.apk app/build/outputs/apk/performance/app-performance.apk --iterations 5 --compile-profile --modes ${{ matrix.mode }}
       - name: Upload compact startup timings
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: startup-timings-api34-${{ matrix.mode }}
@@ -149,7 +149,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
       - name: Keep unit test diagnostics
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-results
@@ -203,7 +203,7 @@ jobs:
           disable-animations: false
           script: bash .github/scripts/verify-phone-motion.sh
       - name: Upload compact native phone UI screenshots
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: phone-ui-screenshots-api${{ matrix.api-level }}
@@ -211,7 +211,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
       - name: Upload cross-mode scene diagnostic screenshots
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: cross-mode-scene-captures-api${{ matrix.api-level }}
@@ -223,15 +223,18 @@ jobs:
             app/build/reports/androidTests/connected
           if-no-files-found: warn
           retention-days: 7
-      - name: Install FFmpeg for preview
-        if: always()
+      - name: Prepare bounded preview tools
+        if: ${{ !cancelled() && hashFiles('app/build/motion-frames/**/wp81-home-return-settled.png') != '' }}
+        timeout-minutes: 4
         run: |
-          command -v ffmpeg || { sudo apt-get update && sudo apt-get install -y ffmpeg; }
+          python3 -m venv "$RUNNER_TEMP/motion-preview"
+          "$RUNNER_TEMP/motion-preview/bin/pip" install --disable-pip-version-check --timeout 30 --retries 1 imageio-ffmpeg==0.6.0 Pillow==12.0.0
       - name: Render WP8.1 Home-return preview video
-        if: always()
-        run: python3 .github/scripts/render-wp81-home-return.py
+        if: ${{ !cancelled() && hashFiles('app/build/motion-frames/**/wp81-home-return-settled.png') != '' }}
+        timeout-minutes: 3
+        run: '"$RUNNER_TEMP/motion-preview/bin/python" .github/scripts/render-wp81-home-return.py'
       - name: Upload WP8.1 Home-return preview video
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: wp81-home-return-preview-api${{ matrix.api-level }}
@@ -239,10 +242,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
       - name: Render compact W10M frame review
-        if: ${{ always() && matrix.api-level == 34 }}
-        run: python3 .github/scripts/render-w10m-review.py
+        if: ${{ !cancelled() && matrix.api-level == 34 && hashFiles('app/build/motion-frames/**/w10-apps-back-return-settled.png') != '' }}
+        timeout-minutes: 3
+        run: '"$RUNNER_TEMP/motion-preview/bin/python" .github/scripts/render-w10m-review.py'
       - name: Upload compact W10M frame review
-        if: ${{ always() && matrix.api-level == 34 }}
+        if: ${{ !cancelled() && matrix.api-level == 34 }}
         uses: actions/upload-artifact@v4
         with:
           name: w10m-compact-motion-review
@@ -250,7 +254,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
       - name: Upload full frame captures and device test results (manual opt-in)
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload_full_motion_evidence }}
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.upload_full_motion_evidence }}
         uses: actions/upload-artifact@v4
         with:
           name: phone-motion-render-evidence-api${{ matrix.api-level }}

@@ -5,6 +5,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import imageio_ffmpeg
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path('app/build/motion-frames')
 OUT = Path('app/build/w10m-review')
@@ -16,7 +18,7 @@ PHASES = [
 
 
 def ffmpeg(*args):
-    subprocess.run(['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', *map(str, args)], check=True)
+    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-y', '-hide_banner', '-loglevel', 'error', *map(str, args)], check=True)
 
 
 def main():
@@ -43,13 +45,16 @@ def main():
                    '-vf', 'scale=270:540', '-c:v', 'libx264', '-crf', '20',
                    '-pix_fmt', 'yuv420p', '-movflags', '+faststart', OUT / f'{name}.mp4')
             selected = sorted({min(frames, key=lambda t: abs(t-target)) for target in range(0, end+1, 40)})
-            for i, ms in enumerate(selected):
-                ffmpeg('-i', frames[ms], '-vf',
-                       f"scale=216:432,pad=216:458:0:26:color=0x101010,drawtext=text='{ms} ms':x=8:y=6:fontsize=16:fontcolor=white",
-                       '-frames:v', '1', work / f'sheet-{i:02d}.png')
             rows = (len(selected)+4)//5
-            ffmpeg('-framerate', '1', '-i', work / 'sheet-%02d.png',
-                   '-vf', f'tile=5x{rows}', '-frames:v', '1', OUT / f'{name}.png')
+            sheet = Image.new('RGB', (216*5, 458*rows), '#101010')
+            draw = ImageDraw.Draw(sheet)
+            font = ImageFont.load_default(size=16)
+            for i, ms in enumerate(selected):
+                x, y = (i % 5)*216, (i // 5)*458
+                with Image.open(frames[ms]) as frame:
+                    sheet.paste(frame.convert('RGB').resize((216, 432), Image.Resampling.LANCZOS), (x, y+26))
+                draw.text((x+8, y+6), f'{ms} ms', font=font, fill='white')
+            sheet.save(OUT / f'{name}.png')
             notes.append(name + ': ' + ', '.join(map(str, selected)) + ' ms')
     (OUT / 'capture-times.txt').write_text('\n'.join(notes) + '\n')
     print(f'Compact W10M review written to {OUT}')

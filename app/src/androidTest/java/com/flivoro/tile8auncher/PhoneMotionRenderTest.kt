@@ -450,8 +450,8 @@ class PhoneMotionRenderTest {
             assertTrue("WP8.1 Back should finish on All Apps, without a panorama slide",
                 difference(appsBeforeHome, appListBackSettled) < .02)
         } else if (mode == LauncherUiMode.MOBILE_10) {
-            // W10M All Apps uses the same centered row zoom/fade as Start when
-            // an app opens, with the page held until its wallpaper fade ends.
+            // W10M All Apps owns its separate row delays and chrome fade.
+            // It must hold the completed page until the app handoff.
             compose.onRoot().performTouchInput { swipeLeft() }
             compose.mainClock.advanceTimeBy(700)
             val appsRest = capture("w10-apps-launch-rest")

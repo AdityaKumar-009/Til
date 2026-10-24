@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import imageio_ffmpeg
 
 
 ROOT = Path("app/build/motion-frames")
@@ -43,7 +44,7 @@ def main() -> None:
 
     subprocess.run(
         [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
             "-framerate", "125/2",
             "-i", str(SEQUENCE_DIR / "frame-%05d.png"),
             "-c:v", "libx264", "-crf", "18", "-preset", "medium",

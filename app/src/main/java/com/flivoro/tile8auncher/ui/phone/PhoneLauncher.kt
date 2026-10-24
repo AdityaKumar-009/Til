@@ -2431,8 +2431,8 @@ private fun PhoneStartGrid(
                 tiles[index].id == launchingTileId
         }
         Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows + expansionHeight)
-            .clickable(enabled = editingTileId != null && mode == LauncherUiMode.PHONE_8,
-                onClick = onExitEdit)) {
+            .then(if (editingTileId != null && mode == LauncherUiMode.PHONE_8)
+                Modifier.clickable(onClick = onExitEdit) else Modifier)) {
             // Picture pixels are part of each tile's transformed face below.
             // The empty grid and gutters remain black without a detached mask.
             composedIndices.forEach { index ->

@@ -1264,7 +1264,10 @@ private fun AppListItem(
             }
             .pointerInput(app.packageName) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // Handle the secondary button before combinedClickable
+                    // can start a primary-click press for the same gesture.
+                    val down = awaitFirstDown(requireUnconsumed = false,
+                        pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                     if (currentEvent.buttons.isSecondaryPressed) {
                         latestOnLongClick()
                         down.consume()
