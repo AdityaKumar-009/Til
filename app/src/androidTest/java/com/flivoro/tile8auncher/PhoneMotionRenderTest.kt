@@ -173,6 +173,28 @@ class PhoneMotionRenderTest {
         compose.captureFidelity("${mode.name.lowercase()}-native-rest")
         assertTrue("Fixture must draw actual tiles", coloredFraction(resting) > .35)
 
+        if (mode == LauncherUiMode.MOBILE_10) {
+            // Device regression: swiping to All Apps while the Start entrance
+            // is still zooming left its hidden layers frozen at that frame.
+            // A later swipe back exposed the half-entered tiles until a tap.
+            compose.runOnIdle { entrance.intValue++ }
+            compose.mainClock.advanceTimeBy(120)
+            val entering = capture("w10-start-entry-before-interruption")
+            assertTrue("Start entry fixture was already settled",
+                difference(resting, entering) > .02)
+            compose.onRoot().performTouchInput { swipeLeft() }
+            compose.mainClock.advanceTimeBy(380)
+            compose.onNodeWithText("Alpha").assertIsDisplayed()
+            compose.onRoot().performTouchInput { swipeRight() }
+            compose.mainClock.advanceTimeBy(380)
+            val afterInterruptedEntry = capture("w10-start-after-interrupted-entry")
+            assertTrue("W10M Start retained an intermediate entrance pose after visiting All Apps",
+                difference(resting, afterInterruptedEntry) < .01)
+            compose.mainClock.advanceTimeBy(320)
+            assertTrue("W10M Start replayed an interrupted entrance after returning from All Apps",
+                difference(afterInterruptedEntry, capture("w10-start-after-interruption-idle")) < .01)
+        }
+
         // Both WP8.1 and W10M must advance with the finger *before* pointer-up.
         // Check two distinct held positions: a gesture-only transition would
         // leave both frames unchanged until the release.
