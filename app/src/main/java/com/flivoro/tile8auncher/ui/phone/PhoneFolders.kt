@@ -16,6 +16,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -182,20 +192,79 @@ internal fun phoneFolderInsertionRow(slots: List<PhoneTileSlot>, folderIndex: In
 @Composable
 internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean) {
     var draft by remember(expansion.folder.id) { mutableStateOf(expansion.folder.name) }
-    Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        BasicTextField(value = draft, onValueChange = { draft = it; expansion.onRename(it) },
-            enabled = enabled, singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White,
-                fontSize = 22.sp, fontWeight = FontWeight.Light),
-            modifier = Modifier.weight(1f).onFocusChanged {
-                if (!it.isFocused && draft.isBlank()) draft = expansion.folder.name
-            }.testTag("phone-folder-title")
-                .semantics { contentDescription = "Folder name" })
-        Text("⌃", color = Color.White, fontSize = 28.sp,
-            modifier = Modifier.size(48.dp).clickable(enabled = enabled, onClick = expansion.onDismiss)
-                .semantics { contentDescription = "Collapse folder" }
-                .padding(start = 13.dp, top = 6.dp))
+    var editing by remember(expansion.folder.id) { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(editing) {
+        if (editing) {
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (editing && enabled) {
+            BasicTextField(
+                value = draft,
+                onValueChange = { draft = it.take(48) },
+                enabled = enabled,
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Light
+                ),
+                modifier = Modifier.weight(1f)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { state ->
+                        if (!state.isFocused && editing) {
+                            expansion.onRename(draft.trim().ifBlank { "Folder" })
+                            editing = false
+                        }
+                    }
+                    .testTag("phone-folder-title")
+                    .semantics { contentDescription = "Edit folder name" },
+            )
+        } else {
+            Text(
+                text = draft.ifBlank { "Folder" },
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Light,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+                    .pointerInput(enabled, expansion.folder.id) {
+                        detectTapGestures(onLongPress = {
+                            if (enabled) editing = true
+                        })
+                    }
+                    .testTag("phone-folder-title")
+                    .semantics { contentDescription = "Folder name; long press to rename" },
+            )
+        }
+        Canvas(
+            modifier = Modifier.size(48.dp)
+                .clickable(enabled = enabled) {
+                    if (editing) {
+                        expansion.onRename(draft.trim().ifBlank { "Folder" })
+                        editing = false
+                    }
+                    expansion.onDismiss()
+                }
+                .semantics { contentDescription = "Collapse folder" },
+        ) {
+            // Crisp, density-independent Metro chevron rather than a font-dependent glyph.
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val half = size.width * .15f
+            val rise = size.height * .075f
+            val path = Path().apply {
+                moveTo(center.x - half, center.y + rise)
+                lineTo(center.x, center.y - rise)
+                lineTo(center.x + half, center.y + rise)
+            }
+            drawPath(path, Color.White, style = Stroke(width = 2.dp.toPx()))
+        }
     }
 }
 
