@@ -273,10 +273,62 @@ internal fun PhoneFolderPreview(
     children: List<TileModel>,
     repository: AppsRepository,
     modifier: Modifier = Modifier,
+    mode: LauncherUiMode = LauncherUiMode.MOBILE_10,
 ) {
     val context = LocalContext.current
     @Suppress("UNUSED_VARIABLE") val revision = LauncherFeatureRuntime.liveTilesRevision
-    BoxWithConstraints(modifier.padding(6.dp)) {
+    if (mode == LauncherUiMode.MOBILE_10) {
+        // The W10M folder face is a miniature Live Tile grid, not a fixed
+        // collection of four equal icon squares. Child tile sizes and accent
+        // surfaces retain their identity across the preview and expanded view.
+        val preview = children.take(8)
+        val placements = remember(preview) {
+            packPhoneTiles(preview.map(TileModel::size), 4)
+        }
+        val usedRows = (placements.maxOfOrNull { it.row + it.rows } ?: 1).coerceAtLeast(1)
+        BoxWithConstraints(modifier.padding(4.dp)) {
+            val unit = minOf(
+                (maxWidth - 4.dp) / 4,
+                (maxHeight - 4.dp) / usedRows,
+            ).coerceAtLeast(1.dp)
+            val tileGap = (unit * .07f).coerceAtMost(2.dp)
+            val originX = (maxWidth - unit * 4) / 2
+            val originY = (maxHeight - unit * usedRows) / 2
+            preview.forEachIndexed { index, tile ->
+                val placement = placements[index]
+                val icon = rememberAppIcon(repository, tile.packageName)
+                val count = if (LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName))
+                    LiveTileNotificationStore.latest(context, tile.packageName)?.count ?: 0 else 0
+                val tileWidth = (unit * placement.columns - tileGap).coerceAtLeast(1.dp)
+                val tileHeight = (unit * placement.rows - tileGap).coerceAtLeast(1.dp)
+                val glyphSize = minOf(tileWidth, tileHeight) * .56f
+                Box(
+                    Modifier.offset(
+                        x = originX + unit * placement.column,
+                        y = originY + unit * placement.row,
+                    ).size(width = tileWidth, height = tileHeight)
+                        .background(Color(tile.colorValue)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (tile.iconGlyph.isBlank() && icon != null) {
+                        Image(bitmap = icon, contentDescription = null,
+                            modifier = Modifier.size(glyphSize))
+                    } else {
+                        MetroIcon(glyph = tile.iconGlyph.ifEmpty { "app" },
+                            color = Color.White, size = glyphSize)
+                    }
+                    if (count > 0 && tileWidth >= 20.dp) {
+                        Text(
+                            if (count > 99) "99+" else count.toString(),
+                            color = Color.White, fontSize = 7.sp,
+                            modifier = Modifier.align(Alignment.BottomEnd)
+                                .background(Color.Black).padding(horizontal = 1.dp),
+                        )
+                    }
+                }
+            }
+        }
+    } else BoxWithConstraints(modifier.padding(6.dp)) {
         val side = (minOf(maxWidth, maxHeight - 14.dp) / 2 - 4.dp).coerceAtLeast(8.dp)
         Column(Modifier.align(Alignment.Center).padding(bottom = 10.dp),
             verticalArrangement = Arrangement.Center) {
