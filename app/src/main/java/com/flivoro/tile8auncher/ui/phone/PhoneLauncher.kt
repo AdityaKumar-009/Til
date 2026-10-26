@@ -609,13 +609,6 @@ fun PhoneLauncherSurface(
     val motionClock = remember(mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack) {
         Animatable(0f)
     }
-    // Start remains composed behind All Apps. When a panorama move finishes
-    // before W10M's Start entrance, offscreen tile layers can retain the last
-    // drawn intermediate pose. Retire only that entry after Start is fully
-    // hidden; never change a launch exit or Back-to-source motion.
-    var mobileStartEntrySettledOffscreen by remember(
-        mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack,
-    ) { mutableStateOf(false) }
     // This is a lifecycle phase, not a condition tied to the currently
     // selected panorama page. A completed Home return must NOT replay its
     // second-page 3D projection when the user swipes Apps -> Start later.
@@ -628,10 +621,6 @@ fun PhoneLauncherSurface(
     // cascade delay is calibrated inside the classic choreography.
     fun sourceMotionMillis(): Int = if (storyScene != null) 2000
         else sampledMotionMillis?.invoke() ?: motionClock.value.roundToInt()
-    fun startMotionMillis(): Int = if (isTen && !isLaunching && !motionUsesBack &&
-        mobileStartEntrySettledOffscreen) {
-        maxOf(sourceMotionMillis(), MobileStartMotion.ENTRY_TOTAL_MS)
-    } else sourceMotionMillis()
     val classicAppsReturning = isClassicPhone && showApps && motionUsesBack && !isLaunching
     val classicAppsMotionActive = showApps &&
         ((isLaunching && exitMotionMode == LauncherUiMode.PHONE_8) ||
@@ -918,13 +907,6 @@ fun PhoneLauncherSurface(
                 easing = androidx.compose.animation.core.Easing {
                     PhoneMotionTimeline.exponentialEaseOut6(it)
                 }))
-            // Settle the hidden W10M Start entry at the page handoff, not at
-            // pointer-up: it may still be partly visible during the 260ms glide.
-            // Keeping this latched also prevents a stale cached tile pose from
-            // resurfacing on the later All Apps -> Start swipe.
-            if (isTen && showApps && !isLaunching && !motionUsesBack) {
-                mobileStartEntrySettledOffscreen = true
-            }
             if (!showApps) classicPinReturn = false
         }
     }
@@ -945,7 +927,12 @@ fun PhoneLauncherSurface(
                 velocity.resetTracking()
                 if (isClassicPhone) classicForwardEntranceActive = false
                 classicDragPosition = classicPanorama.value
-                panoramaScope.launch { classicPanorama.stop() }
+                // Drag uses classicDragPosition instead of Animatable.value.
+                // Do not launch an asynchronous stop(): it can run AFTER the
+                // release starts animateTo(), cancel that new animation and
+                // leave the entire Start/Apps panorama frozen mid-swipe.
+                // releasePanoramaDrag triggers the single settling effect,
+                // whose snapTo() safely interrupts any previous animation.
             },
             onHorizontalDrag = { change, amount ->
                 velocity.addPosition(change.uptimeMillis, change.position)
@@ -1026,7 +1013,7 @@ fun PhoneLauncherSurface(
                             tiles = phoneTiles,
                             columns = columns,
                             scrollOffsetPx = startScroll.value,
-                            elapsedMillis = { startMotionMillis() },
+                            elapsedMillis = { sourceMotionMillis() },
                             surfaceBounds = surfaceBounds,
                             viewportBounds = paneBounds,
                             viewportHeightPx = paneBounds.height,

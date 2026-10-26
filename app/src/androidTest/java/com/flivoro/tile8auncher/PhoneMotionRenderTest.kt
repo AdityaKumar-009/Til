@@ -193,6 +193,20 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeBy(320)
             assertTrue("W10M Start replayed an interrupted entrance after returning from All Apps",
                 difference(afterInterruptedEntry, capture("w10-start-after-interruption-idle")) < .01)
+
+            // A new drag may begin while the previous 260ms release is still
+            // settling. The old gesture handler launched stop() asynchronously;
+            // a late stop canceled the NEW settle and stranded the panorama at
+            // an arbitrary horizontal offset until another launch/return.
+            repeat(4) {
+                compose.onRoot().performTouchInput { swipeLeft() }
+                compose.mainClock.advanceTimeByFrame()
+                compose.onRoot().performTouchInput { swipeRight() }
+                compose.mainClock.advanceTimeByFrame()
+            }
+            compose.mainClock.advanceTimeBy(400)
+            assertTrue("W10M panorama froze at a partially dragged position after rapid reversals",
+                difference(resting, capture("w10-rapid-panorama-reversal-settled")) < .01)
         }
 
         // Both WP8.1 and W10M must advance with the finger *before* pointer-up.
@@ -359,6 +373,21 @@ class PhoneMotionRenderTest {
         assertTrue("Start Back did not restore its original geometry",
             difference(resting, capture("start-back-return-settled")) < .01)
         compose.runOnIdle { sampledMotionMillis.value = null }
+
+        if (mode == LauncherUiMode.MOBILE_10) {
+            // Match the device recording: navigate into Apps while the
+            // Back-to-Start tile return is still active, then immediately
+            // reverse the panorama. Neither the unfinished Back clock nor a
+            // stale drag-stop may strand the whole page at a partial X offset.
+            compose.runOnIdle { entrance.intValue++ }
+            compose.mainClock.advanceTimeBy(80)
+            compose.onRoot().performTouchInput { swipeLeft() }
+            compose.mainClock.advanceTimeByFrame()
+            compose.onRoot().performTouchInput { swipeRight() }
+            compose.mainClock.advanceTimeBy(440)
+            assertTrue("W10M Start was stranded mid-panorama during an interrupted Back return",
+                difference(resting, capture("w10-back-return-panorama-interrupted")) < .01)
+        }
 
         if (mode == LauncherUiMode.PHONE_8) {
             // DiscoLauncher snaps the panorama to Start and runs the second
