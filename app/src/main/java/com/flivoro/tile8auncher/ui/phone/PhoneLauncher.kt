@@ -2342,8 +2342,17 @@ private fun PhoneStartGrid(
     onExitEdit: () -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
+    // Retain the outgoing folder through collapse; otherwise the space and
+    // its children disappear in a single frame before the grid can flow back.
     var displayedFolder by remember { mutableStateOf(expandedFolder) }
-    LaunchedEffect(expandedFolder) { if (expandedFolder != null) displayedFolder = expandedFolder }
+    LaunchedEffect(expandedFolder) {
+        if (expandedFolder != null) {
+            displayedFolder = expandedFolder
+        } else {
+            delay(350) // Longer than the native close sequence; cancelled if reopened.
+            displayedFolder = null
+        }
+    }
     val folderIndex = tiles.indexOfFirst { it.id == displayedFolder?.folder?.id }
     val insertionRow = remember(slots, folderIndex) { phoneFolderInsertionRow(slots, folderIndex) }
     val childRows = remember(displayedFolder?.children, columns) {
@@ -2401,12 +2410,27 @@ private fun PhoneStartGrid(
             maxWidth * if (columns == 6) .025f else (25f / 480f)
         } else 10.dp
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
-        val expansionHeight by animateDpAsState(
-            targetValue = if (expandedFolder != null && folderIndex >= 0)
-                (cell + gap) * childRows + 58.dp else 0.dp,
+        val expanded = expandedFolder != null && folderIndex >= 0
+        val fullFolderHeight = (cell + gap) * childRows + 58.dp
+        // Keep the classic phone's original easing. W10M needs one coordinated
+        // progress clock for grid displacement, the title, and the child reveal.
+        val classicExpansionHeight by animateDpAsState(
+            targetValue = if (expanded) fullFolderHeight else 0.dp,
             animationSpec = tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            label = "phone-inline-folder-space",
+            label = "phone-inline-folder-space-classic",
         )
+        val mobileFolderProgress by animateFloatAsState(
+            targetValue = if (expanded) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (expanded) 330 else 260,
+                easing = androidx.compose.animation.core.CubicBezierEasing(.20f, .80f, .20f, 1f),
+            ),
+            label = "w10m-inline-folder-motion",
+        )
+        val expansionHeight = if (mode == LauncherUiMode.MOBILE_10)
+            fullFolderHeight * mobileFolderProgress else classicExpansionHeight
+        val folderMotion = if (mode == LauncherUiMode.MOBILE_10)
+            PhoneFolderMotion.frame(mobileFolderProgress) else PhoneFolderMotion.Frame.Visible
         val expansionPx = with(LocalDensity.current) { expansionHeight.toPx() }
         fun rowTopPx(row: Int, step: Float): Float = row * step +
             if (folderIndex >= 0 && row >= insertionRow) expansionPx else 0f
@@ -2625,7 +2649,15 @@ private fun PhoneStartGrid(
                             },
                         // The launch controller must receive the same artwork/color
                         // that this physical phone tile resolved, not the desktop seed.
-                        onClick = { renderedTile, rect -> onClick(renderedTile, rect) },
+                        onClick = { renderedTile, rect ->
+                            // Tapping ordinary Start tiles while a folder is expanded
+                            // dismisses it rather than accidentally launching behind it.
+                            // Folder children use their own grid with expandedFolder=null
+                            // and retain the normal originating-tile launch animation.
+                            if (expandedFolder != null &&
+                                tile.id != expandedFolder.folder.id) expandedFolder.onDismiss()
+                            else onClick(renderedTile, rect)
+                        },
                         onPressStart = if (mode == LauncherUiMode.PHONE_8 &&
                             classicEditing && !isSelectedForEdit) {
                             { onClick(tile, Rect.Zero) }
@@ -2781,7 +2813,20 @@ private fun PhoneStartGrid(
             displayedFolder?.takeIf { folderIndex >= 0 && expansionHeight > 0.dp }?.let { folder ->
                 Column(Modifier.fillMaxWidth().offset(y = (cell + gap) * insertionRow)
                     .height(expansionHeight).clipToBounds().testTag("phone-expanded-folder")) {
-                    PhoneFolderHeader(folder, interactionEnabled && !isLaunching && expandedFolder != null)
+                    Box(Modifier.graphicsLayer {
+                        alpha = folderMotion.headerOpacity
+                        translationY = folderMotion.headerOffsetDp * density
+                    }) {
+                        PhoneFolderHeader(folder, interactionEnabled && !isLaunching &&
+                            expandedFolder != null)
+                    }
+                    Box(Modifier.graphicsLayer {
+                        alpha = folderMotion.childrenOpacity
+                        translationY = folderMotion.childrenOffsetDp * density
+                        scaleX = folderMotion.childrenScale
+                        scaleY = folderMotion.childrenScale
+                        transformOrigin = TransformOrigin(.5f, 0f)
+                    }) {
                     PhoneStartGrid(
                         tiles = folder.children, columns = columns,
                         scrollOffsetPx = scrollOffsetPx - ((cellStepPx * insertionRow) + (48f * density)).roundToInt(),
@@ -2801,6 +2846,7 @@ private fun PhoneStartGrid(
                         sharedPhotoHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
                         onClick = onClick, onLongClick = onLongClick, onExitEdit = onExitEdit,
                     )
+                    }
                 }
             }
         }
