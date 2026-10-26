@@ -194,6 +194,7 @@ internal fun phoneFolderInsertionRow(slots: List<PhoneTileSlot>, folderIndex: In
 internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean) {
     var draft by remember(expansion.folder.id) { mutableStateOf(expansion.folder.name) }
     var editing by remember(expansion.folder.id) { mutableStateOf(false) }
+    var hasFocused by remember(expansion.folder.id) { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(editing) {
@@ -218,9 +219,13 @@ internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean
                 modifier = Modifier.weight(1f)
                     .focusRequester(focusRequester)
                     .onFocusChanged { state ->
-                        if (!state.isFocused && editing) {
+                        if (state.isFocused) hasFocused = true
+                        // Initial attachment emits "not focused" before requestFocus;
+                        // do not commit/close the editor until it actually had focus.
+                        else if (hasFocused && editing) {
                             expansion.onRename(draft.trim().ifBlank { "Folder" })
                             editing = false
+                            hasFocused = false
                         }
                     }
                     .testTag("phone-folder-title")
