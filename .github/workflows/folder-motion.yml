@@ -1,0 +1,53 @@
+name: W10M folder motion evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/windows-phone-launcher-modes]
+    paths:
+      - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneFolder*'
+      - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneLauncher.kt'
+      - 'app/src/androidTest/java/com/flivoro/tile8auncher/InlinePhoneFolderTest.kt'
+      - '.github/workflows/folder-motion.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture folder frames and verify interactions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          system-image-api-level: 34
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: |
+            adb shell wm size 1080x2160
+            adb shell wm density 480
+            adb shell settings put secure immersive_mode_confirmations confirmed
+            bash gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.InlinePhoneFolderTest --stacktrace; result=$?; adb pull /sdcard/Pictures/Til-motion-frames app/build/folder-frames; exit $result
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: w10m-folder-frames
+          path: |
+            app/build/folder-frames
+            app/build/outputs/androidTest-results
+          retention-days: 7
+          if-no-files-found: error
