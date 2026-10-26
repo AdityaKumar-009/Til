@@ -915,14 +915,20 @@ fun PhoneLauncherSurface(
         val velocity = VelocityTracker()
         fun releasePanoramaDrag(cancelled: Boolean) {
             val position = classicDragPosition ?: return
+            // Keep the exact finger position painted until the settling
+            // LaunchedEffect applies snapTo(position). This also guarantees a
+            // canceled/disposed pointer handler cannot leave drag override
+            // active forever, hiding all subsequent Animatable updates.
+            classicReleasePosition = position
+            classicDragPosition = null
             if (!cancelled) {
                 val speed = velocity.calculateVelocity().x / densityScale
                 showApps = if (kotlin.math.abs(speed) > 600f) speed < 0f else position >= .5f
             }
-            classicReleasePosition = position
             classicReleaseRequest++
         }
-        detectHorizontalDragGestures(
+        try {
+            detectHorizontalDragGestures(
             onDragStart = {
                 velocity.resetTracking()
                 if (isClassicPhone) classicForwardEntranceActive = false
@@ -942,7 +948,13 @@ fun PhoneLauncherSurface(
             },
             onDragEnd = { releasePanoramaDrag(false) },
             onDragCancel = { releasePanoramaDrag(true) },
-        )
+            )
+        } finally {
+            // pointerInput is recreated on page/interaction changes; coroutine
+            // disposal is not guaranteed to invoke onDragCancel. Always finish
+            // an unfinished finger drag on that path as well.
+            releasePanoramaDrag(true)
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)
@@ -982,7 +994,7 @@ fun PhoneLauncherSurface(
             // The drag position is composed immediately; only release settles
             // with the pre-existing 260/270 ms curve. Both panes translate together.
             val panoramaProgress = if (suppressReturnPaneTransition && isClassicPhone) 0f
-                else classicDragPosition ?: classicPanorama.value
+                else classicDragPosition ?: classicReleasePosition ?: classicPanorama.value
             Box(
                 Modifier.weight(1f).fillMaxWidth().clipToBounds()
                     .onGloballyPositioned { paneBounds = it.boundsInWindow() }

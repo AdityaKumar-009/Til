@@ -139,6 +139,7 @@ class PhoneMotionRenderTest {
             )),
         )
         val launching = mutableStateOf(false)
+        val interactionAllowed = mutableStateOf(true)
         val selected = mutableStateOf<String?>(null)
         val lastLaunchedTileId = mutableStateOf<String?>(null)
         val home = mutableIntStateOf(0)
@@ -155,7 +156,8 @@ class PhoneMotionRenderTest {
                         mode = mode, tiles = tiles, sections = sections,
                         appsRepository = repository, homeRequest = home.intValue,
                         entranceRequest = entrance.intValue, launchingTileId = selected.value,
-                        isLaunching = launching.value, interactionEnabled = !launching.value,
+                        isLaunching = launching.value,
+                        interactionEnabled = !launching.value && interactionAllowed.value,
                         wallpaperStyle = 0, resumeUsesBackMotion = resumeUsesBackMotion.value,
                         returningTileId = lastLaunchedTileId.value,
                         onLaunch = { tile, _, _ ->
@@ -207,6 +209,22 @@ class PhoneMotionRenderTest {
             compose.mainClock.advanceTimeBy(400)
             assertTrue("W10M panorama froze at a partially dragged position after rapid reversals",
                 difference(resting, capture("w10-rapid-panorama-reversal-settled")) < .01)
+
+            // Android can dispose pointerInput while a finger is down (e.g.
+            // when an app/window handoff changes interactionEnabled). This
+            // must cancel the held offset and settle back to the source page.
+            compose.onRoot().performTouchInput {
+                down(center)
+                moveBy(Offset(-width * .35f, 0f), 100)
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.runOnIdle { interactionAllowed.value = false }
+            compose.mainClock.advanceTimeByFrame()
+            compose.onRoot().performTouchInput { up() }
+            compose.runOnIdle { interactionAllowed.value = true }
+            compose.mainClock.advanceTimeBy(400)
+            assertTrue("W10M canceled drag left an override frozen over the settled panorama",
+                difference(resting, capture("w10-disposed-drag-settled")) < .01)
         }
 
         // Both WP8.1 and W10M must advance with the finger *before* pointer-up.
