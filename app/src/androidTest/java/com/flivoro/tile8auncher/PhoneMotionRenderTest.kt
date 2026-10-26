@@ -565,6 +565,15 @@ class PhoneMotionRenderTest {
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             assertTrue("W10M Back failed to restore the originating app list",
                 difference(appsRest, capture("w10-apps-back-return-settled")) < .01)
+
+            // Exact device reproduction: open from All Apps, Back into All
+            // Apps, then swipe to Start. Apps' 320ms Back clock must never be
+            // sampled as Start's 534ms Back motion, even after the swipe.
+            compose.runOnIdle { sampledMotionMillis.value = null }
+            compose.onRoot().performTouchInput { swipeRight() }
+            compose.mainClock.advanceTimeBy(400)
+            assertTrue("W10M Start retained a half-finished Back zoom after returning from All Apps",
+                difference(resting, capture("w10-start-after-all-apps-app-back")) < .01)
         }
     }
 

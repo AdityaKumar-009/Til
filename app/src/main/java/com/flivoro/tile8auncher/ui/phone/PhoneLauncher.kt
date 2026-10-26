@@ -465,6 +465,15 @@ fun PhoneLauncherSurface(
     var showApps by rememberSaveable(mode, motionHomeRequest, screenOffRequest) {
         mutableStateOf(false)
     }
+    // Record the source pane when the Back-to-launcher event begins. This must
+    // NOT follow showApps as the user swipes afterward: W10M All Apps finishes
+    // its Back motion in 320ms, while Start's separate Back track needs 534ms.
+    // Reusing the shorter clock on Start strands its tiles halfway through
+    // their reverse zoom until another app launch restarts the motion clock.
+    val mobileBackFromApps = remember(
+        mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack,
+    ) { isTen && motionUsesBack && showApps }
+    val startUsesBackMotion = motionUsesBack && !mobileBackFromApps
     // Disco pins with a deliberate 750ms panorama return; ordinary
     // swipes and Back retain their independently tuned timing.
     var classicPinReturn by remember(mode) { mutableStateOf(false) }
@@ -621,6 +630,10 @@ fun PhoneLauncherSurface(
     // cascade delay is calibrated inside the classic choreography.
     fun sourceMotionMillis(): Int = if (storyScene != null) 2000
         else sampledMotionMillis?.invoke() ?: motionClock.value.roundToInt()
+    // Start is a stationary sibling during a return sourced from All Apps.
+    // Keep its native entry/Back animation only when Start was the source.
+    fun startMotionMillis(): Int = if (mobileBackFromApps && !isLaunching)
+        MobileStartMotion.ENTRY_TOTAL_MS else sourceMotionMillis()
     val classicAppsReturning = isClassicPhone && showApps && motionUsesBack && !isLaunching
     val classicAppsMotionActive = showApps &&
         ((isLaunching && exitMotionMode == LauncherUiMode.PHONE_8) ||
@@ -649,8 +662,8 @@ fun PhoneLauncherSurface(
         returningFromApp = motionUsesBack && !isLaunching,
     )
     else MobileStartMotion.wallpaperAlpha(
-        exiting = isLaunching, elapsedMillis = sourceMotionMillis(),
-        returningFromApp = motionUsesBack && !isLaunching,
+        exiting = isLaunching, elapsedMillis = startMotionMillis(),
+        returningFromApp = startUsesBackMotion && !isLaunching,
     )
     val exitTileId = remember(isLaunching) { launchingTileId }
     val returnTileId = returningTileId.takeIf { motionUsesBack && !isLaunching }
@@ -1025,14 +1038,15 @@ fun PhoneLauncherSurface(
                             tiles = phoneTiles,
                             columns = columns,
                             scrollOffsetPx = startScroll.value,
-                            elapsedMillis = { sourceMotionMillis() },
+                            elapsedMillis = { startMotionMillis() },
                             surfaceBounds = surfaceBounds,
                             viewportBounds = paneBounds,
                             viewportHeightPx = paneBounds.height,
                             interactionEnabled = interactionEnabled,
-                            launchingTileId = if (isLaunching) exitTileId else returnTileId,
+                            launchingTileId = if (isLaunching) exitTileId
+                                else returnTileId.takeUnless { mobileBackFromApps },
                             isLaunching = isLaunching,
-                            resumeUsesBackMotion = motionUsesBack,
+                            resumeUsesBackMotion = startUsesBackMotion,
                             mode = mode,
                             launchMotionMode = exitMotionMode,
                             hideOriginalTileId = hideOriginalTileId,
