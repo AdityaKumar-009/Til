@@ -63,8 +63,10 @@ class InlinePhoneFolderTest {
         compose.waitForIdle()
         compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertIsDisplayed()
         compose.captureFidelity("cross-mobile-inline-folder")
+        // Windows 10 Mobile renames through a long press; the collapsed
+        // preview is not permanently an editable input field.
+        compose.onNodeWithTag("phone-folder-title").performTouchInput { longClick() }
         compose.onNodeWithTag("phone-folder-title").performTextReplacement("Travel")
-        compose.runOnIdle { assertEquals("Travel", PhoneFolderStore.read(context, mode).single().name) }
         val after = compose.onNodeWithText("Tile d", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot.top
         assertTrue("Following tiles must make space inline", after > before)
@@ -75,6 +77,9 @@ class InlinePhoneFolderTest {
             assertEquals(listOf("b", "a"), PhoneFolderStore.read(context, mode).single().children)
         }
         compose.onNodeWithContentDescription("Collapse folder").performClick()
+        compose.runOnIdle {
+            assertEquals("Travel", PhoneFolderStore.read(context, mode).single().name)
+        }
         compose.waitUntil(5_000) {
             compose.mainClock.advanceTimeBy(100)
             compose.onAllNodesWithTag("phone-expanded-folder", useUnmergedTree = true)
