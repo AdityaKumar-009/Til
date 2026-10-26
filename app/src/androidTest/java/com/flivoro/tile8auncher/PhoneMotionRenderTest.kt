@@ -519,7 +519,7 @@ class PhoneMotionRenderTest {
             assertTrue("WP8.1 Back should finish on All Apps, without a panorama slide",
                 difference(appsBeforeHome, appListBackSettled) < .02)
         } else if (mode == LauncherUiMode.MOBILE_10) {
-            // W10M All Apps owns its separate row delays and chrome fade.
+            // W10M All Apps shares Start's row launch and chrome timing.
             // It must hold the completed page until the app handoff.
             compose.onRoot().performTouchInput { swipeLeft() }
             compose.mainClock.advanceTimeBy(700)
@@ -561,19 +561,41 @@ class PhoneMotionRenderTest {
                 compose.mainClock.advanceTimeByFrame()
                 val frame = capture("w10-apps-back-return-${elapsed.toString().padStart(3, '0')}")
                 assertNoStartTilesInAppsGutter(frame, elapsed)
+                if (elapsed == 320) assertTrue(
+                    "W10M All Apps Back must not finish at its old 320ms duration",
+                    difference(appsRest, frame) > .001,
+                )
+                if (elapsed == 540) assertTrue(
+                    "W10M All Apps Back must settle by Start's 534ms deadline",
+                    difference(appsRest, frame) < .01,
+                )
             }
             compose.onNodeWithText("Alpha").assertIsDisplayed()
             assertTrue("W10M Back failed to restore the originating app list",
                 difference(appsRest, capture("w10-apps-back-return-settled")) < .01)
 
             // Exact device reproduction: open from All Apps, Back into All
-            // Apps, then swipe to Start. Apps' 320ms Back clock must never be
-            // sampled as Start's 534ms Back motion, even after the swipe.
+            // Apps, then swipe to Start. Even though both Back clocks now
+            // take 534ms, the Apps return must never animate the Start pane.
             compose.runOnIdle { sampledMotionMillis.value = null }
             compose.onRoot().performTouchInput { swipeRight() }
             compose.mainClock.advanceTimeBy(400)
             assertTrue("W10M Start retained a half-finished Back zoom after returning from All Apps",
                 difference(resting, capture("w10-start-after-all-apps-app-back")) < .01)
+
+            // A swipe away during the longer All Apps Back must also leave
+            // Start untouched; page navigation cannot inherit the return pose.
+            compose.onRoot().performTouchInput { swipeLeft() }
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle {
+                entrance.intValue++
+                sampledMotionMillis.value = 220
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.onRoot().performTouchInput { swipeRight() }
+            compose.mainClock.advanceTimeBy(400)
+            assertTrue("W10M Start inherited an interrupted All Apps Back zoom",
+                difference(resting, capture("w10-start-during-all-apps-back")) < .01)
         }
     }
 

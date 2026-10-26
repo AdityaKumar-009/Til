@@ -39,19 +39,37 @@ class MobileAppsMotionTest {
         assertEquals(0f, MobileAppsMotion.chromeAlpha(true, 534), 0f)
     }
 
-    @Test fun nativeBackRevealsBottomBeforeTopAndSettlesWithinObservedWindow() {
-        // Shell appears ~1072.44s. Lower rows show at 1072.48-52, top rows
-        // at ~1072.60, and the layout settles by ~1072.76-80.
-        assertTrue(back(80, 1f).alpha > .5f)
-        assertEquals(0f, back(80, 0f).alpha, 0f)
-        assertTrue(back(160, 0f).alpha > 0f)
-        assertTrue(back(160, 0f).scale > 1f)
-        assertTrue(back(160, 0f).translationXPx < 0f)
-        for (row in listOf(0f, .5f, 1f)) {
-            assertEquals(back(160, row), back(160, row, selected = true))
-            assertEquals(1f, back(360, row).alpha, 0f)
-            assertEquals(1f, back(360, row).scale, 0f)
+    @Test fun allAppsBackMatchesStartBackCurveAndDurationAtTenMillisecondIntervals() {
+        assertEquals(MobileStartMotion.BACK_TOTAL_MS, MobileAppsMotion.BACK_TOTAL_MS)
+        for (row in listOf(0f, .25f, .5f, .75f, 1f)) {
+            for (selected in listOf(false, true)) {
+                var previousScale = 2f
+                var previousAlpha = 0f
+                for (ms in 0..MobileAppsMotion.BACK_TOTAL_MS step 10) {
+                    val actual = back(ms, row, selected)
+                    assertEquals(
+                        "All Apps Back diverged from Start at ${ms}ms, row=$row, selected=$selected",
+                        MobileStartMotion.sample(false, ms, row, 40f, 360f, 180f, 360f,
+                            selected, returningFromApp = true), actual,
+                    )
+                    assertTrue(actual.scale in 1f..(previousScale + .0001f))
+                    assertTrue(actual.alpha >= previousAlpha - .0001f && actual.alpha <= 1f)
+                    previousScale = actual.scale
+                    previousAlpha = actual.alpha
+                }
+                assertEquals(1f, back(MobileAppsMotion.BACK_TOTAL_MS, row, selected).scale, 0f)
+                assertEquals(1f, back(MobileAppsMotion.BACK_TOTAL_MS, row, selected).alpha, 0f)
+            }
         }
+        // Bottom-to-top row ordering is preserved while the pace follows Start.
+        assertTrue(back(220, 1f).alpha > back(220, 0f).alpha)
+        assertTrue(back(220, 0f).scale > 1f)
+        for (ms in 0..MobileAppsMotion.BACK_TOTAL_MS step 10) {
+            assertEquals(MobileStartMotion.wallpaperAlpha(false, ms, returningFromApp = true),
+                MobileAppsMotion.chromeAlpha(false, ms, returningFromApp = true), 0f)
+        }
+        assertEquals(0f, MobileAppsMotion.chromeAlpha(false, 0, returningFromApp = true), 0f)
+        assertEquals(1f, MobileAppsMotion.chromeAlpha(false, 134, returningFromApp = true), 0f)
     }
 
     @Test fun ordinaryPanoramaNavigationKeepsRowsAndChromeSettled() {

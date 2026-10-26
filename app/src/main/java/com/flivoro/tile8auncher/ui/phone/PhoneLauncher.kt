@@ -466,10 +466,9 @@ fun PhoneLauncherSurface(
         mutableStateOf(false)
     }
     // Record the source pane when the Back-to-launcher event begins. This must
-    // NOT follow showApps as the user swipes afterward: W10M All Apps finishes
-    // its Back motion in 320ms, while Start's separate Back track needs 534ms.
-    // Reusing the shorter clock on Start strands its tiles halfway through
-    // their reverse zoom until another app launch restarts the motion clock.
+    // NOT follow showApps as the user swipes afterward: Start must remain in
+    // its settled pose during an All Apps-origin Back, even if the user swipes
+    // back to Start before the shared 534ms return clock has finished.
     val mobileBackFromApps = remember(
         mode, entranceRequest, motionHomeRequest, isLaunching, motionUsesBack,
     ) { isTen && motionUsesBack && showApps }
