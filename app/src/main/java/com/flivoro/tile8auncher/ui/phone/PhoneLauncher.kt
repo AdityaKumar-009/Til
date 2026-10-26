@@ -2344,15 +2344,18 @@ private fun PhoneStartGrid(
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     // Retain the outgoing folder through collapse; otherwise the space and
     // its children disappear in a single frame before the grid can flow back.
-    var displayedFolder by remember { mutableStateOf(expandedFolder) }
-    LaunchedEffect(expandedFolder) {
+    var retainedFolder by remember { mutableStateOf(expandedFolder) }
+    // Key the handoff by identity, not PhoneFolderExpansion's freshly allocated
+    // callbacks. Retain the closing content until the gap is completely collapsed.
+    LaunchedEffect(expandedFolder?.folder?.id) {
         if (expandedFolder != null) {
-            displayedFolder = expandedFolder
+            retainedFolder = expandedFolder
         } else {
-            delay(350) // Longer than the native close sequence; cancelled if reopened.
-            displayedFolder = null
+            delay(350) // Longer than W10M's 260 ms closing motion.
+            retainedFolder = null
         }
     }
+    val displayedFolder = expandedFolder ?: retainedFolder
     val folderIndex = tiles.indexOfFirst { it.id == displayedFolder?.folder?.id }
     val insertionRow = remember(slots, folderIndex) { phoneFolderInsertionRow(slots, folderIndex) }
     val childRows = remember(displayedFolder?.children, columns) {
