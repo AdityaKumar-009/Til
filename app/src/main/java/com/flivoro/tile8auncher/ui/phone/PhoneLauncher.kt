@@ -2630,7 +2630,7 @@ private fun PhoneStartGrid(
                         repository = appsRepository,
                         folderChildren = folderPreviews[tile.id].orEmpty(),
                         resumeUsesBackMotion = resumeUsesBackMotion,
-                        modifier = Modifier
+                        modifier = Modifier.testTag("phone-start-tile-${tile.id}")
                             .offset(x = tileLeft, y = displacedTop)
                             .size(width = cell * pos.columns + gap * (pos.columns - 1),
                                   height = cell * pos.rows + gap * (pos.rows - 1))

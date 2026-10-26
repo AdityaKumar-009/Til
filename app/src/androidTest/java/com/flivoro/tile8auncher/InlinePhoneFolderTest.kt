@@ -46,7 +46,7 @@ class InlinePhoneFolderTest {
         val neighborBefore = compose.onNodeWithText("Tile d", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot.top
         compose.captureFidelity("folder-rest")
-        compose.onNodeWithText("Folder", useUnmergedTree = true).performTouchInput { click() }
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
         captureFolderFrames("folder-open")
         compose.onNodeWithContentDescription("Collapse folder").performClick()
         captureFolderFrames("folder-close")
@@ -55,13 +55,13 @@ class InlinePhoneFolderTest {
             .fetchSemanticsNode().boundsInRoot.top, 1f)
 
         // Real event reversal, not a second evaluation of the motion equation.
-        compose.onNodeWithText("Folder", useUnmergedTree = true).performTouchInput { click() }
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
         compose.mainClock.advanceTimeBy(96)
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Collapse folder").performClick()
         compose.mainClock.advanceTimeBy(64)
         compose.waitForIdle()
-        compose.onNodeWithText("Folder", useUnmergedTree = true).performTouchInput { click() }
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
         captureFolderFrames("folder-reopen")
         compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Collapse folder").performClick()
