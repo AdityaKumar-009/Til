@@ -1,5 +1,15 @@
 # W10M Back and All apps review
 
+## User-requested All Apps launch parity (26 October 2026)
+
+The original native-footage fit documented below used a faster, independent
+400 ms All Apps outgoing app-launch sequence. The user preferred W10M Start's
+slower zoom and fade, so **outgoing launches from All Apps now sample the exact
+same 534 ms row stagger, exponential zoom, selected-row delay, opacity and
+background fade as Start**. This is an intentional experience choice, not a
+claim that native Lumia All Apps and Start use identical durations. The All
+Apps Back-to-launcher 320 ms sequence and panorama swipe remain unchanged.
+
 ## Native source and reproducible observations
 
 Primary footage: [WinFuture: Microsoft Lumia 950 & Lumia 950 XL ausgepackt und ausprobiert](https://winfuture.de/videos/Hardware/Microsoft-Lumia-950-Lumia-950-XL-ausgepackt-und-ausprobiert-15394.html).

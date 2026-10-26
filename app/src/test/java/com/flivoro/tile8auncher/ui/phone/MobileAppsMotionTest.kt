@@ -11,17 +11,32 @@ class MobileAppsMotionTest {
         MobileAppsMotion.sample(false, ms, row, 40f, 360f, 180f, 360f,
             selected, returningFromApp = true)
 
-    @Test fun nativeLaunchKeepsSelectedContinuumAfterOrdinaryRowsAndSearchAfterSelection() {
-        // Native origin ~1023.24s, source steps 40ms. At 1023.40 top rows are
-        // gone; at 1023.48-52 Continuum remains; at 1023.56 only search remains.
-        assertEquals(0f, exit(160, 0f).alpha, 0f)
-        assertTrue(exit(160, .7f, true).alpha > .9f)
-        assertTrue(exit(240, .7f, true).alpha > exit(240, .7f).alpha)
-        assertEquals(0f, exit(320, .7f, true).alpha, 0f)
-        assertEquals(1f, MobileAppsMotion.chromeAlpha(true, 320), 0f)
-        assertEquals(0f, MobileAppsMotion.chromeAlpha(true, 400), 0f)
-        // Selection remains an additive hold even for the bottom visible row.
-        assertTrue(exit(240, 1f, true).alpha > exit(240, 1f).alpha)
+    @Test fun allAppsAppLaunchExactlyMatchesStartCurveStaggerAndFadeAtTenMillisecondIntervals() {
+        assertEquals(MobileStartMotion.EXIT_TOTAL_MS, MobileAppsMotion.EXIT_TOTAL_MS)
+        for (row in listOf(0f, .25f, .5f, .7f, 1f)) {
+            for (selected in listOf(false, true)) {
+                assertEquals(MobileStartMotion.delayMillis(true, row, selected),
+                    MobileAppsMotion.exitDelayMillis(row, selected))
+                for (ms in 0..MobileAppsMotion.EXIT_TOTAL_MS step 10) {
+                    assertEquals(
+                        "All Apps launch diverged from Start at ${ms}ms, row=$row, selected=$selected",
+                        MobileStartMotion.sample(true, ms, row, 40f, 360f, 180f, 360f, selected),
+                        exit(ms, row, selected),
+                    )
+                }
+            }
+        }
+        for (ms in 0..MobileAppsMotion.EXIT_TOTAL_MS step 10) {
+            assertEquals(MobileStartMotion.wallpaperAlpha(true, ms),
+                MobileAppsMotion.chromeAlpha(true, ms), 0f)
+        }
+        // The old All Apps timeline had already hidden the top row by 160ms;
+        // its slower Start-equivalent curve keeps it visible until 250ms.
+        assertTrue(exit(160, 0f).alpha > .8f)
+        assertEquals(0f, exit(250, 0f).alpha, 0f)
+        assertTrue(exit(320, .7f, true).alpha > exit(320, .7f).alpha)
+        assertEquals(1f, MobileAppsMotion.chromeAlpha(true, 400), 0f)
+        assertEquals(0f, MobileAppsMotion.chromeAlpha(true, 534), 0f)
     }
 
     @Test fun nativeBackRevealsBottomBeforeTopAndSettlesWithinObservedWindow() {
@@ -52,12 +67,12 @@ class MobileAppsMotionTest {
     @Test fun denseAndScrolledListsStayFiniteAndReachHandoffBeforeCompletion() {
         for (row in listOf(-.2f, 0f, .25f, .75f, 1f, 1.2f)) {
             for (selected in listOf(false, true)) {
-                for (ms in -10..410 step 10) {
+                for (ms in -10..550 step 10) {
                     val frame = exit(ms, row, selected)
                     assertTrue(frame.alpha in 0f..1f && frame.scale in 1f..2f)
                     assertTrue(frame.translationXPx.isFinite() && frame.translationYPx.isFinite())
                 }
-                assertEquals(0f, exit(400, row, selected).alpha, 0f)
+                assertEquals(0f, exit(MobileAppsMotion.EXIT_TOTAL_MS, row, selected).alpha, 0f)
             }
         }
     }
