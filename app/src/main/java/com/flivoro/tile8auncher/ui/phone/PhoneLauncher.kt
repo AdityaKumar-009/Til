@@ -3024,7 +3024,7 @@ private fun PhoneTile(
         appIcon = icon,
         contentOverride = if (folderChildren.isNotEmpty()) ({
             Box(Modifier.fillMaxSize()) {
-                PhoneFolderPreview(folderChildren, repository, Modifier.fillMaxSize())
+                PhoneFolderPreview(folderChildren, repository, Modifier.fillMaxSize(), mode = mode)
                 if (tile.size != TileSize.SMALL) Text(tile.title,
                     color = Color.White, fontSize = 11.sp, maxLines = 1,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
