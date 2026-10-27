@@ -3,7 +3,7 @@ name: W10M folder motion evidence
 on:
   workflow_dispatch:
   push:
-    branches: [feature/windows-phone-launcher-modes]
+    branches: [evidence/folder-overlap-baseline]
     paths:
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneFolder*'
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneLauncher.kt'
@@ -58,7 +58,7 @@ jobs:
             adb shell wm size 1080x2160
             adb shell wm density 480
             adb shell settings put secure immersive_mode_confirmations confirmed
-            bash gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.InlinePhoneFolderTest --stacktrace; result=$?; adb pull /sdcard/Pictures/Til-motion-frames app/build/folder-frames; exit $result
+            bash gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.InlinePhoneFolderTest#openingAndClosingDoNotPaintOverAnAdjacentStartTile --stacktrace; result=$?; adb pull /sdcard/Pictures/Til-motion-frames app/build/folder-frames; exit $result
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -66,5 +66,5 @@ jobs:
           path: |
             app/build/folder-frames
             app/build/outputs/androidTest-results
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: error
