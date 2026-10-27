@@ -2,6 +2,9 @@ package com.flivoro.tile8auncher
 
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -15,6 +18,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class InlinePhoneFolderTest {
@@ -69,6 +73,10 @@ class InlinePhoneFolderTest {
         assertTrue("The bottom rule must be above the following tile", divider.bottom <= followingTile.top + 1f)
         assertEquals("Folder rules must have the same thickness", upperDivider.height, divider.height, 1f)
         assertEquals("Folder rules must share the same trailing inset", upperDivider.right, divider.right, 1f)
+        assertEquals("Space above both rules must match", upperDivider.center.y - sourceBottom,
+            divider.center.y - lastChild.bottom, 2f)
+        assertEquals("Space below both rules must match", lastChild.top - upperDivider.center.y,
+            followingTile.top - divider.center.y, 2f)
         val dividerBottomGap = expandedBounds.bottom - divider.bottom
         assertTrue("The bottom rule must lie inside the expanded folder", dividerBottomGap >= 0f)
         // The folder tile itself is the primary open/close toggle on Lumia.
@@ -124,6 +132,100 @@ class InlinePhoneFolderTest {
             compose.waitForIdle()
             compose.captureFidelity("$phase-${millis.toString().padStart(3, '0')}")
         }
+    }
+
+    @Test fun folderRulesFollowLaunchAndBothReturnAnimations() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val mode = LauncherUiMode.MOBILE_10
+        LauncherFeatureStore.setLauncherUiMode(context, mode)
+        LauncherFeatureStore.setPhoneSmallColumns(context, mode, 4)
+        val folder = checkNotNull(PhoneFolderStore.createOrAdd(context, mode, "a", "b"))
+        PhoneLayoutStore.saveOrder(context, mode, listOf(folder, "c", "d"))
+        val tiles = listOf("a", "b", "c", "d").map {
+            TileModel(id = it, title = "Tile $it", iconGlyph = "app", size = TileSize.MEDIUM)
+        }
+        val launching = mutableStateOf(false)
+        val selected = mutableStateOf<String?>(null)
+        val back = mutableStateOf(false)
+        val entrance = mutableIntStateOf(0)
+        val home = mutableIntStateOf(0)
+        val sampledMillis = mutableIntStateOf(2000)
+        val repository = AppsRepository(context)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            CompositionLocalProvider(LocalPhoneMotionSampleMillis provides { sampledMillis.intValue }) {
+                MaterialTheme {
+                    PhoneLauncherSurface(mode = mode, tiles = tiles, sections = emptyList(),
+                        appsRepository = repository, homeRequest = home.intValue,
+                        entranceRequest = entrance.intValue, launchingTileId = selected.value,
+                        isLaunching = launching.value, interactionEnabled = !launching.value,
+                        wallpaperStyle = 0, resumeUsesBackMotion = back.value,
+                        onLaunch = { tile, _, _ -> selected.value = tile.id; launching.value = true },
+                        onExitFinished = {}, onOpenSettings = {}, onOpenAppInfo = {})
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(1500)
+        compose.waitForIdle()
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
+            .performTouchInput { click() }
+        compose.mainClock.advanceTimeBy(600)
+        compose.waitForIdle()
+        val tags = listOf("phone-folder-top-divider", "phone-folder-bottom-divider")
+        val restingBounds = tags.map { tag ->
+            compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        }
+        val points = restingBounds.map { it.center.x.toInt() to it.center.y.toInt() }
+        fun brightness(): List<Int> {
+            val image = compose.onRoot().captureToImage().asAndroidBitmap()
+            return points.map { (x, y) ->
+                val color = image.getPixel(x, y)
+                (((color shr 16) and 255) + ((color shr 8) and 255) + (color and 255)) / 3
+            }
+        }
+        val restingBrightness = brightness()
+        assertTrue("Both rules must be visible before launch", restingBrightness.all { it > 70 })
+        compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+            .performTouchInput { click() }
+        compose.runOnIdle { assertTrue(launching.value); sampledMillis.intValue = 250 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        val movingBottom = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("The lower rule must move with Start during app launch",
+            abs(movingBottom.center.y - restingBounds[1].center.y) > 2f ||
+                abs(movingBottom.width - restingBounds[1].width) > 2f)
+        compose.runOnIdle { sampledMillis.intValue = 534 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertTrue("Neither folder rule may remain stationary after launch", brightness().all { it < 55 })
+        compose.captureFidelity("folder-rules-launch-end")
+
+        compose.runOnIdle {
+            launching.value = false
+            back.value = true
+            entrance.intValue++
+            sampledMillis.intValue = 0
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertTrue("Neither rule may flash before Back return", brightness().all { it < 55 })
+        compose.runOnIdle { sampledMillis.intValue = 534 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertTrue("Both rules must return after Back", brightness().all { it > 70 })
+
+        compose.runOnIdle { back.value = false; home.intValue++; sampledMillis.intValue = 0 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertTrue("Neither rule may flash before Home entry", brightness().all { it < 55 })
+        compose.runOnIdle { sampledMillis.intValue = 630 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertTrue("Both rules must return after Home", brightness().all { it > 70 })
+        compose.captureFidelity("folder-rules-return-settled")
     }
 
     @Test fun openingAndClosingDoNotPaintOverAnAdjacentStartTile() {

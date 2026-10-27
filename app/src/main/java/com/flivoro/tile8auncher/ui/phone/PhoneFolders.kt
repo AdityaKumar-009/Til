@@ -196,6 +196,8 @@ internal object PhoneFolderDividerStyle {
     val color = Color.White.copy(alpha = .65f)
     val thickness = 1.dp
     val horizontalInset = 12.dp
+    val regionHeight = 48.dp
+    val bottomInset = (regionHeight - thickness) / 2
 }
 
 @Composable
@@ -218,7 +220,7 @@ internal fun PhoneFolderHeader(
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val titleLimit = maxWidth * .72f
     Row(
-        Modifier.fillMaxWidth().height(48.dp)
+        Modifier.fillMaxWidth().height(PhoneFolderDividerStyle.regionHeight)
             .padding(horizontal = PhoneFolderDividerStyle.horizontalInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
