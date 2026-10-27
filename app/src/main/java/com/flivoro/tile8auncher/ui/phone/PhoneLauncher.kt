@@ -2334,6 +2334,7 @@ private fun PhoneStartGrid(
     onMergeTile: (String, String) -> Unit,
     folderPreviews: Map<String, List<TileModel>>,
     expandedFolder: PhoneFolderExpansion? = null,
+    folderRevealProgress: Float? = null,
     onDragOutside: ((String) -> Unit)? = null,
     photoOriginYPx: Float = 0f,
     sharedPhotoHeightPx: Float? = null,
@@ -2550,6 +2551,12 @@ private fun PhoneStartGrid(
                         label = "disco-edit-pop-scale",
                     )
                     val editScale = editTransformScale * editPopScale
+                    val childReveal = if (mode == LauncherUiMode.MOBILE_10 &&
+                        folderRevealProgress != null) {
+                        PhoneFolderMotion.childFrame(folderRevealProgress, index)
+                    } else PhoneFolderMotion.Frame.Visible
+                    val folderFaceProgress = if (mode == LauncherUiMode.MOBILE_10 &&
+                        tile.id == displayedFolder?.folder?.id) mobileFolderProgress else 0f
                     val deletion by animateFloatAsState(
                         targetValue = if (deletingTileId == editKey) 1f else 0f,
                         animationSpec = tween(
@@ -2629,6 +2636,7 @@ private fun PhoneStartGrid(
                         } else null,
                         repository = appsRepository,
                         folderChildren = folderPreviews[tile.id].orEmpty(),
+                        folderOpenProgress = folderFaceProgress,
                         resumeUsesBackMotion = resumeUsesBackMotion,
                         modifier = Modifier.testTag("phone-start-tile-${tile.id}")
                             .offset(x = tileLeft, y = displacedTop)
@@ -2636,19 +2644,22 @@ private fun PhoneStartGrid(
                                   height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(if (isSelectedForEdit) 4f else 0f)
                             .graphicsLayer {
-                                alpha = editAlpha * (1f - deletion)
-                                scaleX = editScale * (1f - .5f * deletion)
-                                scaleY = editScale * (1f - .5f * deletion)
+                                alpha = editAlpha * (1f - deletion) *
+                                    childReveal.childrenOpacity
+                                scaleX = editScale * (1f - .5f * deletion) *
+                                    childReveal.childrenScale
+                                scaleY = editScale * (1f - .5f * deletion) *
+                                    childReveal.childrenScale
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
                                             density * editProgress * .35f
                                     else 0f
-                                translationY = if (isSelectedForEdit) tileDragOffset.y
+                                translationY = (if (isSelectedForEdit) tileDragOffset.y
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
                                             density * editProgress * .35f
-                                    else 0f
+                                    else 0f) + childReveal.childrenOffsetDp * density
                             },
                         // The launch controller must receive the same artwork/color
                         // that this physical phone tile resolved, not the desktop seed.
@@ -2823,13 +2834,15 @@ private fun PhoneStartGrid(
                         PhoneFolderHeader(folder, interactionEnabled && !isLaunching &&
                             expandedFolder != null)
                     }
-                    Box(Modifier.graphicsLayer {
+                    // Only WP8.1 retains the legacy group reveal. W10M reveals
+                    // each actual child tile, with one shared reversible clock.
+                    Box(if (mode != LauncherUiMode.MOBILE_10) Modifier.graphicsLayer {
                         alpha = folderMotion.childrenOpacity
                         translationY = folderMotion.childrenOffsetDp * density
                         scaleX = folderMotion.childrenScale
                         scaleY = folderMotion.childrenScale
                         transformOrigin = TransformOrigin(.5f, 0f)
-                    }) {
+                    } else Modifier) {
                     PhoneStartGrid(
                         tiles = folder.children, columns = columns,
                         scrollOffsetPx = scrollOffsetPx - ((cellStepPx * insertionRow) + (48f * density)).roundToInt(),
@@ -2844,7 +2857,10 @@ private fun PhoneStartGrid(
                         editingTileId = editingTileId, deletingTileId = deletingTileId,
                         onResizeTile = onResizeTile, onUnpinTile = folder.onRemoveChild,
                         onMoveTile = folder.onReorderChild, onMergeTile = folder.onReorderChild,
-                        folderPreviews = emptyMap(), onDragOutside = folder.onRemoveChild,
+                        folderPreviews = emptyMap(),
+                        folderRevealProgress = if (mode == LauncherUiMode.MOBILE_10)
+                            mobileFolderProgress else null,
+                        onDragOutside = folder.onRemoveChild,
                         photoOriginYPx = photoOriginYPx + cellStepPx * insertionRow + 48f * density,
                         sharedPhotoHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
                         onClick = onClick, onLongClick = onLongClick, onExitEdit = onExitEdit,
@@ -2884,6 +2900,7 @@ private fun PhoneTile(
     onPressStart: (() -> Unit)? = null,
     tiltEnabled: Boolean = true,
     folderChildren: List<TileModel> = emptyList(),
+    folderOpenProgress: Float = 0f,
 ) {
     // Read the master timebase during graphics rendering, not during composition.
     // Video analysis found lower/right WP8.1 tiles depart before upper/left tiles.
@@ -3027,7 +3044,18 @@ private fun PhoneTile(
         appIcon = icon,
         contentOverride = if (folderChildren.isNotEmpty()) ({
             Box(Modifier.fillMaxSize()) {
-                PhoneFolderPreview(folderChildren, repository, Modifier.fillMaxSize(), mode = mode)
+                PhoneFolderPreview(
+                    folderChildren, repository,
+                    Modifier.fillMaxSize().graphicsLayer {
+                        // The miniature tile mosaic tucks inward as real child
+                        // tiles unfold and reverses when the folder is tapped again.
+                        val inset = folderOpenProgress.coerceIn(0f, 1f)
+                        scaleX = 1f - .075f * inset
+                        scaleY = 1f - .075f * inset
+                        alpha = 1f - .16f * inset
+                    },
+                    mode = mode,
+                )
                 if (tile.size != TileSize.SMALL) Text(tile.title,
                     color = Color.White, fontSize = 11.sp, maxLines = 1,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
