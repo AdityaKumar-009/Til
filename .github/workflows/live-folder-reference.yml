@@ -1,0 +1,25 @@
+name: Live Folder reference inspection
+on:
+  push:
+    branches: [evidence/live-folder-ms-reference]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-microsoft-folder-demonstration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve Microsoft's original Windows Phone 8.1 Live Folder demonstration
+        run: |
+          mkdir -p reference
+          curl --fail --location --max-time 40 --retry 1 'https://blogs.windows.com/wp-content/uploads/prod/sites/2/2014/08/1_start-folder-create.gif' -o reference/wp81-live-folder-create.gif
+          file reference/wp81-live-folder-create.gif
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,r_frame_rate,nb_frames -of json reference/wp81-live-folder-create.gif | tee reference/metadata.json
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: microsoft-live-folder-reference-wp81
+          path: reference
+          retention-days: 1
+          if-no-files-found: warn
