@@ -27,4 +27,35 @@ class PhoneFolderMotionTest {
         assertEquals(PhoneFolderMotion.frame(0f), PhoneFolderMotion.frame(-.2f))
         assertEquals(PhoneFolderMotion.frame(1f), PhoneFolderMotion.frame(1.2f))
     }
+    @Test fun childTilesCascadeIndividuallyAndReverseWithoutJumping() {
+        val samples = (0..100).map { it / 100f }
+        val first = samples.map { PhoneFolderMotion.childFrame(it, 0) }
+        val later = samples.map { PhoneFolderMotion.childFrame(it, 6) }
+        assertTrue(first[30].childrenOpacity > later[30].childrenOpacity)
+        first.zipWithNext().forEach { (a, b) ->
+            assertTrue(b.childrenOpacity >= a.childrenOpacity)
+            assertTrue(b.childrenOffsetDp <= a.childrenOffsetDp)
+            assertTrue(b.childrenScale >= a.childrenScale)
+        }
+        assertEquals(PhoneFolderMotion.childFrame(.42f, 2),
+            PhoneFolderMotion.childFrame(.42f, 2))
+        assertEquals(1f, first.last().childrenOpacity, 0f)
+        assertEquals(1f, later.last().childrenOpacity, 0f)
+    }
+
+    @Test fun folderFocusScrollOnlyMovesWhenChildrenWouldBeClipped() {
+        val target = PhoneFolderMotion.focusScrollTarget(
+            currentScrollPx = 0, headerTopPx = 650f,
+            expandedHeightPx = 480f, viewportHeightPx = 800f,
+        )
+        assertTrue(target > 0)
+        assertTrue(target < 650)
+        assertEquals(200, PhoneFolderMotion.focusScrollTarget(
+            currentScrollPx = 200, headerTopPx = 260f,
+            expandedHeightPx = 220f, viewportHeightPx = 800f,
+        ))
+        assertEquals(200, PhoneFolderMotion.focusScrollTarget(
+            200, 1000f, 0f, 800f,
+        ))
+    }
 }
