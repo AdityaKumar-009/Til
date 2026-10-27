@@ -856,7 +856,10 @@ fun PhoneLauncherSurface(
         val index = phoneTiles.indexOfFirst { it.id == folder.folder.id }
         if (index < 0) return@LaunchedEffect
         val slots = packPhoneTiles(phoneTiles.map(TileModel::size), columns)
-        val insertion = phoneFolderInsertionRow(slots, index)
+        val insertion = slots[index].let { slot ->
+            if (mode == LauncherUiMode.MOBILE_10) slot.row + slot.rows
+            else phoneFolderInsertionRow(slots, index)
+        }
         val cellPx = (paneBounds.width - (20f + 4f * (columns - 1)) * densityScale) /
             columns
         val stepPx = cellPx + 4f * densityScale
@@ -2390,7 +2393,12 @@ private fun PhoneStartGrid(
     }
     val displayedFolder = expandedFolder ?: retainedFolder
     val folderIndex = tiles.indexOfFirst { it.id == displayedFolder?.folder?.id }
-    val insertionRow = remember(slots, folderIndex) { phoneFolderInsertionRow(slots, folderIndex) }
+    val insertionRow = remember(slots, folderIndex, mode) {
+        val source = slots.getOrNull(folderIndex)
+        if (mode == LauncherUiMode.MOBILE_10 && source != null)
+            source.row + source.rows
+        else phoneFolderInsertionRow(slots, folderIndex)
+    }
     val childRows = remember(displayedFolder?.children, columns) {
         packPhoneTiles(displayedFolder?.children.orEmpty().map(TileModel::size), columns)
             .maxOfOrNull { it.row + it.rows } ?: 0
@@ -2468,14 +2476,26 @@ private fun PhoneStartGrid(
         val folderMotion = if (mode == LauncherUiMode.MOBILE_10)
             PhoneFolderMotion.frame(mobileFolderProgress) else PhoneFolderMotion.Frame.Visible
         val expansionPx = with(LocalDensity.current) { expansionHeight.toPx() }
-        fun rowTopPx(row: Int, step: Float): Float = row * step +
-            if (folderIndex >= 0 && row >= insertionRow) expansionPx else 0f
+        // W10M opens immediately below the selected tile. A tall neighbor
+        // crossing this insertion boundary moves as a whole rather than
+        // forcing the folder several rows further down.
+        fun slotMovesForFolder(index: Int): Boolean {
+            if (folderIndex < 0) return false
+            val slot = slots[index]
+            return if (mode == LauncherUiMode.MOBILE_10)
+                PhoneFolderMotion.needsInlineDisplacement(
+                    slot.row, slot.rows, insertionRow, index == folderIndex,
+                )
+            else slot.row >= insertionRow
+        }
+        fun slotTopPx(index: Int, step: Float): Float = slots[index].row * step +
+            if (slotMovesForFolder(index)) expansionPx else 0f
 
         val cellStepPx = with(LocalDensity.current) { (cell + gap).toPx() }.coerceAtLeast(1f)
         val topInsetPx = with(LocalDensity.current) { (if (mode == LauncherUiMode.MOBILE_10) 8.dp else 25.dp).toPx() }
         val visibleSlotIndices = slots.indices.filter { index ->
             val slot = slots[index]
-            val top = topInsetPx + rowTopPx(slot.row, cellStepPx) - scrollOffsetPx
+            val top = topInsetPx + slotTopPx(index, cellStepPx) - scrollOffsetPx
             val slotHeightPx = (cell * slot.rows + gap * (slot.rows - 1)).value * density
             val leftCss = (side + (cell + gap) * slot.column).value
             val widthCss = (cell * slot.columns + gap * (slot.columns - 1)).value
@@ -2487,19 +2507,19 @@ private fun PhoneStartGrid(
         val animationOrder = visibleSlotIndices.asReversed().withIndex()
             .associate { (rank, slotIndex) -> slotIndex to rank }
         val visibleSlotCount = visibleSlotIndices.size
-        val forwardWavePositions = slots.map { slot ->
+        val forwardWavePositions = slots.mapIndexed { index, slot ->
             PhoneStartChoreography.nativeForwardWavePosition(
                 (side + (cell + gap) * slot.column +
                     (cell * slot.columns + gap * (slot.columns - 1)) / 2).value,
                 (topInsetPx - scrollOffsetPx) / density +
-                    rowTopPx(slot.row, cellStepPx) / density +
+                    slotTopPx(index, cellStepPx) / density +
                         ((cell * slot.rows + gap * (slot.rows - 1)) / 2).value,
                 viewportWidthCssPx,
             )
         }
         val firstForwardWavePosition = visibleSlotIndices.minOfOrNull { forwardWavePositions[it] } ?: 0f
-        val visibleTops = slots.mapNotNull { slot ->
-            val top = topInsetPx + rowTopPx(slot.row, cellStepPx) - scrollOffsetPx
+        val visibleTops = slots.mapIndexedNotNull { index, slot ->
+            val top = topInsetPx + slotTopPx(index, cellStepPx) - scrollOffsetPx
             val slotHeight = slot.rows * cellStepPx
             if (top + slotHeight > 0f && top < viewportHeightPx) top else null
         }
@@ -2515,7 +2535,7 @@ private fun PhoneStartGrid(
             slots.indices.toList()
         } else slots.indices.filter { index ->
             val slot = slots[index]
-            val top = topInsetPx + rowTopPx(slot.row, cellStepPx) - scrollOffsetPx
+            val top = topInsetPx + slotTopPx(index, cellStepPx) - scrollOffsetPx
             val height = (cell * slot.rows + gap * (slot.rows - 1)).value * density
             shouldComposePhoneStartTile(top, top + height, viewportHeightPx) ||
                 tiles[index].id == launchingTileId
@@ -2529,7 +2549,7 @@ private fun PhoneStartGrid(
                 val tile = tiles[index]
                 val pos = slots[index]
                 val rowFraction = MobileStartMotion.rowFraction(
-                    topInsetPx + rowTopPx(pos.row, cellStepPx) - scrollOffsetPx,
+                    topInsetPx + slotTopPx(index, cellStepPx) - scrollOffsetPx,
                     firstVisibleTop, lastVisibleTop,
                 )
                 key(tile.id) {
@@ -2628,7 +2648,7 @@ private fun PhoneStartGrid(
                         label = "phone-reflow-y",
                     )
                     val displacedTop = tileTop +
-                        if (folderIndex >= 0 && pos.row >= insertionRow) expansionHeight else 0.dp
+                        if (slotMovesForFolder(index)) expansionHeight else 0.dp
                     PhoneTile(
                         tile = tile, mode = mode,
                         launchMotionMode = launchMotionMode,
@@ -2659,7 +2679,7 @@ private fun PhoneStartGrid(
                                     modifier = Modifier.fillMaxSize(),
                                     wallpaperStyle = wallpaperStyle,
                                     tileLeftPx = (side + (cell + gap) * pos.column).value * density,
-                                    tileTopPx = photoOriginYPx + rowTopPx(pos.row, cellStepPx),
+                                    tileTopPx = photoOriginYPx + slotTopPx(index, cellStepPx),
                                     gridWidthPx = gridWidthForPhoto.value * density,
                                     gridHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
                                     inverseTileProjection = inverseTileProjection,
