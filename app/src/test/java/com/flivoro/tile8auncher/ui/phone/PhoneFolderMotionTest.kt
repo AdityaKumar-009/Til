@@ -61,21 +61,23 @@ class PhoneFolderMotionTest {
     @Test fun physicalFolderTileFoldsAndReversesContinuously() {
         val closed = PhoneFolderMotion.sourceFrame(0f)
         val open = PhoneFolderMotion.sourceFrame(1f)
+        val midpoint = PhoneFolderMotion.sourceFrame(.5f)
+        // The background stays visible; only the mini Live Tile content fades.
         assertEquals(1f, closed.alpha, 0f)
+        assertEquals(1f, open.alpha, 0f)
         assertEquals(1f, closed.scale, 0f)
-        assertEquals(0f, closed.rotationX, 0f)
-        assertTrue(open.alpha < closed.alpha)
-        assertTrue(open.scale < closed.scale)
-        assertTrue(open.rotationX < closed.rotationX)
-        val samples = (0..100).map { PhoneFolderMotion.sourceFrame(it / 100f) }
-        samples.zipWithNext().forEach { (a, b) ->
-            assertTrue(b.alpha <= a.alpha)
-            assertTrue(b.scale <= a.scale)
-            assertTrue(b.rotationX <= a.rotationX)
-            assertTrue(b.offsetDp >= a.offsetDp)
+        assertEquals(1f, open.scale, .0001f)
+        assertTrue(midpoint.scale < closed.scale)
+        assertTrue(midpoint.rotationX < 0f)
+        assertTrue(midpoint.offsetDp > 0f)
+        (0..100).forEach { i ->
+            val p = i / 100f
+            val forward = PhoneFolderMotion.sourceFrame(p)
+            val reverse = PhoneFolderMotion.sourceFrame(1f - p)
+            assertEquals(forward.scale, reverse.scale, .0001f)
+            assertEquals(forward.rotationX, reverse.rotationX, .0001f)
+            assertEquals(forward.offsetDp, reverse.offsetDp, .0001f)
         }
-        val halfway = PhoneFolderMotion.sourceFrame(.35f)
-        assertEquals(halfway, PhoneFolderMotion.sourceFrame(.35f))
         assertEquals(closed, PhoneFolderMotion.sourceFrame(-1f))
         assertEquals(open, PhoneFolderMotion.sourceFrame(2f))
     }
