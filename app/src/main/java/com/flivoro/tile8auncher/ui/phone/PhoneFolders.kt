@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Canvas
@@ -191,7 +192,11 @@ internal fun phoneFolderInsertionRow(slots: List<PhoneTileSlot>, folderIndex: In
 }
 
 @Composable
-internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean) {
+internal fun PhoneFolderHeader(
+    expansion: PhoneFolderExpansion,
+    enabled: Boolean,
+    mode: LauncherUiMode = LauncherUiMode.PHONE_8,
+) {
     var draft by remember(expansion.folder.id) { mutableStateOf(expansion.folder.name) }
     var editing by remember(expansion.folder.id) { mutableStateOf(false) }
     var hasFocused by remember(expansion.folder.id) { mutableStateOf(false) }
@@ -203,6 +208,8 @@ internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean
             keyboard?.show()
         }
     }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val titleLimit = maxWidth * .72f
     Row(
         Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -239,7 +246,8 @@ internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean
                 fontWeight = FontWeight.Light,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = (if (mode == LauncherUiMode.MOBILE_10)
+                    Modifier.widthIn(max = titleLimit) else Modifier.weight(1f))
                     .pointerInput(enabled, expansion.folder.id) {
                         detectTapGestures(onLongPress = {
                             if (enabled) editing = true
@@ -249,7 +257,12 @@ internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean
                     .semantics { contentDescription = "Folder name; long press to rename" },
             )
         }
-        Canvas(
+        if (mode == LauncherUiMode.MOBILE_10 && !editing) {
+            // Live Folder names interrupt a thin divider. The source tile,
+            // rather than a second toolbar button, is the collapse target.
+            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.weight(1f).height(1.dp).background(Color.White.copy(alpha = .65f)))
+        } else if (mode != LauncherUiMode.MOBILE_10) Canvas(
             modifier = Modifier.size(48.dp)
                 .clickable(enabled = enabled) {
                     if (editing) {
@@ -272,6 +285,7 @@ internal fun PhoneFolderHeader(expansion: PhoneFolderExpansion, enabled: Boolean
             drawPath(path, Color.White, style = Stroke(width = 2.dp.toPx()))
         }
     }
+    }
 }
 
 @Composable
@@ -291,27 +305,22 @@ internal fun PhoneFolderPreview(
         val placements = remember(preview) {
             packPhoneTiles(preview.map(TileModel::size), 4)
         }
-        val usedRows = (placements.maxOfOrNull { it.row + it.rows } ?: 1).coerceAtLeast(1)
-        BoxWithConstraints(modifier.padding(4.dp)) {
-            val unit = minOf(
-                (maxWidth - 4.dp) / 4,
-                (maxHeight - 4.dp) / usedRows,
-            ).coerceAtLeast(1.dp)
-            val tileGap = (unit * .07f).coerceAtMost(2.dp)
-            val originX = (maxWidth - unit * 4) / 2
-            val originY = (maxHeight - unit * usedRows) / 2
+        BoxWithConstraints(modifier) {
+            val bounds = remember(placements, maxWidth, maxHeight) {
+                PhoneFolderMotion.previewBounds(placements, maxWidth.value, maxHeight.value)
+            }
             preview.forEachIndexed { index, tile ->
-                val placement = placements[index]
+                val placement = bounds[index]
                 val icon = rememberAppIcon(repository, tile.packageName)
                 val count = if (LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName))
                     LiveTileNotificationStore.latest(context, tile.packageName)?.count ?: 0 else 0
-                val tileWidth = (unit * placement.columns - tileGap).coerceAtLeast(1.dp)
-                val tileHeight = (unit * placement.rows - tileGap).coerceAtLeast(1.dp)
+                val tileWidth = placement.width.dp
+                val tileHeight = placement.height.dp
                 val glyphSize = minOf(tileWidth, tileHeight) * .56f
                 Box(
                     Modifier.offset(
-                        x = originX + unit * placement.column,
-                        y = originY + unit * placement.row,
+                        x = placement.left.dp,
+                        y = placement.top.dp,
                     ).size(width = tileWidth, height = tileHeight)
                         .background(Color(tile.colorValue)),
                     contentAlignment = Alignment.Center,

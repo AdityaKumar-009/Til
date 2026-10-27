@@ -73,7 +73,22 @@ class InlinePhoneFolderTest {
         compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
         captureFolderFrames("folder-reopen")
         compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Collapse folder").assertIsDisplayed()
+        val childBefore = compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val source = compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
         compose.onNodeWithContentDescription("Collapse folder").performClick()
+        compose.mainClock.advanceTimeBy(128)
+        compose.waitForIdle()
+        val childClosing = compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Closing child must move back toward the source tile",
+            childClosing.top < childBefore.top)
+        assertTrue("Closing child must shrink toward its miniature size",
+            childClosing.width < childBefore.width)
+        assertTrue("Closing child must not move above its miniature source",
+            childClosing.top >= source.top - 2f)
         compose.mainClock.advanceTimeBy(600)
         compose.waitForIdle()
         assertEquals(neighborBefore, compose.onNodeWithText("Tile d", useUnmergedTree = true)

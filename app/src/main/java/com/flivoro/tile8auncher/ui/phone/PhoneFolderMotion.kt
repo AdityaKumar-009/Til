@@ -1,5 +1,10 @@
 package com.flivoro.tile8auncher.ui.phone
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.ui.geometry.Rect
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
 /**
  * Windows 10 Mobile Live Folders expand in the Start grid, not into a dialog.
  *
@@ -11,6 +16,17 @@ package com.flivoro.tile8auncher.ui.phone
  * relative reveal order. They are not presented as measured Microsoft constants.
  */
 internal object PhoneFolderMotion {
+    const val OPEN_MS = 330
+    const val CLOSE_MS = 260
+    private val travelEasing = CubicBezierEasing(.20f, .80f, .20f, 1f)
+
+    fun spaceProgress(clock: Float): Float = travelEasing.transform(clock.coerceIn(0f, 1f))
+
+    // An interrupted quarter-open folder must not take a whole closing duration.
+    fun remainingDuration(clock: Float, opening: Boolean): Int =
+        ((if (opening) OPEN_MS else CLOSE_MS) *
+            abs((if (opening) 1f else 0f) - clock.coerceIn(0f, 1f))).roundToInt()
+
     internal data class Frame(
         val headerOpacity: Float,
         val headerOffsetDp: Float,
@@ -36,12 +52,52 @@ internal object PhoneFolderMotion {
         // The actual folder plate remains in Start. Its MINIATURE content
         // vanishes separately while the physical plate gives a brief press/fold
         // response. Returning or interrupting retraces the same curve.
-        val pulse = kotlin.math.sin(p * kotlin.math.PI.toFloat())
+        val pulse = segment(p, 0f, .12f) * (1f - segment(p, .12f, .38f))
         return SourceFrame(
             alpha = 1f,
-            scale = 1f - .10f * pulse,
-            rotationX = -12f * pulse,
-            offsetDp = 6f * pulse,
+            scale = 1f - .04f * pulse,
+            rotationX = 0f,
+            offsetDp = 0f,
+        )
+    }
+
+    fun previewOpacity(clock: Float): Float = 1f - segment(clock, 0f, .10f)
+    fun collapseOpacity(clock: Float): Float = segment(clock, .10f, .40f)
+
+    /** Shared by the miniature renderer and the outgoing/returning child tiles. */
+    fun previewBounds(slots: List<PhoneTileSlot>, width: Float, height: Float): List<Rect> {
+        val rows = (slots.maxOfOrNull { it.row + it.rows } ?: 1).coerceAtLeast(1)
+        val unit = minOf((width - 12f) / 4f, (height - 12f) / rows).coerceAtLeast(1f)
+        val gap = minOf(unit * .07f, 2f)
+        val left = (width - unit * 4f) / 2f
+        val top = (height - unit * rows) / 2f
+        return slots.map { slot ->
+            val x = left + unit * slot.column
+            val y = top + unit * slot.row
+            Rect(x, y, x + (unit * slot.columns - gap).coerceAtLeast(1f),
+                y + (unit * slot.rows - gap).coerceAtLeast(1f))
+        }
+    }
+
+    data class ChildTransform(
+        val alpha: Float,
+        val scaleX: Float,
+        val scaleY: Float,
+        val translationX: Float,
+        val translationY: Float,
+    )
+
+    /** Travel between the miniature's real rectangle and the child's full tile. */
+    fun childTransform(clock: Float, index: Int, origin: Rect, target: Rect): ChildTransform {
+        val delay = index.coerceIn(0, 8) * .018f
+        val travel = spaceProgress(segment(clock, delay, 1f))
+        val remaining = 1f - travel
+        return ChildTransform(
+            alpha = segment(clock, 0f, .10f),
+            scaleX = 1f + (origin.width / target.width.coerceAtLeast(1f) - 1f) * remaining,
+            scaleY = 1f + (origin.height / target.height.coerceAtLeast(1f) - 1f) * remaining,
+            translationX = (origin.left - target.left) * remaining,
+            translationY = (origin.top - target.top) * remaining,
         )
     }
 
@@ -51,6 +107,12 @@ internal object PhoneFolderMotion {
         isFolderSource: Boolean,
     ): Boolean = !isFolderSource && (slotRow >= boundaryRow ||
         (slotRow < boundaryRow && slotRow + slotRows > boundaryRow))
+
+    fun overlappingRows(slots: List<PhoneTileSlot>, sourceIndex: Int, boundaryRow: Int): Int =
+        slots.mapIndexedNotNull { index, slot ->
+            if (index != sourceIndex && slot.row < boundaryRow &&
+                slot.row + slot.rows > boundaryRow) boundaryRow - slot.row else null
+        }.maxOrNull() ?: 0
 
     private fun segment(progress: Float, start: Float, end: Float): Float =
         ((progress.coerceIn(0f, 1f) - start) / (end - start)).coerceIn(0f, 1f)
@@ -73,20 +135,6 @@ internal object PhoneFolderMotion {
         val desired = (headerTopPx + visibleContents - viewportHeightPx + margin)
             .toInt().coerceAtLeast(0)
         return maxOf(currentScrollPx, desired)
-    }
-
-    /** Each child cascades into view from the folder edge, not one rigid group. */
-    fun childFrame(progress: Float, index: Int): Frame {
-        val start = (.12f + index.coerceAtLeast(0).coerceAtMost(8) * .028f)
-            .coerceAtMost(.35f)
-        val part = segment(progress, start, .86f)
-        return Frame(
-            headerOpacity = 1f,
-            headerOffsetDp = 0f,
-            childrenOpacity = part,
-            childrenOffsetDp = (1f - part) * 14f,
-            childrenScale = .94f + .06f * part,
-        )
     }
 
     fun frame(progress: Float): Frame {

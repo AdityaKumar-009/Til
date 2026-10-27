@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -89,9 +91,12 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick as semanticsOnClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
@@ -2370,6 +2375,7 @@ private fun PhoneStartGrid(
     folderPreviews: Map<String, List<TileModel>>,
     expandedFolder: PhoneFolderExpansion? = null,
     folderRevealProgress: Float? = null,
+    folderRevealOrigins: Map<String, Rect> = emptyMap(),
     onDragOutside: ((String) -> Unit)? = null,
     photoOriginYPx: Float = 0f,
     sharedPhotoHeightPx: Float? = null,
@@ -2378,20 +2384,37 @@ private fun PhoneStartGrid(
     onExitEdit: () -> Unit,
 ) {
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
-    // Retain the outgoing folder through collapse; otherwise the space and
-    // its children disappear in a single frame before the grid can flow back.
     var retainedFolder by remember { mutableStateOf(expandedFolder) }
-    // Key the handoff by identity, not PhoneFolderExpansion's freshly allocated
-    // callbacks. Retain the closing content until the gap is completely collapsed.
-    LaunchedEffect(expandedFolder?.folder?.id) {
-        if (expandedFolder != null) {
-            retainedFolder = expandedFolder
-        } else {
-            delay(350) // Longer than W10M's 260 ms closing motion.
+    val mobileFolderClock = remember { Animatable(0f) }
+    // Keep one physical folder alive until its reverse reaches zero. The
+    // animation job is cancelled on a new tap, preserving the current clock.
+    LaunchedEffect(expandedFolder?.folder?.id, mode) {
+        if (mode == LauncherUiMode.MOBILE_10) {
+            if (expandedFolder != null) {
+                if (retainedFolder?.folder?.id != expandedFolder.folder.id) {
+                    mobileFolderClock.animateTo(0f, tween(
+                        PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
+                        easing = LinearEasing))
+                    retainedFolder = expandedFolder
+                }
+                mobileFolderClock.animateTo(1f, tween(
+                    PhoneFolderMotion.remainingDuration(mobileFolderClock.value, true),
+                    easing = LinearEasing))
+            } else {
+                mobileFolderClock.animateTo(0f, tween(
+                    PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
+                    easing = LinearEasing))
+                retainedFolder = null
+            }
+        } else if (expandedFolder != null) retainedFolder = expandedFolder
+        else {
+            delay(350)
             retainedFolder = null
         }
     }
-    val displayedFolder = expandedFolder ?: retainedFolder
+    val displayedFolder = if (mode == LauncherUiMode.MOBILE_10) {
+        expandedFolder?.takeIf { it.folder.id == retainedFolder?.folder?.id } ?: retainedFolder
+    } else expandedFolder ?: retainedFolder
     val folderIndex = tiles.indexOfFirst { it.id == displayedFolder?.folder?.id }
     val insertionRow = remember(slots, folderIndex, mode) {
         val source = slots.getOrNull(folderIndex)
@@ -2438,6 +2461,7 @@ private fun PhoneStartGrid(
     } else 0f
     var tileDragOffset by remember(editingTileId) { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current.density
+    val focusManager = LocalFocusManager.current
     // Keep clipping/visibility tied to the pane height, but use the full
     // source window height to calculate Disco's CSS stagger scale.
     val viewportHeightCssPx = (surfaceBounds.height / density)
@@ -2454,7 +2478,8 @@ private fun PhoneStartGrid(
             maxWidth * if (columns == 6) .025f else (25f / 480f)
         } else 10.dp
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
-        val expanded = expandedFolder != null && folderIndex >= 0
+        val expanded = expandedFolder != null && folderIndex >= 0 &&
+            expandedFolder.folder.id == displayedFolder?.folder?.id
         val fullFolderHeight = (cell + gap) * childRows + 58.dp
         // Keep the classic phone's original easing. W10M needs one coordinated
         // progress clock for grid displacement, the title, and the child reveal.
@@ -2463,19 +2488,36 @@ private fun PhoneStartGrid(
             animationSpec = tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
             label = "phone-inline-folder-space-classic",
         )
-        val mobileFolderProgress by animateFloatAsState(
-            targetValue = if (expanded) 1f else 0f,
-            animationSpec = tween(
-                durationMillis = if (expanded) 330 else 260,
-                easing = androidx.compose.animation.core.CubicBezierEasing(.20f, .80f, .20f, 1f),
-            ),
-            label = "w10m-inline-folder-motion",
-        )
+        val mobileFolderProgress = mobileFolderClock.value
         val expansionHeight = if (mode == LauncherUiMode.MOBILE_10)
-            fullFolderHeight * mobileFolderProgress else classicExpansionHeight
+            fullFolderHeight * PhoneFolderMotion.spaceProgress(mobileFolderProgress)
+            else classicExpansionHeight
         val folderMotion = if (mode == LauncherUiMode.MOBILE_10)
             PhoneFolderMotion.frame(mobileFolderProgress) else PhoneFolderMotion.Frame.Visible
-        val expansionPx = with(LocalDensity.current) { expansionHeight.toPx() }
+        val childOrigins = remember(displayedFolder?.folder?.id, displayedFolder?.children,
+            slots, folderIndex, cell, gap, side, insertionRow) {
+            val source = slots.getOrNull(folderIndex)
+            if (source == null || mode != LauncherUiMode.MOBILE_10) emptyMap()
+            else {
+                val children = displayedFolder?.children.orEmpty()
+                val width = (cell * source.columns + gap * (source.columns - 1)).value
+                val height = (cell * source.rows + gap * (source.rows - 1)).value
+                val miniatures = PhoneFolderMotion.previewBounds(
+                    packPhoneTiles(children.take(8).map(TileModel::size), 4), width, height)
+                val origin = Offset((side + (cell + gap) * source.column).value,
+                    ((cell + gap) * (source.row - insertionRow) - 48.dp).value)
+                children.mapIndexed { i, child ->
+                    val miniature = miniatures.getOrNull(i) ?: Rect(
+                        width * .4f, height * .4f, width * .6f, height * .6f)
+                    child.id to miniature.translate(origin)
+                }.toMap()
+            }
+        }
+        val clearanceRows = if (mode == LauncherUiMode.MOBILE_10)
+            PhoneFolderMotion.overlappingRows(slots, folderIndex, insertionRow) else 0
+        val displacementHeight = expansionHeight + (cell + gap) * clearanceRows *
+            PhoneFolderMotion.spaceProgress(mobileFolderProgress)
+        val expansionPx = with(LocalDensity.current) { displacementHeight.toPx() }
         // W10M opens immediately below the selected tile. A tall neighbor
         // crossing this insertion boundary moves as a whole rather than
         // forcing the folder several rows further down.
@@ -2530,7 +2572,8 @@ private fun PhoneStartGrid(
         val tilePicture = mobileTilePictureMode
         // Preserve the entire choreography during launch, return-source selection,
         // editing, or deletion; idle scrolling can safely cull distant actors.
-        val keepAllActors = isLaunching || editingTileId != null || deletingTileId != null
+        val keepAllActors = isLaunching || editingTileId != null || deletingTileId != null ||
+            (folderRevealProgress != null && folderRevealProgress < 1f)
         val composedIndices = if (keepAllActors || viewportHeightPx <= 0f) {
             slots.indices.toList()
         } else slots.indices.filter { index ->
@@ -2540,7 +2583,7 @@ private fun PhoneStartGrid(
             shouldComposePhoneStartTile(top, top + height, viewportHeightPx) ||
                 tiles[index].id == launchingTileId
         }
-        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows + expansionHeight)
+        Box(Modifier.fillMaxWidth().height((cell + gap) * heightRows + displacementHeight)
             .then(if (editingTileId != null && mode == LauncherUiMode.PHONE_8)
                 Modifier.clickable(onClick = onExitEdit) else Modifier)) {
             // Picture pixels are part of each tile's transformed face below.
@@ -2603,10 +2646,15 @@ private fun PhoneStartGrid(
                         label = "disco-edit-pop-scale",
                     )
                     val editScale = editTransformScale * editPopScale
-                    val childReveal = if (mode == LauncherUiMode.MOBILE_10 &&
-                        folderRevealProgress != null) {
-                        PhoneFolderMotion.childFrame(folderRevealProgress, index)
-                    } else PhoneFolderMotion.Frame.Visible
+                    val childTransform = if (mode == LauncherUiMode.MOBILE_10 &&
+                        folderRevealProgress != null && tile.id in folderRevealOrigins) {
+                        val targetLeft = (side + (cell + gap) * pos.column).value
+                        val targetTop = ((cell + gap) * pos.row).value
+                        PhoneFolderMotion.childTransform(folderRevealProgress, index,
+                            folderRevealOrigins.getValue(tile.id), Rect(targetLeft, targetTop,
+                                targetLeft + (cell * pos.columns + gap * (pos.columns - 1)).value,
+                                targetTop + (cell * pos.rows + gap * (pos.rows - 1)).value))
+                    } else null
                     val folderFaceProgress = if (mode == LauncherUiMode.MOBILE_10 &&
                         tile.id == displayedFolder?.folder?.id) mobileFolderProgress else 0f
                     val folderFaceMotion = PhoneFolderMotion.sourceFrame(folderFaceProgress)
@@ -2649,7 +2697,7 @@ private fun PhoneStartGrid(
                         label = "phone-reflow-y",
                     )
                     val displacedTop = tileTop +
-                        if (slotMovesForFolder(index)) expansionHeight else 0.dp
+                        if (slotMovesForFolder(index)) displacementHeight else 0.dp
                     PhoneTile(
                         tile = tile, mode = mode,
                         launchMotionMode = launchMotionMode,
@@ -2701,27 +2749,29 @@ private fun PhoneStartGrid(
                                 // header. It reverses through these exact values
                                 // on a second tap, without restarting a tween.
                                 alpha = editAlpha * (1f - deletion) *
-                                    childReveal.childrenOpacity * folderFaceMotion.alpha
+                                    (childTransform?.alpha ?: 1f) * folderFaceMotion.alpha
                                 scaleX = editScale * (1f - .5f * deletion) *
-                                    childReveal.childrenScale * folderFaceMotion.scale
+                                    (childTransform?.scaleX ?: 1f) * folderFaceMotion.scale
                                 scaleY = editScale * (1f - .5f * deletion) *
-                                    childReveal.childrenScale * folderFaceMotion.scale
+                                    (childTransform?.scaleY ?: 1f) * folderFaceMotion.scale
+                                if (childTransform != null) transformOrigin = TransformOrigin(0f, 0f)
                                 rotationX = folderFaceMotion.rotationX
-                                translationX = if (isSelectedForEdit) tileDragOffset.x
+                                translationX = (if (isSelectedForEdit) tileDragOffset.x
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
                                             density * editProgress * .35f
-                                    else 0f
+                                    else 0f) + (childTransform?.translationX ?: 0f) * density
                                 translationY = (if (isSelectedForEdit) tileDragOffset.y
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
                                             density * editProgress * .35f
-                                    else 0f) + childReveal.childrenOffsetDp * density +
+                                    else 0f) + (childTransform?.translationY ?: 0f) * density +
                                     folderFaceMotion.offsetDp * density
                             },
                         // The launch controller must receive the same artwork/color
                         // that this physical phone tile resolved, not the desktop seed.
                         onClick = { renderedTile, rect ->
+                            if (tile.id == displayedFolder?.folder?.id) focusManager.clearFocus()
                             // Tapping ordinary Start tiles while a folder is expanded
                             // dismisses it rather than accidentally launching behind it.
                             // Folder children use their own grid with expandedFolder=null
@@ -2882,15 +2932,22 @@ private fun PhoneStartGrid(
                     }
                 }
             }
-            displayedFolder?.takeIf { folderIndex >= 0 && expansionHeight > 0.dp }?.let { folder ->
+            displayedFolder?.takeIf { folderIndex >= 0 &&
+                (mode == LauncherUiMode.MOBILE_10 || expansionHeight > 0.dp) }?.let { folder ->
+                // W10M children move from the source tile. Measuring/clipping the
+                // content to the growing gap cuts off that path and squashes tiles.
                 Column(Modifier.fillMaxWidth().offset(y = (cell + gap) * insertionRow)
-                    .height(expansionHeight).clipToBounds().testTag("phone-expanded-folder")) {
+                    .then(if (mode == LauncherUiMode.MOBILE_10)
+                        Modifier.wrapContentHeight(Alignment.Top, unbounded = true)
+                            .requiredHeight(fullFolderHeight).zIndex(1f)
+                    else Modifier.height(expansionHeight).clipToBounds())
+                    .testTag("phone-expanded-folder")) {
                     Box(Modifier.graphicsLayer {
                         alpha = folderMotion.headerOpacity
                         translationY = folderMotion.headerOffsetDp * density
                     }) {
                         PhoneFolderHeader(folder, interactionEnabled && !isLaunching &&
-                            expandedFolder != null)
+                            expanded, mode)
                     }
                     // Only WP8.1 retains the legacy group reveal. W10M reveals
                     // each actual child tile, with one shared reversible clock.
@@ -2906,7 +2963,8 @@ private fun PhoneStartGrid(
                         scrollOffsetPx = scrollOffsetPx - ((cellStepPx * insertionRow) + (48f * density)).roundToInt(),
                         elapsedMillis = elapsedMillis, surfaceBounds = surfaceBounds,
                         viewportBounds = viewportBounds, viewportHeightPx = viewportHeightPx,
-                        interactionEnabled = interactionEnabled && expandedFolder != null,
+                        interactionEnabled = interactionEnabled && expanded &&
+                            (mode != LauncherUiMode.MOBILE_10 || mobileFolderProgress >= .99f),
                         launchingTileId = launchingTileId, isLaunching = isLaunching,
                         resumeUsesBackMotion = resumeUsesBackMotion, mode = mode,
                         launchMotionMode = launchMotionMode, hideOriginalTileId = hideOriginalTileId,
@@ -2918,6 +2976,7 @@ private fun PhoneStartGrid(
                         folderPreviews = emptyMap(),
                         folderRevealProgress = if (mode == LauncherUiMode.MOBILE_10)
                             mobileFolderProgress else null,
+                        folderRevealOrigins = childOrigins,
                         onDragOutside = folder.onRemoveChild,
                         photoOriginYPx = photoOriginYPx + cellStepPx * insertionRow + 48f * density,
                         sharedPhotoHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
@@ -3105,24 +3164,36 @@ private fun PhoneTile(
                 PhoneFolderPreview(
                     folderChildren, repository,
                     Modifier.fillMaxSize().graphicsLayer {
-                        // The miniature tile mosaic tucks inward as real child
-                        // tiles unfold and reverses when the folder is tapped again.
-                        val inset = folderOpenProgress.coerceIn(0f, 1f)
-                        val fold = inset * inset * (3f - 2f * inset)
-                        // Miniature Live Tiles move into the inline folder.
-                        // The accent-colored source plate remains, as on Lumia.
-                        scaleX = 1f - .18f * fold
-                        scaleY = 1f - .18f * fold
-                        alpha = 1f - fold
-                        translationY = 14f * fold * density
+                        alpha = PhoneFolderMotion.previewOpacity(folderOpenProgress)
                     },
                     mode = mode,
                 )
                 if (tile.size != TileSize.SMALL) Text(tile.title,
                     color = Color.White, fontSize = 11.sp, maxLines = 1,
                     modifier = Modifier.align(Alignment.BottomStart)
-                        .graphicsLayer { alpha = 1f - folderOpenProgress.coerceIn(0f, 1f) }
+                        .graphicsLayer { alpha = PhoneFolderMotion.previewOpacity(folderOpenProgress) }
                         .padding(start = 8.dp, bottom = 6.dp))
+                if (mode == LauncherUiMode.MOBILE_10 && folderOpenProgress > 0f) {
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()
+                        .graphicsLayer { alpha = PhoneFolderMotion.collapseOpacity(folderOpenProgress) }
+                        .semantics {
+                            contentDescription = "Collapse folder"
+                            semanticsOnClick {
+                                if (interactionEnabled && !exiting) {
+                                    onClick(faceTile, bounds)
+                                    true
+                                } else false
+                            }
+                        }) {
+                        val half = minOf(size.width, size.height) * .14f
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val rise = half * .55f
+                        drawLine(Color.White, center + Offset(-half, rise),
+                            center + Offset(0f, -rise), strokeWidth = 2.dp.toPx())
+                        drawLine(Color.White, center + Offset(0f, -rise),
+                            center + Offset(half, rise), strokeWidth = 2.dp.toPx())
+                    }
+                }
             }
         }) else null,
         // The complete WP8.1 color policy is resolved above. Prevent the
