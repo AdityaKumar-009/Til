@@ -74,14 +74,14 @@ class InlinePhoneFolderTest {
         captureFolderFrames("folder-reopen")
         compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Collapse folder").assertIsDisplayed()
-        val childBefore = compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+        val childBefore = compose.onNodeWithText("Tile b", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
         val source = compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
         compose.onNodeWithContentDescription("Collapse folder").performClick()
         compose.mainClock.advanceTimeBy(128)
         compose.waitForIdle()
-        val childClosing = compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+        val childClosing = compose.onNodeWithText("Tile b", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
         assertTrue("Closing child must move back toward the source tile",
             childClosing.top < childBefore.top)
@@ -101,6 +101,53 @@ class InlinePhoneFolderTest {
             compose.waitForIdle()
             compose.captureFidelity("$phase-${millis.toString().padStart(3, '0')}")
         }
+    }
+
+    @Test fun smallFolderClearsTallNeighborInSixColumnLayout() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val mode = LauncherUiMode.MOBILE_10
+        LauncherFeatureStore.setLauncherUiMode(context, mode)
+        LauncherFeatureStore.setPhoneSmallColumns(context, mode, 6)
+        val folder = checkNotNull(PhoneFolderStore.createOrAdd(context, mode, "a", "b"))
+        PhoneLayoutStore.saveOrder(context, mode, listOf(folder, "c", "d"))
+        PhoneLayoutStore.saveSize(context, mode, folder, TileSize.SMALL)
+        val tiles = listOf(
+            TileModel(id = "a", title = "Tile a", iconGlyph = "app", size = TileSize.WIDE),
+            TileModel(id = "b", title = "Tile b", iconGlyph = "app", size = TileSize.MEDIUM),
+            TileModel(id = "c", title = "Tall neighbor", iconGlyph = "app", size = TileSize.LARGE),
+            TileModel(id = "d", title = "Following tile", iconGlyph = "app", size = TileSize.MEDIUM),
+        )
+        val repository = AppsRepository(context)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MaterialTheme {
+                PhoneLauncherSurface(mode = mode, tiles = tiles, sections = emptyList(),
+                    appsRepository = repository, homeRequest = 0, entranceRequest = 0,
+                    launchingTileId = null, isLaunching = false, interactionEnabled = true,
+                    wallpaperStyle = 0, onLaunch = { _, _, _ -> }, onExitFinished = {},
+                    onOpenSettings = {}, onOpenAppInfo = {})
+            }
+        }
+        compose.mainClock.advanceTimeBy(1500)
+        compose.waitForIdle()
+        val before = compose.onNodeWithTag("phone-start-tile-c", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
+            .performTouchInput { click() }
+        repeat(10) { compose.mainClock.advanceTimeBy(64); compose.waitForIdle() }
+        val folderBounds = compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val neighborBounds = compose.onNodeWithTag("phone-start-tile-c", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Spanning neighbor must clear the entire expanded folder",
+            neighborBounds.top >= folderBounds.bottom - 2f)
+        compose.captureFidelity("folder-small-six-columns-tall-neighbor")
+        compose.onNodeWithContentDescription("Collapse folder").performClick()
+        repeat(6) { compose.mainClock.advanceTimeBy(64); compose.waitForIdle() }
+        assertEquals(before, compose.onNodeWithTag("phone-start-tile-c", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top, 1f)
     }
 
     @Test fun expansionMovesNeighborsAndChildKeepsItsOwnLaunchOrigin() {

@@ -2386,6 +2386,12 @@ private fun PhoneStartGrid(
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     var retainedFolder by remember { mutableStateOf(expandedFolder) }
     val mobileFolderClock = remember { Animatable(0f) }
+    // Keep renamed/reordered content for the return trip without restarting
+    // the identity-keyed motion coroutine on every callback allocation.
+    LaunchedEffect(expandedFolder) {
+        if (expandedFolder != null && retainedFolder?.folder?.id == expandedFolder.folder.id)
+            retainedFolder = expandedFolder
+    }
     // Keep one physical folder alive until its reverse reaches zero. The
     // animation job is cancelled on a new tap, preserving the current clock.
     LaunchedEffect(expandedFolder?.folder?.id, mode) {
