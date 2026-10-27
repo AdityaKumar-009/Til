@@ -843,6 +843,38 @@ fun PhoneLauncherSurface(
         }
     }
 
+    // Native inline folders stay attached to their Start row. If that row is
+    // low on the screen, pan just enough for the newly opened child tiles to
+    // remain visible; otherwise the fold-out is incorrectly offscreen.
+    // Cancelling this effect on a second tap also cancels its scroll animation.
+    LaunchedEffect(
+        openFolderId, mode, phoneTiles, columns, paneBounds.width, paneBounds.height,
+    ) {
+        val folder = expandedFolder?.takeIf { mode == LauncherUiMode.MOBILE_10 }
+            ?: return@LaunchedEffect
+        if (paneBounds.width <= 0f || paneBounds.height <= 0f) return@LaunchedEffect
+        val index = phoneTiles.indexOfFirst { it.id == folder.folder.id }
+        if (index < 0) return@LaunchedEffect
+        val slots = packPhoneTiles(phoneTiles.map(TileModel::size), columns)
+        val insertion = phoneFolderInsertionRow(slots, index)
+        val cellPx = (paneBounds.width - (20f + 4f * (columns - 1)) * densityScale) /
+            columns
+        val stepPx = cellPx + 4f * densityScale
+        val childRows = packPhoneTiles(folder.children.map(TileModel::size), columns)
+            .maxOfOrNull { it.row + it.rows } ?: 0
+        val headerTopPx = insertion * stepPx + 8f * densityScale
+        val expandedHeightPx = childRows * stepPx + 58f * densityScale
+        withFrameNanos { } // Wait for the new inline space to enter the scroll layout.
+        val target = PhoneFolderMotion.focusScrollTarget(
+            startScroll.value, headerTopPx, expandedHeightPx, paneBounds.height,
+        )
+        if (target > startScroll.value) startScroll.animateScrollTo(
+            target,
+            animationSpec = tween(320,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        )
+    }
+
     // Handle only a NEW Home request. Relaunching/recomposing the phone surface must not
     // replay an old Home event and overwrite the saved All Apps destination.
     var lastHandledHomeRequest by remember(mode) { mutableIntStateOf(motionHomeRequest) }
