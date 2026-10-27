@@ -21,9 +21,9 @@ jobs:
           sudo apt-get install -y -qq msitools qemu-utils qemu-system-x86
           mkdir -p sdk-payload sdk-image boot-captures
           base='https://download.microsoft.com/download/E/3/4/E347E8C5-BD79-49AF-941C-D08893A45268/emulator/Redistributable/1.0.0.0'
-          curl --fail --retry 5 --retry-all-errors --retry-delay 2 -LsS "$base/WindowsPhoneSDK-VHD.msi" -o sdk-payload/WindowsPhoneSDK-VHD.msi
+          curl --fail --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 120 -LsS "$base/WindowsPhoneSDK-VHD.msi" -o sdk-payload/WindowsPhoneSDK-VHD.msi
           export base
-          seq 1 50 | xargs -P 4 -I NUM sh -c 'curl --fail --retry 5 --retry-all-errors --retry-delay 2 -LsS "$base/VhdNUM.cab" -o sdk-payload/VhdNUM.cab'
+          seq 1 50 | xargs -P 8 -I NUM sh -c 'curl --fail --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 --max-time 120 -LsS "$base/VhdNUM.cab" -o sdk-payload/VhdNUM.cab'
           msiextract -C sdk-image sdk-payload/WindowsPhoneSDK-VHD.msi > /dev/null
           find sdk-image -name 'tmp*.tmp' -type f -print0 | sort -z | xargs -0 cat > flash.vhd
           ls -lh flash.vhd
