@@ -2997,10 +2997,14 @@ private fun PhoneStartGrid(
                         // The lower rule follows the expanding gap instead of
                         // jumping to the final position after the children.
                         Spacer(Modifier.align(Alignment.BottomCenter)
-                            .fillMaxWidth().padding(start = side, end = side, bottom = 4.dp)
-                            .height(2.dp)
-                            .graphicsLayer { alpha = PhoneFolderMotion.dividerOpacity(mobileFolderProgress) }
-                            .background(StartPersonalization.wallpaperAccentColor)
+                            .fillMaxWidth().padding(
+                                start = PhoneFolderDividerStyle.horizontalInset,
+                                end = PhoneFolderDividerStyle.horizontalInset,
+                                bottom = 6.dp,
+                            )
+                            .height(PhoneFolderDividerStyle.thickness)
+                            .graphicsLayer { alpha = folderMotion.headerOpacity }
+                            .background(PhoneFolderDividerStyle.color)
                             .testTag("phone-folder-bottom-divider"))
                     }
                 }

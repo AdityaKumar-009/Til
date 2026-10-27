@@ -59,9 +59,16 @@ class InlinePhoneFolderTest {
             .fetchSemanticsNode().boundsInRoot
         val divider = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val upperDivider = compose.onNodeWithTag("phone-folder-top-divider", useUnmergedTree = true)
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val lastChild = compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
+        val followingTile = compose.onNodeWithTag("phone-start-tile-d", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
         assertTrue("The bottom rule must be beneath the expanded tiles", divider.top >= lastChild.bottom - 1f)
+        assertTrue("The bottom rule must be above the following tile", divider.bottom <= followingTile.top + 1f)
+        assertEquals("Folder rules must have the same thickness", upperDivider.height, divider.height, 1f)
+        assertEquals("Folder rules must share the same trailing inset", upperDivider.right, divider.right, 1f)
         val dividerBottomGap = expandedBounds.bottom - divider.bottom
         assertTrue("The bottom rule must lie inside the expanded folder", dividerBottomGap >= 0f)
         // The folder tile itself is the primary open/close toggle on Lumia.

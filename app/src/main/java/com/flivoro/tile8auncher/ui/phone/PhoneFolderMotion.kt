@@ -66,7 +66,6 @@ internal object PhoneFolderMotion {
 
     fun previewOpacity(clock: Float): Float = 1f - smoothSegment(clock, .05f, .32f)
     fun collapseOpacity(clock: Float): Float = smoothSegment(clock, .25f, .60f)
-    fun dividerOpacity(clock: Float): Float = smoothSegment(clock, .04f, .32f)
 
     /** Shared by the miniature renderer and the outgoing/returning child tiles. */
     fun previewBounds(slots: List<PhoneTileSlot>, width: Float, height: Float): List<Rect> {
