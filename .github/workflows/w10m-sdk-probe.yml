@@ -23,3 +23,11 @@ jobs:
           find /tmp/ms-w10m-package -maxdepth 4 -type f -printf '%p %s bytes\n' | head -100
           file /tmp/ms-w10m-package/0
           python3 -c "import xml.etree.ElementTree as E; r=E.parse('/tmp/ms-w10m-package/0').getroot(); [print(x.tag,x.attrib) for x in r.iter() if any(t in x.tag.lower() for t in ('payload','container','package'))]" || head -c 10000 /tmp/ms-w10m-package/0
+          printf 'Official installer landing location:\\n'
+          curl --silent --show-error --location --output /dev/null --write-out '%{url_effective}\\n' 'https://go.microsoft.com/fwlink/p/?linkid=615095'
+          printf 'Bootstrapper public package locations:\\n'
+          strings -el /tmp/ms-w10m-package/u8 | grep -Eo 'https?://[^ ]+' | head -50 || true
+          strings /tmp/ms-w10m-package/u8 | grep -Eo 'https?://[^ ]+' | head -50 || true
+          strings /tmp/ms-w10m-package/u12 | grep -Eo 'https?://[^ "<>]+' | head -50 || true
+          strings /tmp/ms-w10m-package/u14 | grep -Eo 'https?://[^ "<>]+' | head -50 || true
+          head -c 10000 /tmp/ms-w10m-package/u12

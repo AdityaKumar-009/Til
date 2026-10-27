@@ -1,4 +1,0 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Share the same edge-to-edge and transition policy in both appearances. -->
-    <style name="Theme.Tile8Launcher" parent="Theme.Tile8Launcher.Base" />
-</resources>
