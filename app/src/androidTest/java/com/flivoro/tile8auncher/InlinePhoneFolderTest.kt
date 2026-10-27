@@ -197,6 +197,7 @@ class InlinePhoneFolderTest {
         assertTrue("The lower rule must move with Start during app launch",
             abs(movingBottom.center.y - restingBounds[1].center.y) > 2f ||
                 abs(movingBottom.width - restingBounds[1].width) > 2f)
+        compose.captureFidelity("folder-rules-launch-mid")
         compose.runOnIdle { sampledMillis.intValue = 534 }
         compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
@@ -212,6 +213,15 @@ class InlinePhoneFolderTest {
         compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
         assertTrue("Neither rule may flash before Back return", brightness().all { it < 55 })
+        compose.runOnIdle { sampledMillis.intValue = 267 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        val backBottom = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("The lower rule must move with Start during Back return",
+            abs(backBottom.center.y - restingBounds[1].center.y) > 2f ||
+                abs(backBottom.width - restingBounds[1].width) > 2f)
+        compose.captureFidelity("folder-rules-back-mid")
         compose.runOnIdle { sampledMillis.intValue = 534 }
         compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
@@ -221,6 +231,15 @@ class InlinePhoneFolderTest {
         compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
         assertTrue("Neither rule may flash before Home entry", brightness().all { it < 55 })
+        compose.runOnIdle { sampledMillis.intValue = 315 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        val homeBottom = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("The lower rule must move with Start during Home entry",
+            abs(homeBottom.center.y - restingBounds[1].center.y) > 2f ||
+                abs(homeBottom.width - restingBounds[1].width) > 2f)
+        compose.captureFidelity("folder-rules-home-mid")
         compose.runOnIdle { sampledMillis.intValue = 630 }
         compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
