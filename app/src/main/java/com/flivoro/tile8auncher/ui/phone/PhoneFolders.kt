@@ -191,6 +191,13 @@ internal fun phoneFolderInsertionRow(slots: List<PhoneTileSlot>, folderIndex: In
     }
 }
 
+/** Shared appearance for the upper and lower Windows 10 Mobile folder rules. */
+internal object PhoneFolderDividerStyle {
+    val color = Color.White.copy(alpha = .65f)
+    val thickness = 1.dp
+    val horizontalInset = 12.dp
+}
+
 @Composable
 internal fun PhoneFolderHeader(
     expansion: PhoneFolderExpansion,
@@ -211,7 +218,8 @@ internal fun PhoneFolderHeader(
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val titleLimit = maxWidth * .72f
     Row(
-        Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().height(48.dp)
+            .padding(horizontal = PhoneFolderDividerStyle.horizontalInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (editing && enabled) {
@@ -261,7 +269,9 @@ internal fun PhoneFolderHeader(
             // Live Folder names interrupt a thin divider. The source tile,
             // rather than a second toolbar button, is the collapse target.
             Spacer(Modifier.width(10.dp))
-            Spacer(Modifier.weight(1f).height(1.dp).background(Color.White.copy(alpha = .65f)))
+            Spacer(Modifier.weight(1f).height(PhoneFolderDividerStyle.thickness)
+                .background(PhoneFolderDividerStyle.color)
+                .testTag("phone-folder-top-divider"))
         } else if (mode != LauncherUiMode.MOBILE_10) Canvas(
             modifier = Modifier.size(48.dp)
                 .clickable(enabled = enabled) {
