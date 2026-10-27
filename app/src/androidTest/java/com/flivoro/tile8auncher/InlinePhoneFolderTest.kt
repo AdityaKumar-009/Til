@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -101,6 +102,66 @@ class InlinePhoneFolderTest {
             compose.waitForIdle()
             compose.captureFidelity("$phase-${millis.toString().padStart(3, '0')}")
         }
+    }
+
+    @Test fun openingAndClosingDoNotPaintOverAnAdjacentStartTile() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val mode = LauncherUiMode.MOBILE_10
+        LauncherFeatureStore.setLauncherUiMode(context, mode)
+        LauncherFeatureStore.setPhoneSmallColumns(context, mode, 4)
+        val folder = checkNotNull(PhoneFolderStore.createOrAdd(context, mode, "a", "b"))
+        PhoneLayoutStore.saveOrder(context, mode, listOf(folder, "c", "d"))
+        val tiles = listOf(
+            TileModel(id = "a", title = "Tile a", colorValue = 0xffe03020, iconGlyph = "app"),
+            TileModel(id = "b", title = "Tile b", colorValue = 0xffe03020, iconGlyph = "app"),
+            TileModel(id = "c", title = "Tile c", colorValue = 0xff209040, iconGlyph = "app"),
+            TileModel(id = "d", title = "Tile d", colorValue = 0xff2080d0, iconGlyph = "app"),
+        )
+        val repository = AppsRepository(context)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MaterialTheme {
+                PhoneLauncherSurface(mode = mode, tiles = tiles, sections = emptyList(),
+                    appsRepository = repository, homeRequest = 0, entranceRequest = 0,
+                    launchingTileId = null, isLaunching = false, interactionEnabled = true,
+                    wallpaperStyle = 0, onLaunch = { _, _, _ -> }, onExitFinished = {},
+                    onOpenSettings = {}, onOpenAppInfo = {})
+            }
+        }
+        compose.mainClock.advanceTimeBy(1500)
+        compose.waitForIdle()
+        val neighbor = compose.onNodeWithTag("phone-start-tile-c", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val points = listOf(.06f, .16f, .26f).flatMap { x ->
+            listOf(.60f, .75f, .88f).map { y ->
+                (neighbor.left + neighbor.width * x).toInt() to
+                    (neighbor.top + neighbor.height * y).toInt()
+            }
+        }
+        fun sample(): List<Int> {
+            val image = compose.onRoot().captureToImage().asAndroidBitmap()
+            return points.map { (x, y) -> image.getPixel(x, y) }
+        }
+        val expected = sample()
+        fun verifyFrames(phase: String) {
+            repeat(20) { frame ->
+                compose.mainClock.advanceTimeBy(16)
+                compose.waitForIdle()
+                val actual = sample()
+                if (actual != expected) compose.captureFidelity("folder-overdraw-$phase-$frame")
+                assertEquals("Neighbor was overdrawn during $phase frame $frame", expected, actual)
+            }
+        }
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
+            .performTouchInput { click() }
+        verifyFrames("open")
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
+            .performTouchInput { click() }
+        verifyFrames("close")
     }
 
     @Test fun smallFolderClearsTallNeighborInSixColumnLayout() {

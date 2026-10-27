@@ -2940,14 +2940,17 @@ private fun PhoneStartGrid(
             }
             displayedFolder?.takeIf { folderIndex >= 0 &&
                 (mode == LauncherUiMode.MOBILE_10 || expansionHeight > 0.dp) }?.let { folder ->
-                // W10M children move from the source tile. Measuring/clipping the
-                // content to the growing gap cuts off that path and squashes tiles.
-                Column(Modifier.fillMaxWidth().offset(y = (cell + gap) * insertionRow)
-                    .then(if (mode == LauncherUiMode.MOBILE_10)
-                        Modifier.wrapContentHeight(Alignment.Top, unbounded = true)
-                            .requiredHeight(fullFolderHeight).zIndex(1f)
-                    else Modifier.height(expansionHeight).clipToBounds())
+                // Measure the contents at their final geometry, but clip drawing
+                // and hit testing to the space actually opened in the Start grid.
+                // Otherwise the flying children paint over unrelated neighbors.
+                Box(Modifier.fillMaxWidth().offset(y = (cell + gap) * insertionRow)
+                    .height(expansionHeight).clipToBounds()
+                    .then(if (mode == LauncherUiMode.MOBILE_10) Modifier.zIndex(1f) else Modifier)
                     .testTag("phone-expanded-folder")) {
+                Column(if (mode == LauncherUiMode.MOBILE_10)
+                    Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true)
+                        .requiredHeight(fullFolderHeight)
+                else Modifier.fillMaxWidth().height(expansionHeight)) {
                     Box(Modifier.graphicsLayer {
                         alpha = folderMotion.headerOpacity
                         translationY = folderMotion.headerOffsetDp * density
@@ -2989,6 +2992,7 @@ private fun PhoneStartGrid(
                         onClick = onClick, onLongClick = onLongClick, onExitEdit = onExitEdit,
                     )
                     }
+                }
                 }
             }
         }
