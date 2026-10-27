@@ -16,7 +16,7 @@ Changes:
 - Use one reversible linear timebase with layer easing. Cancelling or reversing retains the current timebase; partial transitions run only for the remaining distance. Dispose closing content after its animation completes rather than after an independent timer.
 - Clear enough space for tiles that span the source folder's lower edge, preserving relative positions of displaced tiles.
 
-The existing 330 ms opening / 260 ms closing envelope is retained as a launcher fit. The miniature travel, brief tap compression, and child stagger are inferred implementation choices, not authenticated Microsoft curves. This is a structural/motion correction and must not be described as proven 100% native equivalence. Start/app-launch/return motion functions and WP8.1's folder tween are unchanged.
+The miniature travel, brief tap compression, and child stagger are inferred implementation choices, not authenticated Microsoft curves. This is a structural/motion correction and must not be described as proven 100% native equivalence. Start/app-launch/return motion functions and WP8.1's folder tween are unchanged.
 
 Verification: unit tests cover coordinate endpoints, monotonic travel, opacity handoff, interruption duration, miniature geometry, and spanning-neighbor clearance. Instrumented tests exercise physical open/close/reopen taps, source collapse accessibility, child contraction toward the source, rename persistence, child launch bounds, and restored neighbor positions. The folder workflow records open/close/reopen at 16 ms virtual-clock intervals for visual review; those intervals are not native-video sampling resolution.
 
@@ -25,3 +25,9 @@ Verification: unit tests cover coordinate endpoints, monotonic travel, opacity h
 In the launcher capture from Actions run `40446809472`, the 64 ms opening frame shows a traveling child painting over a stationary tile beside the folder. The follow-up clips the folder content to its animated opening while preserving its full-size measurement. A pixel regression test samples the stationary neighboring tile through opening and closing. The same test failed on the previous implementation (Actions run `40482750757`, open frame 2) and passed with the correction (run `40482752043`).
 
 The Microsoft Live Folders animation that could be inspected is a Windows Phone 8.1 folder-creation sequence in edit mode, not a Windows 10 Mobile tap-to-open recording. It cannot establish W10M timing or prove this change matches the native animation. A usable W10M recording showing both opening and closing is still needed for a frame-by-frame comparison.
+
+## Smooth open/close and lower divider
+
+The prior 330 ms opening / 260 ms closing timebase applied a decelerating spatial curve to a linear clock. Reversing that curve made the last part of closing accelerate into its endpoint. The W10M folder now uses one eased, reversible clock for the insertion gap and child geometry, with a 380 ms opening and 420 ms closing fit. Preview, chevron, and header opacity handoffs ease at their boundaries. An interruption retains the current position and scales its remaining duration to the distance left.
+
+Microsoft's Windows 10 Mobile user guide illustrates a horizontal accent-colored rule below an expanded folder's tiles (page 37): https://www.bhphotovideo.com/lit_files/127618.pdf . A matching lower rule follows the animated bottom edge of the gap. The guide's illustration supports the structural detail, not the timing, thickness, or an exact frame-by-frame match. Both durations remain launcher tuning pending a native open/close recording.

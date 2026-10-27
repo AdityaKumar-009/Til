@@ -3,7 +3,7 @@ name: W10M folder motion evidence
 on:
   workflow_dispatch:
   push:
-    branches: [feature/windows-phone-launcher-modes]
+    branches: [evidence/w10m-smooth-folder]
     paths:
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneFolder*'
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneLauncher.kt'
@@ -41,6 +41,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Run unit tests
+        run: bash gradlew testDebugUnitTest --stacktrace
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
