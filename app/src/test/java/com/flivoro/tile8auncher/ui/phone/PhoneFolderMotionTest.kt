@@ -58,4 +58,37 @@ class PhoneFolderMotionTest {
             200, 1000f, 0f, 800f,
         ))
     }
+    @Test fun physicalFolderTileFoldsAndReversesContinuously() {
+        val closed = PhoneFolderMotion.sourceFrame(0f)
+        val open = PhoneFolderMotion.sourceFrame(1f)
+        assertEquals(1f, closed.alpha, 0f)
+        assertEquals(1f, closed.scale, 0f)
+        assertEquals(0f, closed.rotationX, 0f)
+        assertTrue(open.alpha < closed.alpha)
+        assertTrue(open.scale < closed.scale)
+        assertTrue(open.rotationX < closed.rotationX)
+        val samples = (0..100).map { PhoneFolderMotion.sourceFrame(it / 100f) }
+        samples.zipWithNext().forEach { (a, b) ->
+            assertTrue(b.alpha <= a.alpha)
+            assertTrue(b.scale <= a.scale)
+            assertTrue(b.rotationX <= a.rotationX)
+            assertTrue(b.offsetDp >= a.offsetDp)
+        }
+        val halfway = PhoneFolderMotion.sourceFrame(.35f)
+        assertEquals(halfway, PhoneFolderMotion.sourceFrame(.35f))
+        assertEquals(closed, PhoneFolderMotion.sourceFrame(-1f))
+        assertEquals(open, PhoneFolderMotion.sourceFrame(2f))
+    }
+
+    @Test fun tallNeighborMovesWhenFolderOpensAtItsOwnBoundary() {
+        assertTrue(PhoneFolderMotion.needsInlineDisplacement(
+            slotRow = 0, slotRows = 4, boundaryRow = 2, isFolderSource = false))
+        assertTrue(PhoneFolderMotion.needsInlineDisplacement(
+            slotRow = 2, slotRows = 2, boundaryRow = 2, isFolderSource = false))
+        assertTrue(!PhoneFolderMotion.needsInlineDisplacement(
+            slotRow = 0, slotRows = 2, boundaryRow = 2, isFolderSource = false))
+        assertTrue(!PhoneFolderMotion.needsInlineDisplacement(
+            slotRow = 0, slotRows = 2, boundaryRow = 2, isFolderSource = true))
+    }
+
 }
