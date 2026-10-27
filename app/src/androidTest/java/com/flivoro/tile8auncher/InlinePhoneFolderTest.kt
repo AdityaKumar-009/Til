@@ -48,7 +48,15 @@ class InlinePhoneFolderTest {
         compose.captureFidelity("folder-rest")
         compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
         captureFolderFrames("folder-open")
-        compose.onNodeWithContentDescription("Collapse folder").performClick()
+        val expandedY = compose.onNodeWithTag("phone-expanded-folder",
+            useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+        val sourceBottom = compose.onNodeWithTag("phone-start-tile-$folder",
+            useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("Folder content must open beneath its Start tile",
+            expandedY >= sourceBottom - 2f)
+        // The folder tile itself is the primary open/close toggle on Lumia.
+        compose.onNodeWithTag("phone-start-tile-$folder",
+            useUnmergedTree = true).performTouchInput { click() }
         captureFolderFrames("folder-close")
         compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertDoesNotExist()
         assertEquals(neighborBefore, compose.onNodeWithText("Tile d", useUnmergedTree = true)
@@ -58,7 +66,8 @@ class InlinePhoneFolderTest {
         compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
         compose.mainClock.advanceTimeBy(96)
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Collapse folder").performClick()
+        compose.onNodeWithTag("phone-start-tile-$folder",
+            useUnmergedTree = true).performTouchInput { click() }
         compose.mainClock.advanceTimeBy(64)
         compose.waitForIdle()
         compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true).performTouchInput { click() }
