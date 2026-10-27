@@ -1,4 +1,4 @@
-name: W10M SDK payload location
+name: W10M SDK image inspection
 on:
   push:
     branches:
@@ -9,17 +9,21 @@ permissions:
 jobs:
   inspect-official-package:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 18
     steps:
-      - name: Check Microsoft's public installer locations
+      - name: Extract official emulator image
         shell: bash
         run: |
-          set -u
-          fw='https://go.microsoft.com/fwlink/?prd=11966&pver=1.0&plcid=0x409&clcid=0x409&ar=Threshold&sar=Emulator&o1=10.0.15254.1'
-          printf 'DownloadRoot redirect: '
-          curl -LsS -o /dev/null --max-time 30 -w '%{http_code} %{url_effective}\n' "$fw"
-          base='https://download.microsoft.com/download/E/3/4/E347E8C5-BD79-49AF-941C-D08893A45268/emulator'
-          for p in Redistributable/1.0.0.0/WindowsPhoneSDK-VHD.msi Redistributable/1.0.0.0/Vhd1.cab; do
-            printf '%s ' "$p"
-            curl -LIsS -o /dev/null --max-time 30 -w '%{http_code} %{url_effective} %{size_download}\n' "$base/$p"
-          done
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq msitools qemu-utils
+          mkdir -p sdk-payload sdk-image
+          base='https://download.microsoft.com/download/E/3/4/E347E8C5-BD79-49AF-941C-D08893A45268/emulator/Redistributable/1.0.0.0'
+          curl --fail --retry 2 -LsS "$base/WindowsPhoneSDK-VHD.msi" -o sdk-payload/WindowsPhoneSDK-VHD.msi
+          export base
+          seq 1 50 | xargs -P 8 -I NUM sh -c 'curl --fail --retry 2 -LsS "$base/VhdNUM.cab" -o sdk-payload/VhdNUM.cab'
+          du -sh sdk-payload
+          msiextract -C sdk-image sdk-payload/WindowsPhoneSDK-VHD.msi
+          find sdk-image -type f -printf '%s %p\n' | sort -nr | head -30
+          find sdk-image -type f \( -iname '*.vhd' -o -iname '*.vhdx' \) -exec qemu-img info {} \;
+          df -h .
