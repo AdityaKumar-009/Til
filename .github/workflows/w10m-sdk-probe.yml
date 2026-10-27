@@ -21,4 +21,5 @@ jobs:
           7z x -y -o/tmp/ms-w10m-package /tmp/ms-w10m-emulator.exe >/tmp/extract.log || true
           du -sh /tmp/ms-w10m-package
           find /tmp/ms-w10m-package -maxdepth 4 -type f -printf '%p %s bytes\n' | head -100
-          rg -i -o 'https?://[^ "<>]+' /tmp/ms-w10m-package -g '*.xml' -g '*.config' -g '*.json' | head -80 || true
+          file /tmp/ms-w10m-package/0
+          python3 -c "import xml.etree.ElementTree as E; r=E.parse('/tmp/ms-w10m-package/0').getroot(); [print(x.tag,x.attrib) for x in r.iter() if any(t in x.tag.lower() for t in ('payload','container','package'))]" || head -c 10000 /tmp/ms-w10m-package/0
