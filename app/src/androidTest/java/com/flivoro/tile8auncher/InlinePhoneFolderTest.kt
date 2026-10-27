@@ -55,6 +55,15 @@ class InlinePhoneFolderTest {
             useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.bottom
         assertTrue("Folder content must open beneath its Start tile",
             expandedY >= sourceBottom - 2f)
+        val expandedBounds = compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val divider = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val lastChild = compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("The bottom rule must be beneath the expanded tiles", divider.top >= lastChild.bottom - 1f)
+        val dividerBottomGap = expandedBounds.bottom - divider.bottom
+        assertTrue("The bottom rule must lie inside the expanded folder", dividerBottomGap >= 0f)
         // The folder tile itself is the primary open/close toggle on Lumia.
         compose.onNodeWithTag("phone-start-tile-$folder",
             useUnmergedTree = true).performTouchInput { click() }
@@ -82,6 +91,12 @@ class InlinePhoneFolderTest {
         compose.onNodeWithContentDescription("Collapse folder").performClick()
         compose.mainClock.advanceTimeBy(128)
         compose.waitForIdle()
+        val closingBounds = compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val closingDivider = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertEquals("The bottom rule must follow the moving folder edge", dividerBottomGap,
+            closingBounds.bottom - closingDivider.bottom, 1f)
         val childClosing = compose.onNodeWithText("Tile b", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
         assertTrue("Closing child must move back toward the source tile",
@@ -146,7 +161,7 @@ class InlinePhoneFolderTest {
         }
         val expected = sample()
         fun verifyFrames(phase: String) {
-            repeat(20) { frame ->
+            repeat(30) { frame ->
                 compose.mainClock.advanceTimeBy(16)
                 compose.waitForIdle()
                 val actual = sample()
@@ -206,7 +221,7 @@ class InlinePhoneFolderTest {
             neighborBounds.top >= folderBounds.bottom - 2f)
         compose.captureFidelity("folder-small-six-columns-tall-neighbor")
         compose.onNodeWithContentDescription("Collapse folder").performClick()
-        repeat(6) { compose.mainClock.advanceTimeBy(64); compose.waitForIdle() }
+        repeat(8) { compose.mainClock.advanceTimeBy(64); compose.waitForIdle() }
         assertEquals(before, compose.onNodeWithTag("phone-start-tile-c", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot.top, 1f)
     }

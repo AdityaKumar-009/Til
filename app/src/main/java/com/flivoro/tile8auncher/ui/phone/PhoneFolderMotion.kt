@@ -12,15 +12,18 @@ import kotlin.math.roundToInt
  * child layers. This keeps interruptions, reversals, and surrounding tile
  * displacement coherent even if the user taps while a folder is moving.
  *
- * The timebase is linear and interruptible; each layer derives its travel
- * from that clock. These fits are not measured Microsoft constants.
+ * The timebase eases in and out in either direction; each layer derives its
+ * travel from that same interruptible clock. These fits are not measured
+ * Microsoft constants.
  */
 internal object PhoneFolderMotion {
-    const val OPEN_MS = 330
-    const val CLOSE_MS = 260
-    private val travelEasing = CubicBezierEasing(.20f, .80f, .20f, 1f)
+    const val OPEN_MS = 380
+    const val CLOSE_MS = 420
+    val clockEasing = CubicBezierEasing(.25f, 0f, .25f, 1f)
 
-    fun spaceProgress(clock: Float): Float = travelEasing.transform(clock.coerceIn(0f, 1f))
+    // The clock itself is eased toward either endpoint. Easing this value a
+    // second time would make a reversed collapse accelerate into its end.
+    fun spaceProgress(clock: Float): Float = clock.coerceIn(0f, 1f)
 
     // An interrupted quarter-open folder must not take a whole closing duration.
     fun remainingDuration(clock: Float, opening: Boolean): Int =
@@ -52,7 +55,7 @@ internal object PhoneFolderMotion {
         // The actual folder plate remains in Start. Its MINIATURE content
         // vanishes separately while the physical plate gives a brief press
         // response. Returning or interrupting retraces the same curve.
-        val pulse = segment(p, 0f, .12f) * (1f - segment(p, .12f, .38f))
+        val pulse = smoothSegment(p, 0f, .12f) * (1f - smoothSegment(p, .12f, .38f))
         return SourceFrame(
             alpha = 1f,
             scale = 1f - .04f * pulse,
@@ -61,8 +64,9 @@ internal object PhoneFolderMotion {
         )
     }
 
-    fun previewOpacity(clock: Float): Float = 1f - segment(clock, 0f, .10f)
-    fun collapseOpacity(clock: Float): Float = segment(clock, .10f, .40f)
+    fun previewOpacity(clock: Float): Float = 1f - smoothSegment(clock, .05f, .32f)
+    fun collapseOpacity(clock: Float): Float = smoothSegment(clock, .25f, .60f)
+    fun dividerOpacity(clock: Float): Float = smoothSegment(clock, .04f, .32f)
 
     /** Shared by the miniature renderer and the outgoing/returning child tiles. */
     fun previewBounds(slots: List<PhoneTileSlot>, width: Float, height: Float): List<Rect> {
@@ -93,7 +97,7 @@ internal object PhoneFolderMotion {
         val travel = spaceProgress(segment(clock, delay, 1f))
         val remaining = 1f - travel
         return ChildTransform(
-            alpha = segment(clock, 0f, .10f),
+            alpha = 1f - previewOpacity(clock),
             scaleX = 1f + (origin.width / target.width.coerceAtLeast(1f) - 1f) * remaining,
             scaleY = 1f + (origin.height / target.height.coerceAtLeast(1f) - 1f) * remaining,
             translationX = (origin.left - target.left) * remaining,
@@ -117,6 +121,11 @@ internal object PhoneFolderMotion {
     private fun segment(progress: Float, start: Float, end: Float): Float =
         ((progress.coerceIn(0f, 1f) - start) / (end - start)).coerceIn(0f, 1f)
 
+    private fun smoothSegment(progress: Float, start: Float, end: Float): Float {
+        val fraction = segment(progress, start, end)
+        return fraction * fraction * (3f - 2f * fraction)
+    }
+
     /**
      * A Live Folder expands below its own Start row. When its contents would
      * be mostly below the viewport, pan just far enough to reveal its header
@@ -138,8 +147,8 @@ internal object PhoneFolderMotion {
     }
 
     fun frame(progress: Float): Frame {
-        val header = segment(progress, .08f, .46f)
-        val child = segment(progress, .18f, .82f)
+        val header = smoothSegment(progress, .08f, .46f)
+        val child = smoothSegment(progress, .18f, .82f)
         return Frame(
             headerOpacity = header,
             headerOffsetDp = (1f - header) * 10f,

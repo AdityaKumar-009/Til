@@ -57,12 +57,24 @@ class PhoneFolderMotionTest {
     }
 
     @Test fun remainingTimeTracksTheInterruptedDistance() {
-        assertEquals(330, PhoneFolderMotion.remainingDuration(0f, true))
-        assertEquals(260, PhoneFolderMotion.remainingDuration(1f, false))
-        assertEquals(65, PhoneFolderMotion.remainingDuration(.25f, false))
-        assertEquals(83, PhoneFolderMotion.remainingDuration(.75f, true))
+        assertEquals(380, PhoneFolderMotion.remainingDuration(0f, true))
+        assertEquals(420, PhoneFolderMotion.remainingDuration(1f, false))
+        assertEquals(105, PhoneFolderMotion.remainingDuration(.25f, false))
+        assertEquals(95, PhoneFolderMotion.remainingDuration(.75f, true))
         assertEquals(0, PhoneFolderMotion.remainingDuration(0f, false))
         assertEquals(0, PhoneFolderMotion.remainingDuration(1f, true))
+    }
+
+    @Test fun bothDirectionsEaseIntoAndOutOfTheTransition() {
+        val positions = (0..100).map {
+            PhoneFolderMotion.spaceProgress(PhoneFolderMotion.clockEasing.transform(it / 100f))
+        }
+        val steps = positions.zipWithNext { a, b -> b - a }
+        assertTrue(steps.all { it >= 0f })
+        assertTrue("Opening and closing must start gently", steps.first() < steps[50] * .2f)
+        assertTrue("Opening and closing must settle gently", steps.last() < steps[50] * .2f)
+        assertTrue("Collapse must not be shorter than expansion",
+            PhoneFolderMotion.CLOSE_MS >= PhoneFolderMotion.OPEN_MS)
     }
 
     @Test fun miniatureHandoffNeverLeavesBothRepresentationsInvisible() {

@@ -2400,16 +2400,16 @@ private fun PhoneStartGrid(
                 if (retainedFolder?.folder?.id != expandedFolder.folder.id) {
                     if (mobileFolderClock.value > 0f) mobileFolderClock.animateTo(0f, tween(
                             PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
-                            easing = LinearEasing))
+                            easing = PhoneFolderMotion.clockEasing))
                     retainedFolder = expandedFolder
                 }
                 mobileFolderClock.animateTo(1f, tween(
                     PhoneFolderMotion.remainingDuration(mobileFolderClock.value, true),
-                    easing = LinearEasing))
+                    easing = PhoneFolderMotion.clockEasing))
             } else {
                 if (mobileFolderClock.value > 0f) mobileFolderClock.animateTo(0f, tween(
                     PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
-                    easing = LinearEasing))
+                    easing = PhoneFolderMotion.clockEasing))
                 retainedFolder = null
             }
         } else if (expandedFolder != null) retainedFolder = expandedFolder
@@ -2992,6 +2992,16 @@ private fun PhoneStartGrid(
                             onClick = onClick, onLongClick = onLongClick, onExitEdit = onExitEdit,
                         )
                         }
+                    }
+                    if (mode == LauncherUiMode.MOBILE_10) {
+                        // The lower rule follows the expanding gap instead of
+                        // jumping to the final position after the children.
+                        Spacer(Modifier.align(Alignment.BottomCenter)
+                            .fillMaxWidth().padding(start = side, end = side, bottom = 4.dp)
+                            .height(2.dp)
+                            .graphicsLayer { alpha = PhoneFolderMotion.dividerOpacity(mobileFolderProgress) }
+                            .background(StartPersonalization.wallpaperAccentColor)
+                            .testTag("phone-folder-bottom-divider"))
                     }
                 }
             }
