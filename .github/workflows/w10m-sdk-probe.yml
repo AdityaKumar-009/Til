@@ -1,33 +1,25 @@
-name: Windows 10 Mobile SDK reference probe
+name: W10M SDK payload location
 on:
   push:
-    branches: [evidence/w10m-sdk-probe]
+    branches:
+      - evidence/w10m-sdk-probe
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   inspect-official-package:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Inspect available virtualization and Microsoft emulator package
+      - name: Check Microsoft's public installer locations
+        shell: bash
         run: |
-          printf 'KVM device:\n'
-          ls -l /dev/kvm || true
-          curl --fail --location --max-time 90 --retry 1 'https://go.microsoft.com/fwlink/p/?linkid=615095' -o /tmp/ms-w10m-emulator.exe
-          file /tmp/ms-w10m-emulator.exe
-          ls -lh /tmp/ms-w10m-emulator.exe
-          7z l /tmp/ms-w10m-emulator.exe | head -100 || true
-          mkdir -p /tmp/ms-w10m-package
-          7z x -y -o/tmp/ms-w10m-package /tmp/ms-w10m-emulator.exe >/tmp/extract.log || true
-          du -sh /tmp/ms-w10m-package
-          find /tmp/ms-w10m-package -maxdepth 4 -type f -printf '%p %s bytes\n' | head -100
-          file /tmp/ms-w10m-package/0
-          python3 -c "import xml.etree.ElementTree as E; r=E.parse('/tmp/ms-w10m-package/0').getroot(); [print(x.tag,x.attrib) for x in r.iter() if any(t in x.tag.lower() for t in ('payload','container','package'))]" || head -c 10000 /tmp/ms-w10m-package/0
-          printf 'Official installer landing location:\\n'
-          curl --silent --show-error --location --output /dev/null --write-out '%{url_effective}\\n' 'https://go.microsoft.com/fwlink/p/?linkid=615095'
-          printf 'Bootstrapper public package locations:\\n'
-          strings -el /tmp/ms-w10m-package/u8 | grep -Eo 'https?://[^ ]+' | head -50 || true
-          strings /tmp/ms-w10m-package/u8 | grep -Eo 'https?://[^ ]+' | head -50 || true
-          strings /tmp/ms-w10m-package/u12 | grep -Eo 'https?://[^ "<>]+' | head -50 || true
-          strings /tmp/ms-w10m-package/u14 | grep -Eo 'https?://[^ "<>]+' | head -50 || true
-          head -c 10000 /tmp/ms-w10m-package/u12
+          set -u
+          fw='https://go.microsoft.com/fwlink/?prd=11966&pver=1.0&plcid=0x409&clcid=0x409&ar=Threshold&sar=Emulator&o1=10.0.15254.1'
+          printf 'DownloadRoot redirect: '
+          curl -LsS -o /dev/null --max-time 30 -w '%{http_code} %{url_effective}\n' "$fw"
+          base='https://download.microsoft.com/download/E/3/4/E347E8C5-BD79-49AF-941C-D08893A45268/emulator'
+          for p in Redistributable/1.0.0.0/WindowsPhoneSDK-VHD.msi Redistributable/1.0.0.0/Vhd1.cab; do
+            printf '%s ' "$p"
+            curl -LIsS -o /dev/null --max-time 30 -w '%{http_code} %{url_effective} %{size_download}\n' "$base/$p"
+          done
