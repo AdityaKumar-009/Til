@@ -33,12 +33,15 @@ internal object PhoneFolderMotion {
 
     fun sourceFrame(progress: Float): SourceFrame {
         val p = progress.coerceIn(0f, 1f)
-        val fold = p * p * (3f - 2f * p)
+        // The actual folder plate remains in Start. Its MINIATURE content
+        // vanishes separately while the physical plate gives a brief press/fold
+        // response. Returning or interrupting retraces the same curve.
+        val pulse = kotlin.math.sin(p * kotlin.math.PI.toFloat())
         return SourceFrame(
-            alpha = 1f - .82f * fold,
-            scale = 1f - .12f * fold,
-            rotationX = -12f * fold,
-            offsetDp = 12f * fold,
+            alpha = 1f,
+            scale = 1f - .10f * pulse,
+            rotationX = -12f * pulse,
+            offsetDp = 6f * pulse,
         )
     }
 
