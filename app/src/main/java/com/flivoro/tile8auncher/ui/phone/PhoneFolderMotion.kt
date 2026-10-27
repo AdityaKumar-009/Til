@@ -23,6 +23,32 @@ internal object PhoneFolderMotion {
         }
     }
 
+    /** Collapsed face folds toward the folder header while children unfold. */
+    internal data class SourceFrame(
+        val alpha: Float,
+        val scale: Float,
+        val rotationX: Float,
+        val offsetDp: Float,
+    )
+
+    fun sourceFrame(progress: Float): SourceFrame {
+        val p = progress.coerceIn(0f, 1f)
+        val fold = p * p * (3f - 2f * p)
+        return SourceFrame(
+            alpha = 1f - .82f * fold,
+            scale = 1f - .12f * fold,
+            rotationX = -12f * fold,
+            offsetDp = 12f * fold,
+        )
+    }
+
+    /** Keep the open slot immediately below its tile, even beside a tall neighbor. */
+    fun needsInlineDisplacement(
+        slotRow: Int, slotRows: Int, boundaryRow: Int,
+        isFolderSource: Boolean,
+    ): Boolean = !isFolderSource && (slotRow >= boundaryRow ||
+        (slotRow < boundaryRow && slotRow + slotRows > boundaryRow))
+
     private fun segment(progress: Float, start: Float, end: Float): Float =
         ((progress.coerceIn(0f, 1f) - start) / (end - start)).coerceIn(0f, 1f)
 
