@@ -3108,15 +3108,21 @@ private fun PhoneTile(
                         // The miniature tile mosaic tucks inward as real child
                         // tiles unfold and reverses when the folder is tapped again.
                         val inset = folderOpenProgress.coerceIn(0f, 1f)
-                        scaleX = 1f - .075f * inset
-                        scaleY = 1f - .075f * inset
-                        alpha = 1f - .16f * inset
+                        val fold = inset * inset * (3f - 2f * inset)
+                        // Miniature Live Tiles move into the inline folder.
+                        // The accent-colored source plate remains, as on Lumia.
+                        scaleX = 1f - .18f * fold
+                        scaleY = 1f - .18f * fold
+                        alpha = 1f - fold
+                        translationY = 14f * fold * density
                     },
                     mode = mode,
                 )
                 if (tile.size != TileSize.SMALL) Text(tile.title,
                     color = Color.White, fontSize = 11.sp, maxLines = 1,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp))
+                    modifier = Modifier.align(Alignment.BottomStart)
+                        .graphicsLayer { alpha = 1f - folderOpenProgress.coerceIn(0f, 1f) }
+                        .padding(start = 8.dp, bottom = 6.dp))
             }
         }) else null,
         // The complete WP8.1 color policy is resolved above. Prevent the
