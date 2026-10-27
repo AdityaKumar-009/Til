@@ -1,4 +1,4 @@
-name: W10M SDK image inspection
+name: W10M emulator boot probe
 on:
   push:
     branches:
@@ -7,23 +7,53 @@ on:
 permissions:
   contents: read
 jobs:
-  inspect-official-package:
+  boot-official-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 20
     steps:
-      - name: Extract official emulator image
+      - name: Check out probe
+        uses: actions/checkout@v4
+      - name: Download and assemble Microsoft's image
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq msitools qemu-utils
-          mkdir -p sdk-payload sdk-image
+          sudo apt-get install -y -qq msitools qemu-utils qemu-system-x86
+          mkdir -p sdk-payload sdk-image boot-captures
           base='https://download.microsoft.com/download/E/3/4/E347E8C5-BD79-49AF-941C-D08893A45268/emulator/Redistributable/1.0.0.0'
           curl --fail --retry 2 -LsS "$base/WindowsPhoneSDK-VHD.msi" -o sdk-payload/WindowsPhoneSDK-VHD.msi
           export base
           seq 1 50 | xargs -P 8 -I NUM sh -c 'curl --fail --retry 2 -LsS "$base/VhdNUM.cab" -o sdk-payload/VhdNUM.cab'
-          du -sh sdk-payload
-          msiextract -C sdk-image sdk-payload/WindowsPhoneSDK-VHD.msi
-          find sdk-image -type f -printf '%s %p\n' | sort -nr | head -30
-          find sdk-image -type f \( -iname '*.vhd' -o -iname '*.vhdx' \) -exec qemu-img info {} \;
-          df -h .
+          msiextract -C sdk-image sdk-payload/WindowsPhoneSDK-VHD.msi > /dev/null
+          find sdk-image -name 'tmp*.tmp' -type f -print0 | sort -z | xargs -0 cat > flash.vhd
+          ls -lh flash.vhd
+          qemu-img info flash.vhd
+      - name: Try to boot the image using KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu-img create -f qcow2 -F vpc -b "$PWD/flash.vhd" phone-diff.qcow2
+          qemu-system-x86_64 -accel kvm -m 3072 -smp 2 \
+            -cpu host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time \
+            -drive file=phone-diff.qcow2,format=qcow2,if=ide -vga std \
+            -display none -monitor unix:"$PWD/phone-monitor.sock",server=on,wait=off \
+            -serial file:boot-captures/serial.log -net none \
+            >boot-captures/qemu.log 2>&1 &
+          python3 evidence/w10m_emulator_probe.py "$PWD/phone-monitor.sock" "$PWD/boot-captures"
+      - name: Upload boot captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microsoft-w10m-emulator-boot-probe
+          path: boot-captures/
+          if-no-files-found: ignore
+          retention-days: 3
+  windows-hyperv-probe:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Hyper-V availability
+        shell: pwsh
+        run: |
+          Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All | Format-List FeatureName,State
+          Get-ComputerInfo -Property 'HyperV*' | Format-List
