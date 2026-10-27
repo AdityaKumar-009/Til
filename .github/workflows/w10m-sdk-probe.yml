@@ -1,0 +1,24 @@
+name: Windows 10 Mobile SDK reference probe
+on:
+  push:
+    branches: [evidence/w10m-sdk-probe]
+permissions:
+  contents: read
+jobs:
+  inspect-official-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect available virtualization and Microsoft emulator package
+        run: |
+          printf 'KVM device:\n'
+          ls -l /dev/kvm || true
+          curl --fail --location --max-time 90 --retry 1 'https://go.microsoft.com/fwlink/p/?linkid=615095' -o /tmp/ms-w10m-emulator.exe
+          file /tmp/ms-w10m-emulator.exe
+          ls -lh /tmp/ms-w10m-emulator.exe
+          7z l /tmp/ms-w10m-emulator.exe | head -100 || true
+          mkdir -p /tmp/ms-w10m-package
+          7z x -y -o/tmp/ms-w10m-package /tmp/ms-w10m-emulator.exe >/tmp/extract.log || true
+          du -sh /tmp/ms-w10m-package
+          find /tmp/ms-w10m-package -maxdepth 4 -type f -printf '%p %s bytes\n' | head -100
+          rg -i -o 'https?://[^ "<>]+' /tmp/ms-w10m-package -g '*.xml' -g '*.config' -g '*.json' | head -80 || true
