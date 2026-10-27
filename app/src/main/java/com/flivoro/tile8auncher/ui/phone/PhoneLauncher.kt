@@ -3199,7 +3199,11 @@ private fun PhoneTile(
                 onClick = { bounds -> onClick(faceTile, bounds) },
                 onLongClick = onLongClick,
                 onPressStart = onPressStart,
-                tiltEnabled = tiltEnabled,
+                // A W10M Live Folder uses its own inline fold/unfold motion.
+                // The generic toolkit press retains a depressed 3D plane for
+                // 200ms, which clashes with quick taps and reverse openings.
+                tiltEnabled = tiltEnabled &&
+                    !(mode == LauncherUiMode.MOBILE_10 && folderChildren.isNotEmpty()),
             ),
     )
 }
