@@ -25,7 +25,12 @@ def execute(name, args=None):
         if "return" in response:
             return response["return"]
 execute("qmp_capabilities")
-print("mouse devices:", execute("query-mice"))
+mice = execute("query-mice")
+print("mouse devices:", mice)
+tablet = next((m for m in mice if m.get("absolute")), None)
+if tablet:
+    execute("human-monitor-command", {"command-line": "mouse_set %d" % tablet["index"]})
+print("selected mouse:", execute("query-mice"))
 def event(events):
     execute("input-send-event", {"events": events})
 def move(x, y):
@@ -58,7 +63,12 @@ def capture_tap(name, x, y):
         timings.append((i, round((now - start) * 1000, 2)))
     print(name, "sample times ms:", timings)
 print("Waiting for first-boot setup")
-time.sleep(140)
+for n in range(28):
+    time.sleep(5)
+    status = execute("query-status")
+    if status.get("status") != "running":
+        shot("00-stopped")
+        raise SystemExit("VM stopped during boot: " + str(status))
 shot("01-start")
 move(85, 280)
 button(True)
@@ -77,4 +87,5 @@ shot("06-after-first-tap")
 capture_tap("07-second-tap", 255, 280)
 time.sleep(1)
 shot("08-after-second-tap")
-execute("quit")
+f.write(b'{"execute":"quit"}\n')
+sock.close()

@@ -33,14 +33,26 @@ jobs:
         run: |
           set -euo pipefail
           sudo chmod a+rw /dev/kvm
-          qemu-img create -f qcow2 -F vpc -b "$PWD/flash.vhd" phone-diff.qcow2
-          qemu-system-x86_64 -accel kvm -m 3072 -smp 2 \
-            -cpu host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time \
-            -drive file=phone-diff.qcow2,format=qcow2,if=ide -vga std \
-            -usb -device usb-tablet -display none -qmp unix:"$PWD/phone-qmp.sock",server=on,wait=off -monitor unix:"$PWD/phone-monitor.sock",server=on,wait=off \
-            -serial file:boot-captures/serial.log -net none \
-            >boot-captures/qemu.log 2>&1 &
-          python3 evidence/w10m_emulator_probe.py "$PWD/phone-qmp.sock" "$PWD/boot-captures"
+          for model in host qemu64; do
+            rm -f phone-qmp.sock phone-monitor.sock phone-diff.qcow2
+            mkdir -p "boot-captures/$model"
+            qemu-img create -f qcow2 -F vpc -b "$PWD/flash.vhd" phone-diff.qcow2
+            qemu-system-x86_64 -accel kvm -m 3072 -smp 2 \
+              -cpu "$model,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time" \
+              -drive file=phone-diff.qcow2,format=qcow2,if=ide -vga std \
+              -usb -device usb-tablet -display none -qmp unix:"$PWD/phone-qmp.sock",server=on,wait=off \
+              -monitor unix:"$PWD/phone-monitor.sock",server=on,wait=off \
+              -serial file:"boot-captures/$model/serial.log" -net none \
+              >"boot-captures/$model/qemu.log" 2>&1 &
+            qemu_pid=$!
+            if python3 evidence/w10m_emulator_probe.py "$PWD/phone-qmp.sock" "$PWD/boot-captures/$model"; then
+              wait "$qemu_pid" || true
+              exit 0
+            fi
+            kill "$qemu_pid" 2>/dev/null || true
+            wait "$qemu_pid" || true
+          done
+          exit 1
       - name: Upload boot captures
         if: always()
         uses: actions/upload-artifact@v4
