@@ -12,8 +12,8 @@ import kotlin.math.roundToInt
  * child layers. This keeps interruptions, reversals, and surrounding tile
  * displacement coherent even if the user taps while a folder is moving.
  *
- * Durations/easing live in PhoneStartGrid; these values only describe the
- * relative reveal order. They are not presented as measured Microsoft constants.
+ * The timebase is linear and interruptible; each layer derives its travel
+ * from that clock. These fits are not measured Microsoft constants.
  */
 internal object PhoneFolderMotion {
     const val OPEN_MS = 330
@@ -39,7 +39,7 @@ internal object PhoneFolderMotion {
         }
     }
 
-    /** Collapsed face folds toward the folder header while children unfold. */
+    /** Brief source-plate compression, followed by an upright collapse target. */
     internal data class SourceFrame(
         val alpha: Float,
         val scale: Float,
@@ -50,7 +50,7 @@ internal object PhoneFolderMotion {
     fun sourceFrame(progress: Float): SourceFrame {
         val p = progress.coerceIn(0f, 1f)
         // The actual folder plate remains in Start. Its MINIATURE content
-        // vanishes separately while the physical plate gives a brief press/fold
+        // vanishes separately while the physical plate gives a brief press
         // response. Returning or interrupting retraces the same curve.
         val pulse = segment(p, 0f, .12f) * (1f - segment(p, .12f, .38f))
         return SourceFrame(

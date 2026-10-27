@@ -2398,16 +2398,16 @@ private fun PhoneStartGrid(
         if (mode == LauncherUiMode.MOBILE_10) {
             if (expandedFolder != null) {
                 if (retainedFolder?.folder?.id != expandedFolder.folder.id) {
-                    mobileFolderClock.animateTo(0f, tween(
-                        PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
-                        easing = LinearEasing))
+                    if (mobileFolderClock.value > 0f) mobileFolderClock.animateTo(0f, tween(
+                            PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
+                            easing = LinearEasing))
                     retainedFolder = expandedFolder
                 }
                 mobileFolderClock.animateTo(1f, tween(
                     PhoneFolderMotion.remainingDuration(mobileFolderClock.value, true),
                     easing = LinearEasing))
             } else {
-                mobileFolderClock.animateTo(0f, tween(
+                if (mobileFolderClock.value > 0f) mobileFolderClock.animateTo(0f, tween(
                     PhoneFolderMotion.remainingDuration(mobileFolderClock.value, false),
                     easing = LinearEasing))
                 retainedFolder = null
