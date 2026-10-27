@@ -1,4 +1,4 @@
-name: W10M emulator boot probe
+name: W10M native folder capture
 on:
   push:
     branches:
@@ -37,15 +37,15 @@ jobs:
           qemu-system-x86_64 -accel kvm -m 3072 -smp 2 \
             -cpu host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time \
             -drive file=phone-diff.qcow2,format=qcow2,if=ide -vga std \
-            -display none -monitor unix:"$PWD/phone-monitor.sock",server=on,wait=off \
+            -usb -device usb-tablet -display none -qmp unix:"$PWD/phone-qmp.sock",server=on,wait=off -monitor unix:"$PWD/phone-monitor.sock",server=on,wait=off \
             -serial file:boot-captures/serial.log -net none \
             >boot-captures/qemu.log 2>&1 &
-          python3 evidence/w10m_emulator_probe.py "$PWD/phone-monitor.sock" "$PWD/boot-captures"
+          python3 evidence/w10m_emulator_probe.py "$PWD/phone-qmp.sock" "$PWD/boot-captures"
       - name: Upload boot captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: microsoft-w10m-emulator-boot-probe
+          name: microsoft-w10m-folder-input-probe
           path: boot-captures/
           if-no-files-found: ignore
           retention-days: 3
