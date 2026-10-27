@@ -2609,6 +2609,7 @@ private fun PhoneStartGrid(
                     } else PhoneFolderMotion.Frame.Visible
                     val folderFaceProgress = if (mode == LauncherUiMode.MOBILE_10 &&
                         tile.id == displayedFolder?.folder?.id) mobileFolderProgress else 0f
+                    val folderFaceMotion = PhoneFolderMotion.sourceFrame(folderFaceProgress)
                     val deletion by animateFloatAsState(
                         targetValue = if (deletingTileId == editKey) 1f else 0f,
                         animationSpec = tween(
@@ -2696,12 +2697,16 @@ private fun PhoneStartGrid(
                                   height = cell * pos.rows + gap * (pos.rows - 1))
                             .zIndex(if (isSelectedForEdit) 4f else 0f)
                             .graphicsLayer {
+                                // The physical folder tile folds toward its inline
+                                // header. It reverses through these exact values
+                                // on a second tap, without restarting a tween.
                                 alpha = editAlpha * (1f - deletion) *
-                                    childReveal.childrenOpacity
+                                    childReveal.childrenOpacity * folderFaceMotion.alpha
                                 scaleX = editScale * (1f - .5f * deletion) *
-                                    childReveal.childrenScale
+                                    childReveal.childrenScale * folderFaceMotion.scale
                                 scaleY = editScale * (1f - .5f * deletion) *
-                                    childReveal.childrenScale
+                                    childReveal.childrenScale * folderFaceMotion.scale
+                                rotationX = folderFaceMotion.rotationX
                                 translationX = if (isSelectedForEdit) tileDragOffset.x
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, false) *
@@ -2711,7 +2716,8 @@ private fun PhoneStartGrid(
                                     else if (classicEditing && !classicEditIntro)
                                         ClassicPhoneEditMotion.wobble(tile.id, classicWobble, true) *
                                             density * editProgress * .35f
-                                    else 0f) + childReveal.childrenOffsetDp * density
+                                    else 0f) + childReveal.childrenOffsetDp * density +
+                                    folderFaceMotion.offsetDp * density
                             },
                         // The launch controller must receive the same artwork/color
                         // that this physical phone tile resolved, not the desktop seed.
