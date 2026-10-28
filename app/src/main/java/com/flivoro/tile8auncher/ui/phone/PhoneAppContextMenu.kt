@@ -101,6 +101,7 @@ internal fun PhoneAppContextMenu(
     rowBoundsInWindow: Rect = Rect.Zero,
     viewportBoundsInWindow: Rect = Rect.Zero,
     onPinChanged: () -> Unit,
+    onAddWidgets: () -> Unit,
     onAppInfo: () -> Unit,
     onUninstall: () -> Unit = {},
     onDismiss: () -> Unit,
@@ -112,8 +113,8 @@ internal fun PhoneAppContextMenu(
     val pointerFraction = (xPx / screenWidthPx).coerceIn(0f, 1f)
     // Disco uses fixed CSS pixels for commands rather than scaling them with tile size.
     val scale = 1f
-    val commandCount = if (packageName == "mosaic.launcher.settings") 2
-        else if (isUninstallable) 3 else 2
+    val commandCount = if (packageName == "mosaic.launcher.settings") 3
+        else if (isUninstallable) 4 else 3
     val classicMenuHeight = 24f + 65f * commandCount
     val menuHeightPx = with(LocalDensity.current) { classicMenuHeight.dp.roundToPx() }
     val opensAbove = placeClassicAppMenu(
@@ -200,6 +201,7 @@ internal fun PhoneAppContextMenu(
                     // Disco disables pin when it is already present; never unpin
                     // from the All Apps context menu.
                     item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
+                    item("add widgets", action = onAddWidgets)
                     if (packageName != "mosaic.launcher.settings") {
                         item("app info", action = onAppInfo)
                         if (isUninstallable) item("uninstall", action = onUninstall)
@@ -224,6 +226,7 @@ internal fun PhoneAppContextMenu(
                     .testTag("phone-lumia-app-context-menu"),
             ) {
                 item(if (alreadyPinned) "unpin from start" else "pin to start", action = onPinChanged)
+                item("add widgets", action = onAddWidgets)
                 if (packageName != "mosaic.launcher.settings") {
                     item("share") {
                         val send = Intent(Intent.ACTION_SEND).apply {

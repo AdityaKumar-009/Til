@@ -122,6 +122,7 @@ import com.flivoro.tile8auncher.features.LiveTileNotificationStore
 import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.WidgetPickerActivity
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.canRequestAppUninstall
@@ -2333,6 +2334,9 @@ fun PhoneLauncherSurface(
                             }
                         }
                     }
+                },
+                onAddWidgets = {
+                    context.startActivity(WidgetPickerActivity.forApp(context, pkg))
                 },
                 onAppInfo = {
                     if (pkg == MOSAIC_SETTINGS_ID) {

@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -40,6 +41,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Surface
@@ -94,6 +96,7 @@ import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.WidgetPickerActivity
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.UniversalSearchResult
 import com.flivoro.tile8auncher.features.hasUsageAccess
@@ -669,7 +672,10 @@ fun AllAppsScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(16.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(
+                            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
                             MetroActionButton(
                                 glyph = if (isPinned) "unpin" else "pin",
                                 label = if (isPinned) "Unpin" else "Pin to Start",
@@ -682,6 +688,14 @@ fun AllAppsScreen(
                                         Toast.makeText(context, "Pinned ${currentApp.label} to Start", Toast.LENGTH_SHORT).show()
                                     }
                                     selectedAppForAction = null
+                                },
+                            )
+                            MetroActionButton(
+                                glyph = "app",
+                                label = "Add widgets",
+                                onClick = {
+                                    selectedAppForAction = null
+                                    context.startActivity(WidgetPickerActivity.forApp(context, currentApp.packageName))
                                 },
                             )
                             MetroActionButton(
