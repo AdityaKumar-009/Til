@@ -3,6 +3,7 @@ package com.flivoro.tile8auncher
 import android.content.BroadcastReceiver
 import android.content.Intent
 import android.graphics.Bitmap
+import android.os.PowerManager
 import android.os.SystemClock
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
@@ -105,7 +106,7 @@ class LauncherUnlockRecoveryTest {
         assertTrue("$mode rendered a flat/black surface ($name)", colors.size > 24)
         val directory = File(instrumentation.targetContext.getExternalFilesDir(null),
             "motion-frames/unlock-recovery").apply { mkdirs() }
-        File(directory, "$mode-$name.png").outputStream().use {
+        File(directory, "cross-unlock-$mode-$name.png").outputStream().use {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
@@ -166,7 +167,10 @@ class LauncherUnlockRecoveryTest {
     @Test fun actualDisplaySleepAndWakeRestoresAllThreeModesRepeatedly() = allModes { mode ->
         repeat(2) { cycle ->
             shell("input keyevent 223") // KEYCODE_SLEEP, idempotent (unlike POWER).
-            SystemClock.sleep(400)
+            // Input injection completes before asynchronous power/broadcast delivery.
+            // Waiting a fixed 400ms races SCREEN_OFF on software-rendered emulators.
+            val power = instrumentation.targetContext.getSystemService(PowerManager::class.java)
+            compose.waitUntil(10_000) { !power.isInteractive && !ready() }
             assertFalse("$mode did not hide while asleep", ready())
             shell("input keyevent 224") // KEYCODE_WAKEUP.
             shell("wm dismiss-keyguard")
