@@ -186,17 +186,7 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    // Discard transient launch state from the previous wake cycle. The
-                    // existing surface/workspace stays mounted behind the entrance gate.
                     screenOffRequest++
-                    pendingStoryReturn = null
-                    classicExternalAppLaunched = false
-                    mobileExternalAppLaunched = false
-                    launchHandoffPending = false
-                    phoneReturnSourceTileId = null
-                    activeInAppTile = null
-                    pendingLaunchIntent = null
-                    if (flipState.isRunning) flipState = FlipAnimationState()
                     beginStartupEntranceGate()
                 }
 
@@ -560,6 +550,16 @@ class MainActivity : ComponentActivity() {
 
     private fun beginStartupEntranceGate() {
         classicPhoneResumeGeneration++
+        // A lock also interrupts any app handoff/return. Do this for lifecycle
+        // detection too, since SCREEN_OFF itself may have been missed.
+        pendingStoryReturn = null
+        classicExternalAppLaunched = false
+        mobileExternalAppLaunched = false
+        launchHandoffPending = false
+        phoneReturnSourceTileId = null
+        activeInAppTile = null
+        pendingLaunchIntent = null
+        if (flipState.isRunning) flipState = FlipAnimationState()
         startupEntrancePending = true
         entranceReady = false
         entranceRecovery.recheck()
