@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,9 @@ internal fun LauncherSettingsScreen(
     val mode = remember(revision) { LauncherFeatureStore.launcherUiMode(context) }
     val animation = remember(revision) { LauncherFeatureStore.masterLaunchAnimation(context) }
     var currentPage by rememberSaveable { mutableStateOf(SettingsPage.OVERVIEW) }
+    // Each Settings page starts at its own top. Reusing one scroll offset across
+    // pages can strand the Overview navigation rows outside the visible viewport.
+    val pageScrollState = key(currentPage) { rememberScrollState() }
     var showModes by remember { mutableStateOf(false) }
     var showAnimations by remember { mutableStateOf(false) }
     var showWallpapers by rememberSaveable { mutableStateOf(false) }
@@ -127,7 +131,7 @@ internal fun LauncherSettingsScreen(
     ) {
         Column(
             Modifier.widthIn(max = 640.dp).fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(pageScrollState)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
