@@ -1,9 +1,6 @@
 package com.flivoro.tile8auncher.ui.components
 
 import android.content.Intent
-import androidx.activity.compose.BackHandler
-import androidx.compose.runtime.saveable.rememberSaveable
-import com.flivoro.tile8auncher.ui.phone.PhoneNativeSettingsSurface
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,15 +74,10 @@ fun WindowsAppView(
     val context = LocalContext.current
     @Suppress("UNUSED_VARIABLE") val modeRevision = LauncherFeatureRuntime.launcherModeRevision
     val mode = LauncherFeatureStore.launcherUiMode(context)
-    var advancedSettings by rememberSaveable(tile.id) { mutableStateOf(false) }
-    val phoneSettings = tile.tileType == TileType.SETTINGS && mode != LauncherUiMode.DESKTOP
-    if (phoneSettings && !advancedSettings) {
-        PhoneNativeSettingsSurface(mode, onClose = onClose,
-            onLauncherSettings = { advancedSettings = true })
+    if (tile.tileType == TileType.SETTINGS) {
+        LauncherSettingsScreen(onClose = onClose)
         return
     }
-    val closePage: () -> Unit = if (phoneSettings) ({ advancedSettings = false }) else onClose
-    BackHandler(enabled = phoneSettings && advancedSettings) { advancedSettings = false }
 
     Box(
         modifier = Modifier
@@ -126,7 +118,7 @@ fun WindowsAppView(
                     style = WindowsTypography.titleMedium.copy(fontSize = 16.sp),
                     color = Color.White,
                     modifier = Modifier
-                        .clickable { closePage() }
+                        .clickable { onClose() }
                         .padding(8.dp)
                 )
             }
@@ -149,7 +141,7 @@ fun WindowsAppView(
                     PCSettingsAppContent(
                         appsRepository = appsRepository,
                         onTestFlip = onTestFlip,
-                        onClose = closePage,
+                        onClose = onClose,
                         onWallpaperParallaxChanged = onWallpaperParallaxChanged,
                         onWallpaperStyleChanged = onWallpaperStyleChanged,
                     )

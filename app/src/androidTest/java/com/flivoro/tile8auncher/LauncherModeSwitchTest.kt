@@ -134,22 +134,17 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
-                compose.onNodeWithTag("phone-native-settings").assertExists()
-                compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
-                awaitUi("$mode Mosaic Settings content") {
-                    compose.onAllNodesWithTag("til-advanced-settings-content")
+                awaitUi("$mode TIL Settings content") {
+                    compose.onAllNodesWithTag("til-settings-screen")
                         .fetchSemanticsNodes().isNotEmpty()
                 }
             }
 
             fun selectMode(mode: LauncherUiMode) {
-                compose.onNodeWithText("Windows interface").performScrollTo().performClick()
-                compose.onNodeWithTag("launcher-mode-${mode.name}").performClick()
+                compose.onNodeWithTag("launcher-mode-${mode.name}").performScrollTo().performClick()
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse("Activity finished while selecting $mode", compose.activity.isFinishing)
-                compose.onNodeWithText("✕").performClick()
-                compose.onNodeWithTag("phone-native-settings").assertExists()
-                compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                compose.onNodeWithTag("launcher-settings-back").performClick()
                 awaitUi("$mode Start screen after closing Settings") {
                     compose.onAllNodesWithTag("phone-navigation-state")
                         .fetchSemanticsNodes().isNotEmpty()
@@ -185,12 +180,9 @@ class LauncherModeSwitchTest {
                 }
                 compose.onNodeWithTag("phone-action-center-trigger").performClick()
                 compose.onNodeWithText("All settings").performClick()
-                compose.onNodeWithTag("phone-native-settings").assertExists()
-                compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
-                compose.onNodeWithTag("til-advanced-settings-content").assertExists()
-                compose.onNodeWithText("✕").performClick()
-                compose.onNodeWithTag("phone-native-settings").assertExists()
-                compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                compose.onNodeWithTag("til-settings-screen").assertExists()
+                compose.onNodeWithTag("launcher-default-home-action").assertExists()
+                compose.onNodeWithTag("launcher-settings-back").performClick()
                 compose.waitForIdle()
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse(compose.activity.isFinishing)

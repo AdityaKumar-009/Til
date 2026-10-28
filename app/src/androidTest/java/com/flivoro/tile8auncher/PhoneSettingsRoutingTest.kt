@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PhoneSettingsRoutingTest {
     @get:Rule val compose = createComposeRule()
-    @Test fun phoneSettingsKeepsLauncherCustomizationAccessible() {
+    @Test fun phoneSettingsShowsOneHomeAndModeScreen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
         LauncherFeatureStore.setLauncherUiMode(context, LauncherUiMode.MOBILE_10)
@@ -24,9 +24,10 @@ class PhoneSettingsRoutingTest {
             WindowsAppView(TileModel(id = "tile_settings", title = "Mosaic Settings", tileType = TileType.SETTINGS),
                 appsRepository = AppsRepository(context), onClose = {})
         } }
-        compose.onNodeWithTag("phone-native-settings").assertIsDisplayed()
+        compose.onNodeWithTag("til-settings-screen").assertIsDisplayed()
+        compose.onNodeWithTag("launcher-default-home-action").assertIsDisplayed()
+        compose.onNodeWithTag("launcher-default-home-status").assertIsDisplayed()
+        compose.onNodeWithTag("launcher-mode-MOBILE_10").assertExists()
         compose.captureFidelity("mobile-settings-root")
-        compose.onNodeWithTag("phone-native-advanced-settings").performScrollTo().performClick()
-        compose.onNodeWithTag("til-advanced-settings-content").assertIsDisplayed()
     }
 }
