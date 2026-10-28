@@ -224,6 +224,11 @@ fun LauncherFeatureSettings(
                 LiveTileRuntime.requestReconnect(context)
                 runCatching { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
             }
+            if (launcherMode != LauncherUiMode.DESKTOP) {
+                SettingsActionRow("Add Android widget", "Pin a widget to your Start screen", "app") {
+                    context.startActivity(Intent(context, WidgetPickerActivity::class.java))
+                }
+            }
             if (launcherMode == LauncherUiMode.MOBILE_10) {
                 SettingsToggleRow("Recently installed apps", "Show new apps first in All Apps", showRecentlyInstalledApps) { enabled ->
                     showRecentlyInstalledApps = enabled

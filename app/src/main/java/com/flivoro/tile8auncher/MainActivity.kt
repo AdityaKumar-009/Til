@@ -1701,6 +1701,13 @@ fun Tile8LauncherApp(
             onSearch = { searchApps() },
             onSettings = { openLauncherSettings() },
             onAddApps = { if (entranceReady) { showCharms = false; showPinAppsDialog = true } },
+            onAddWidget = {
+                if (entranceReady) {
+                    showCharms = false
+                    context.startActivity(Intent(context,
+                        com.flivoro.tile8auncher.features.WidgetPickerActivity::class.java))
+                }
+            },
             onDevices = { openDeviceSettings() },
             onPower = { if (entranceReady) { showCharms = false; showPowerDialog = true } },
         )
