@@ -2603,6 +2603,7 @@ private fun PhoneStartGrid(
             maxWidth * if (columns == 6) .025f else (25f / 480f)
         } else 10.dp
         val cell = (maxWidth - side * 2 - gap * (columns - 1)) / columns
+        val classicRuleThickness = ClassicPhoneFolderStyle.ruleThickness(maxWidth)
         val expanded = expandedFolder != null && folderIndex >= 0 &&
             expandedFolder.folder.id == displayedFolder?.folder?.id
         val fullFolderHeight = (cell + gap) * childRows +
@@ -3094,7 +3095,7 @@ private fun PhoneStartGrid(
                                 horizontalInset = if (mode == LauncherUiMode.PHONE_8) side
                                     else PhoneFolderDividerStyle.horizontalInset,
                                 ruleThickness = if (mode == LauncherUiMode.PHONE_8)
-                                    ClassicPhoneFolderStyle.ruleThickness(maxWidth)
+                                    classicRuleThickness
                                     else PhoneFolderDividerStyle.thickness)
                         }
                         // Only WP8.1 retains the legacy group reveal. W10M reveals
@@ -3139,7 +3140,7 @@ private fun PhoneStartGrid(
                         val regionHeight = if (mode == LauncherUiMode.PHONE_8)
                             ClassicPhoneFolderStyle.regionHeight else PhoneFolderDividerStyle.regionHeight
                         val thickness = if (mode == LauncherUiMode.PHONE_8)
-                            ClassicPhoneFolderStyle.ruleThickness(maxWidth) else PhoneFolderDividerStyle.thickness
+                            classicRuleThickness else PhoneFolderDividerStyle.thickness
                         val inset = if (mode == LauncherUiMode.PHONE_8) side
                             else PhoneFolderDividerStyle.horizontalInset
                         val bottomTopPx = folderTopPx + expansionHeight.value * density -
