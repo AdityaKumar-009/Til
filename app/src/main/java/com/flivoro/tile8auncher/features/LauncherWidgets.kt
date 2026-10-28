@@ -161,21 +161,21 @@ private fun widgetPreviewView(
 ): FrameLayout = FrameLayout(context).apply {
     setBackgroundColor(android.graphics.Color.rgb(35, 35, 42))
 
-    val generated = if (Build.VERSION.SDK_INT >= 35) runCatching {
+    val generated: RemoteViews? = if (Build.VERSION.SDK_INT >= 35) runCatching {
         manager.getWidgetPreview(
             info.provider,
             info.profile,
             AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
         )
     }.getOrNull() else null
-    val previewLayout = if (Build.VERSION.SDK_INT >= 31 && info.previewLayout != 0) {
+    val previewLayout: RemoteViews? = if (Build.VERSION.SDK_INT >= 31 && info.previewLayout != 0) {
         RemoteViews(info.provider.packageName, info.previewLayout)
     } else null
 
     val remotePreviewAdded = sequenceOf(generated, previewLayout).filterNotNull().any { remote ->
         runCatching {
             val preview = remote.apply(context, this)
-            addView(preview, LayoutParams(
+            addView(preview, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 Gravity.CENTER,
@@ -192,7 +192,7 @@ private fun widgetPreviewView(
                 setImageDrawable(image)
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 setPadding(8.dpPx(context), 8.dpPx(context), 8.dpPx(context), 8.dpPx(context))
-            }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
             // The provider supplies neither a generated, layout, nor image preview.
             // Show its real icon, explicitly labelling this as a fallback.
@@ -213,7 +213,7 @@ private fun widgetPreviewView(
                     gravity = Gravity.CENTER
                     setPadding(0, 10.dpPx(context), 0, 0)
                 })
-            }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
     }
     // RemoteViews can contain PendingIntent buttons. The picker must never activate
@@ -221,7 +221,7 @@ private fun widgetPreviewView(
     addView(View(context).apply {
         isClickable = true
         setOnClickListener { onPick() }
-    }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 }
 
 private fun Int.dpPx(context: Context): Int =
