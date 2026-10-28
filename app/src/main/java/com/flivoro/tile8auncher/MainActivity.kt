@@ -10,6 +10,8 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
@@ -147,12 +149,18 @@ class MainActivity : ComponentActivity() {
     private var startupEntrancePending = true
     private var pendingLaunchIntent: Intent? = null
     private var launchHandoffPending = false
-    private var launcherForeground = false
     private var launcherResumed = false
-    private var waitingForUserPresent = false
-    private var userPresentObserved = false
     private var homeIntentPending = false
-    private var unlockReleaseGeneration = 0
+    private val entranceHandler = Handler(Looper.getMainLooper())
+    private val entranceRecovery = LauncherEntranceRecovery(
+        isPending = { startupEntrancePending },
+        isResumed = { launcherResumed },
+        isInteractive = { isDeviceInteractive() },
+        isKeyguardLocked = { isDeviceKeyguardLocked() },
+        postDelayed = { callback, delay -> entranceHandler.postDelayed(callback, delay) },
+        removeCallbacks = { callback -> entranceHandler.removeCallbacks(callback) },
+        onReady = { finishStartupEntranceGate() },
+    )
     // Ignore delayed activity-resume animation callbacks after a pause, a
     // replacement resume, or destruction. Disco delays activityResume by 200ms.
     private var classicPhoneResumeGeneration = 0
@@ -178,27 +186,24 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    // Keep the already-existing launcher surface alive but submit only its wallpaper.
-                    // Incrementing the generation cancels every pending unlock release callback.
-                    unlockReleaseGeneration++
-                    userPresentObserved = false
-                    startupEntrancePending = true
-                    waitingForUserPresent = true
-                    entranceReady = false
+                    // Discard transient launch state from the previous wake cycle. The
+                    // existing surface/workspace stays mounted behind the entrance gate.
                     screenOffRequest++
+                    pendingStoryReturn = null
+                    classicExternalAppLaunched = false
                     mobileExternalAppLaunched = false
+                    launchHandoffPending = false
                     phoneReturnSourceTileId = null
                     activeInAppTile = null
                     pendingLaunchIntent = null
                     if (flipState.isRunning) flipState = FlipAnimationState()
+                    beginStartupEntranceGate()
                 }
 
+                Intent.ACTION_SCREEN_ON,
                 Intent.ACTION_USER_PRESENT -> {
-                    // USER_PRESENT and Activity resume/keyguard state have no stable ordering across
-                    // OEMs. Remember the event even if the launcher is not resumed yet; onResume
-                    // will finish the same gate instead of losing this notification.
-                    userPresentObserved = true
-                    scheduleUnlockReleaseIfReady()
+                    // Signals prompt a state check; neither broadcast is a prerequisite.
+                    entranceRecovery.recheck()
                 }
             }
         }
@@ -241,7 +246,10 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(
             this,
             userPresentReceiver,
-            IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_OFF) },
+            IntentFilter(Intent.ACTION_USER_PRESENT).apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         userPresentReceiverRegistered = true
@@ -359,15 +367,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        launcherForeground = true
-        if (startupEntrancePending && userPresentObserved) scheduleUnlockReleaseIfReady()
-    }
-
     override fun onStop() {
-        launcherForeground = false
         launcherResumed = false
+        entranceRecovery.cancel()
         classicPhoneResumeGeneration++
         super.onStop()
         if (flipState.isRunning) {
@@ -383,15 +385,13 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         launcherResumed = false
+        entranceRecovery.cancel()
         classicPhoneResumeGeneration++
 
         // Some OEMs deliver ACTION_SCREEN_OFF after onPause. Pre-arm the same background-only gate
         // here when the display/keyguard already says the device is leaving the interactive state.
         if (deviceRequiresEntranceGate()) {
-            unlockReleaseGeneration++
-            startupEntrancePending = true
-            waitingForUserPresent = true
-            entranceReady = false
+            beginStartupEntranceGate()
         }
 
         if (!launchHandoffPending && flipState.isRunning &&
@@ -408,10 +408,14 @@ class MainActivity : ComponentActivity() {
         // Android task switch cannot consume the native-style tile entrance.
         entranceReady = false
         val generation = ++classicPhoneResumeGeneration
-        window.decorView.postDelayed({
-            if (generation != classicPhoneResumeGeneration || !launcherResumed ||
-                deviceRequiresEntranceGate() || startupEntrancePending
-            ) return@postDelayed
+        entranceHandler.postDelayed({
+            if (generation != classicPhoneResumeGeneration || !launcherResumed) return@postDelayed
+            if (deviceRequiresEntranceGate() || startupEntrancePending) {
+                // A lock during this delay must transfer ownership of the hidden
+                // surface to unlock recovery, not abandon entranceReady=false.
+                beginStartupEntranceGate()
+                return@postDelayed
+            }
 
             entranceKind = StartEntranceKind.RETURN
             // Explicit Home enters from the right; returning from an app
@@ -436,13 +440,10 @@ class MainActivity : ComponentActivity() {
         launcherResumed = true
 
         val gatedBySystem = deviceRequiresEntranceGate()
-        waitingForUserPresent = gatedBySystem
         if (gatedBySystem) {
             pendingStoryReturn = null
             phoneResumeUsesBackMotion = false
-            startupEntrancePending = true
-            entranceReady = false
-            if (userPresentObserved) scheduleUnlockReleaseIfReady()
+            beginStartupEntranceGate()
         } else if (startupEntrancePending) {
             phoneResumeUsesBackMotion = false
             finishStartupEntranceGate()
@@ -498,6 +499,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         suppressLauncherTransitions()
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            entranceRecovery.recheck()
             if (pendingStoryReturn != null && !launcherResumed) {
                 homeIntentPending = true
                 return
@@ -505,7 +507,7 @@ class MainActivity : ComponentActivity() {
             // Android routinely redelivers HOME to the already-visible launcher.
             // A settled phone Start must not reset the animation clock at all.
             if (LauncherFeatureStore.launcherUiMode(this) != LauncherUiMode.DESKTOP &&
-                launcherResumed && !phoneAllAppsVisible && activeInAppTile == null &&
+                launcherResumed && entranceReady && !phoneAllAppsVisible && activeInAppTile == null &&
                 !flipState.isRunning
             ) return
             phoneResumeUsesBackMotion = false
@@ -539,8 +541,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Keyguard/focus callbacks are independent of onResume. In particular,
+        // unlocking need not deliver another resume or USER_PRESENT notification.
+        if (hasFocus) entranceRecovery.recheck()
+    }
+
     override fun onDestroy() {
-        unlockReleaseGeneration++
+        entranceRecovery.dispose()
         classicPhoneResumeGeneration++
         if (userPresentReceiverRegistered) {
             unregisterReceiver(userPresentReceiver)
@@ -549,33 +558,19 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun scheduleUnlockReleaseIfReady() {
-        if (!startupEntrancePending) return
-        val generation = unlockReleaseGeneration
-        if (!launcherResumed) return
-
-        window.decorView.postOnAnimation(object : Runnable {
-            override fun run() {
-                if (generation != unlockReleaseGeneration || !startupEntrancePending) return
-                if (!launcherResumed) return
-                if (deviceRequiresEntranceGate()) {
-                    // USER_PRESENT can precede the final keyguard state transition by several
-                    // frames. Retry on the same window rather than leaving entranceReady=false.
-                    window.decorView.postOnAnimation(this)
-                    return
-                }
-                finishStartupEntranceGate()
-            }
-        })
+    private fun beginStartupEntranceGate() {
+        classicPhoneResumeGeneration++
+        startupEntrancePending = true
+        entranceReady = false
+        entranceRecovery.recheck()
     }
 
     private fun finishStartupEntranceGate() {
+        entranceRecovery.cancel()
         if (!startupEntrancePending) {
             entranceReady = true
             return
         }
-        waitingForUserPresent = false
-        userPresentObserved = false
         startupEntrancePending = false
         entranceReady = true
         entranceKind = StartEntranceKind.STARTUP
@@ -587,11 +582,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun deviceRequiresEntranceGate(): Boolean {
-        val keyguardLocked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
-        val interactive = getSystemService(PowerManager::class.java)?.isInteractive != false
-        return keyguardLocked || !interactive
-    }
+    private fun isDeviceKeyguardLocked(): Boolean =
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+
+    private fun isDeviceInteractive(): Boolean =
+        getSystemService(PowerManager::class.java)?.isInteractive != false
+
+    private fun deviceRequiresEntranceGate(): Boolean =
+        isDeviceKeyguardLocked() || !isDeviceInteractive()
 
     private fun requestFlipReverse(reason: FlipReverseReason) {
         if (!flipState.isRunning) return
