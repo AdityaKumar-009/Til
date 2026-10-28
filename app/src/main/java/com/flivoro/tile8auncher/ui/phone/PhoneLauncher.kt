@@ -2856,6 +2856,7 @@ private fun PhoneStartGrid(
                                     gridWidthPx = gridWidthForPhoto.value * density,
                                     gridHeightPx = sharedPhotoHeightPx ?: ((cell + gap) * heightRows).value * density,
                                     inverseTileProjection = inverseTileProjection,
+                                    extendOutsideGrid = displayedFolder != null || onDragOutside != null,
                                 )
                             }
                         } else null,

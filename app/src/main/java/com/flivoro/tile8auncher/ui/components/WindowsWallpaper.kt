@@ -53,6 +53,8 @@ fun PhoneTilePicture(
     gridHeightPx: Float,
     /** Undo the tile's animation matrix AFTER clipping to its moving face. */
     inverseTileProjection: (() -> Matrix?)? = null,
+    /** Keep the same wallpaper plane beyond its original Start grid while a folder is open. */
+    extendOutsideGrid: Boolean = false,
 ) {
     val uri = StartPersonalization.customWallpaperUri
     val bitmap = if (uri != null) {
@@ -71,6 +73,10 @@ fun PhoneTilePicture(
     val paint = remember {
         Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     }
+    val extendedShader = remember(bitmap) {
+        bitmap?.let { BitmapShader(it, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR) }
+    }
+    val shaderMatrix = remember { Matrix() }
     androidx.compose.foundation.Canvas(modifier) {
         if (bitmap != null && bitmap.width > 0 && bitmap.height > 0) {
             val scale = max(
@@ -89,9 +95,20 @@ fun PhoneTilePicture(
                 // transformed back into the unchanged Start wallpaper plane.
                 // This is Disco's static-wallpaper-through-moving-tiles effect.
                 inverseTileProjection?.invoke()?.let(native::concat)
-                native.drawBitmap(bitmap, null,
-                    android.graphics.RectF(x, y, x + scaledWidth, y + scaledHeight),
-                    paint)
+                if (extendOutsideGrid && extendedShader != null) {
+                    // In-bounds pixels are unchanged. Mirroring only supplies
+                    // pixels past the original plane for displaced folder tiles.
+                    shaderMatrix.setScale(scale, scale)
+                    shaderMatrix.postTranslate(x, y)
+                    extendedShader.setLocalMatrix(shaderMatrix)
+                    paint.shader = extendedShader
+                    native.drawPaint(paint)
+                    paint.shader = null
+                } else {
+                    native.drawBitmap(bitmap, null,
+                        android.graphics.RectF(x, y, x + scaledWidth, y + scaledHeight),
+                        paint)
+                }
                 if (overlay > 0f) {
                     native.drawColor(
                         android.graphics.Color.argb((overlay * 255).toInt(), 0, 0, 0),

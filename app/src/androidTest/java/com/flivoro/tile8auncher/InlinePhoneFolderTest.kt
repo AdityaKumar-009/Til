@@ -143,6 +143,7 @@ class InlinePhoneFolderTest {
         val mode = LauncherUiMode.PHONE_8
         LauncherFeatureStore.setLauncherUiMode(context, mode)
         LauncherFeatureStore.setPhoneSmallColumns(context, mode, 4)
+        LauncherFeatureStore.setBackgroundStyle(context, mode, PhoneBackgroundStyle.TILE_PICTURE)
         StartPersonalization.ensureLoaded(context)
         val previousAccent = StartPersonalization.wallpaperAccentColor
         StartPersonalization.setWallpaperDerivedAccent(context, Color(0xFF00C040))
@@ -199,6 +200,13 @@ class InlinePhoneFolderTest {
                 assertTrue("Classic rule must use the green theme accent",
                     (color shr 8 and 255) > 140 && (color shr 16 and 255) < 40)
             }
+            listOf("b", "d").forEach { id ->
+                val tile = compose.onNodeWithTag("phone-start-tile-$id", useUnmergedTree = true)
+                    .fetchSemanticsNode().boundsInRoot
+                val color = image.getPixel((tile.right - 20f).toInt(), (tile.bottom - 12f).toInt())
+                val brightness = (color shr 16 and 255) + (color shr 8 and 255) + (color and 255)
+                assertTrue("Tile-picture wallpaper must extend over the entire displaced tile $id", brightness > 15)
+            }
             compose.captureFidelity("classic-folder-open-settled")
 
             tapFolder()
@@ -229,10 +237,13 @@ class InlinePhoneFolderTest {
             compose.runOnIdle { launching.value = false; entrance.intValue++; sampledMillis.intValue = 2000 }
             compose.mainClock.advanceTimeByFrame()
             compose.waitForIdle()
+            compose.onNodeWithTag("phone-folder-title").performClick()
+            compose.onNodeWithTag("phone-folder-title").performTextReplacement("Classic folder")
             tapFolder()
             compose.mainClock.advanceTimeBy(600)
             compose.waitForIdle()
             compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertDoesNotExist()
+            assertEquals("Classic folder", PhoneFolderStore.read(context, mode).single().name)
             assertEquals(neighborBefore,
                 compose.onNodeWithTag("phone-start-tile-d", useUnmergedTree = true)
                     .fetchSemanticsNode().boundsInRoot.top, 2f)

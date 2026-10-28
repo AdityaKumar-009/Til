@@ -31,6 +31,10 @@ sets of folder rules participate in their selected Start launch and return
 scene. None of those fitted times should be described as a measured native
 tap-to-open or tap-to-close timeline.
 
+When tile-picture mode is active, folder expansion can move tiles beyond the
+original wallpaper plane. Those tiles sample a mirrored continuation of the
+same image so the expanded and displaced tile faces do not end in black strips.
+
 The desktop launcher's pre-existing package-folder implementation is exposed
 through **Create folder** after selecting at least two app tiles. This is a
 launcher extension: the native Windows 8.1 drag gesture and group layout stay

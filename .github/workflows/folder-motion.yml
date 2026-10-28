@@ -7,6 +7,7 @@ on:
     paths:
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneFolder*'
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/ClassicPhoneFolderMotion.kt'
+      - 'app/src/main/java/com/flivoro/tile8auncher/ui/components/WindowsWallpaper.kt'
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/phone/PhoneLauncher.kt'
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/start/StartScreen.kt'
       - 'app/src/main/java/com/flivoro/tile8auncher/ui/start/StartFeatureOverlays.kt'
