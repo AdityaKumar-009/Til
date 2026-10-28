@@ -141,10 +141,10 @@ class LauncherModeSwitchTest {
             }
 
             fun selectMode(mode: LauncherUiMode) {
-                compose.onNodeWithTag("launcher-mode-${mode.name}").performScrollTo().performClick()
+                compose.onNodeWithTag("launcher-style-action").performClick()
+                compose.onNodeWithTag("launcher-mode-${mode.name}").performClick()
                 assertEquals(mode, LauncherFeatureStore.launcherUiMode(context))
                 assertFalse("Activity finished while selecting $mode", compose.activity.isFinishing)
-                compose.onNodeWithTag("launcher-settings-back").performClick()
                 awaitUi("$mode Start screen after closing Settings") {
                     compose.onAllNodesWithTag("phone-navigation-state")
                         .fetchSemanticsNodes().isNotEmpty()

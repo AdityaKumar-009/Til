@@ -75,7 +75,12 @@ fun WindowsAppView(
     @Suppress("UNUSED_VARIABLE") val modeRevision = LauncherFeatureRuntime.launcherModeRevision
     val mode = LauncherFeatureStore.launcherUiMode(context)
     if (tile.tileType == TileType.SETTINGS) {
-        LauncherSettingsScreen(onClose = onClose)
+        LauncherSettingsScreen(
+            onClose = onClose,
+            appsRepository = appsRepository,
+            onWallpaperStyleChanged = onWallpaperStyleChanged,
+            onWallpaperParallaxChanged = onWallpaperParallaxChanged,
+        )
         return
     }
 
