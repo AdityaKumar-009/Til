@@ -84,6 +84,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -1817,7 +1818,8 @@ fun StartScreen(
                                                             )
                                                         }
                                                     } else null,
-                                                    modifier = Modifier.fillMaxSize(),
+                                                    modifier = Modifier.fillMaxSize()
+                                                        .testTag("desktop-start-tile-${tile.id}"),
                                                     onClick = { bounds ->
                                                         if (!semanticZoomActive) {
                                                             handleTileClick(tile, bounds)
@@ -2501,6 +2503,19 @@ private fun StartCustomizationBar(
                         )
                     }
                 }
+            }
+
+            // Desktop Windows 8.1 organized Start into groups; tile folders
+            // are an optional launcher extension, exposed only for a valid
+            // multi-selection instead of changing the native drag gesture.
+            onCreateFolder?.let { createFolder ->
+                StartCommandButton(
+                    label = "Create folder",
+                    glyph = "folder",
+                    commandWidth = commandWidth,
+                    compact = compact,
+                    onClick = createFolder,
+                )
             }
 
             if (singleTile != null && onToggleLiveTile != null && liveTileEnabled != null) {

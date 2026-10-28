@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -14,6 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.data.*
 import com.flivoro.tile8auncher.features.*
 import com.flivoro.tile8auncher.ui.phone.*
+import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -131,6 +133,111 @@ class InlinePhoneFolderTest {
             if (millis > 0) compose.mainClock.advanceTimeBy(16)
             compose.waitForIdle()
             compose.captureFidelity("$phase-${millis.toString().padStart(3, '0')}")
+        }
+    }
+
+    @Test fun classicFolderHasAccentRulesAndItsOwnReversibleMotion() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val mode = LauncherUiMode.PHONE_8
+        LauncherFeatureStore.setLauncherUiMode(context, mode)
+        LauncherFeatureStore.setPhoneSmallColumns(context, mode, 4)
+        StartPersonalization.ensureLoaded(context)
+        val previousAccent = StartPersonalization.wallpaperAccentColor
+        StartPersonalization.setWallpaperDerivedAccent(context, Color(0xFF00C040))
+        try {
+            val folder = checkNotNull(PhoneFolderStore.createOrAdd(context, mode, "a", "b"))
+            PhoneLayoutStore.saveOrder(context, mode, listOf(folder, "c", "d"))
+            val tiles = listOf("a", "b", "c", "d").map {
+                TileModel(id = it, title = "Tile $it", iconGlyph = "app", size = TileSize.MEDIUM)
+            }
+            val launching = mutableStateOf(false)
+            val selected = mutableStateOf<String?>(null)
+            val sampledMillis = mutableIntStateOf(2000)
+            val entrance = mutableIntStateOf(0)
+            val repository = AppsRepository(context)
+            compose.mainClock.autoAdvance = false
+            compose.setContent {
+                CompositionLocalProvider(LocalPhoneMotionSampleMillis provides { sampledMillis.intValue }) {
+                    MaterialTheme {
+                        PhoneLauncherSurface(mode = mode, tiles = tiles, sections = emptyList(),
+                            appsRepository = repository, homeRequest = 0, entranceRequest = entrance.intValue,
+                            launchingTileId = selected.value, isLaunching = launching.value,
+                            interactionEnabled = !launching.value, wallpaperStyle = 0,
+                            onLaunch = { tile, _, _ -> selected.value = tile.id; launching.value = true },
+                            onExitFinished = {}, onOpenSettings = {}, onOpenAppInfo = {})
+                    }
+                }
+            }
+            compose.mainClock.advanceTimeBy(1500)
+            compose.waitForIdle()
+            val neighborBefore = compose.onNodeWithTag("phone-start-tile-d", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.top
+            fun tapFolder() = compose.onNodeWithTag("phone-start-tile-$folder", useUnmergedTree = true)
+                .performTouchInput { click() }
+            tapFolder()
+            compose.mainClock.advanceTimeBy(96)
+            compose.waitForIdle()
+            val openingHeight = compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.height
+            compose.captureFidelity("classic-folder-open-096")
+            compose.mainClock.advanceTimeBy(500)
+            compose.waitForIdle()
+            val fullHeight = compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.height
+            assertTrue("Classic folder should open progressively", openingHeight > 0f && openingHeight < fullHeight)
+            val top = compose.onNodeWithTag("phone-folder-top-divider", useUnmergedTree = true)
+                .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val bottom = compose.onNodeWithTag("phone-folder-bottom-divider", useUnmergedTree = true)
+                .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertEquals("Classic rules use the same thickness", top.height, bottom.height, 1f)
+            assertTrue("Classic rules are thicker than W10M's one-dp rule", top.height > 3f)
+            val image = compose.onRoot().captureToImage().asAndroidBitmap()
+            listOf(top, bottom).forEach { line ->
+                val color = image.getPixel(line.center.x.toInt(), line.center.y.toInt())
+                assertTrue("Classic rule must use the green theme accent",
+                    (color shr 8 and 255) > 140 && (color shr 16 and 255) < 40)
+            }
+            compose.captureFidelity("classic-folder-open-settled")
+
+            tapFolder()
+            compose.mainClock.advanceTimeBy(96)
+            compose.waitForIdle()
+            val closingHeight = compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.height
+            assertTrue("Classic close must reverse through the same geometry", closingHeight in 1f..(fullHeight - 1f))
+            compose.captureFidelity("classic-folder-close-096")
+            tapFolder()
+            compose.mainClock.advanceTimeBy(600)
+            compose.waitForIdle()
+            assertEquals("Reopening must finish without a jump", fullHeight,
+                compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true)
+                    .fetchSemanticsNode().boundsInRoot.height, 2f)
+
+            // The rules belong to the classic Start scene when a child launches.
+            compose.onNodeWithTag("phone-start-tile-b", useUnmergedTree = true)
+                .performTouchInput { click() }
+            compose.runOnIdle { assertTrue(launching.value); sampledMillis.intValue = 1000 }
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+            val afterLaunch = compose.onRoot().captureToImage().asAndroidBitmap()
+            listOf(top, bottom).forEach { line ->
+                val color = afterLaunch.getPixel(line.center.x.toInt(), line.center.y.toInt())
+                assertTrue("Classic rule must leave with Start", (color shr 8 and 255) < 80)
+            }
+            compose.runOnIdle { launching.value = false; entrance.intValue++; sampledMillis.intValue = 2000 }
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+            tapFolder()
+            compose.mainClock.advanceTimeBy(600)
+            compose.waitForIdle()
+            compose.onNodeWithTag("phone-expanded-folder", useUnmergedTree = true).assertDoesNotExist()
+            assertEquals(neighborBefore,
+                compose.onNodeWithTag("phone-start-tile-d", useUnmergedTree = true)
+                    .fetchSemanticsNode().boundsInRoot.top, 2f)
+        } finally {
+            StartPersonalization.setWallpaperDerivedAccent(context, previousAccent)
         }
     }
 

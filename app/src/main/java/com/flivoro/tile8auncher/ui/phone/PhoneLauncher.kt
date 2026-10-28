@@ -2349,6 +2349,7 @@ fun PhoneLauncherSurface(
 
 private data class PhoneFolderChromeScene(
     val exiting: Boolean,
+    val mode: LauncherUiMode,
     val launchMotionMode: LauncherUiMode,
     val elapsedMillis: () -> Int,
     val surfaceBounds: Rect,
@@ -2370,10 +2371,13 @@ private fun Modifier.phoneFolderChromeMotion(
     val projection = remember(id) { PlatformMatrix() }
     val from = remember(id) { FloatArray(8) }
     val to = remember(id) { FloatArray(8) }
-    val classicExit = scene.exiting && scene.launchMotionMode == LauncherUiMode.PHONE_8
+    val classicMotion = if (scene.exiting) scene.launchMotionMode != LauncherUiMode.MOBILE_10
+        else scene.mode == LauncherUiMode.PHONE_8
+    val classicProjection = if (scene.exiting) scene.launchMotionMode == LauncherUiMode.PHONE_8
+        else scene.mode == LauncherUiMode.PHONE_8
 
     fun motion(): PhoneStartMotionFrame {
-        if (!scene.exiting || scene.launchMotionMode == LauncherUiMode.MOBILE_10) {
+        if (!classicMotion) {
             return MobileStartMotion.sample(
                 exiting = scene.exiting,
                 elapsedMillis = scene.elapsedMillis(),
@@ -2387,7 +2391,7 @@ private fun Modifier.phoneFolderChromeMotion(
         }
         return PhoneStartChoreography.sample(
             mode = LauncherUiMode.PHONE_8,
-            exiting = true,
+            exiting = scene.exiting,
             elapsedMillis = scene.elapsedMillis(),
             mobileRowFraction = rowFraction,
             animationIndex = 1f - rowFraction,
@@ -2395,6 +2399,8 @@ private fun Modifier.phoneFolderChromeMotion(
             viewportWidthCssPx = scene.viewportWidthCssPx,
             tileLeftCssPx = (bounds.left - scene.viewportBounds.left) / density,
             tileWidthCssPx = bounds.width / density,
+            resumeUsesBackMotion = scene.resumeUsesBackMotion,
+            entryStaggerMultiplier = PhoneStartChoreography.NATIVE_FORWARD_STAGGER_MULTIPLIER,
         )
     }
 
@@ -2402,7 +2408,7 @@ private fun Modifier.phoneFolderChromeMotion(
         .onGloballyPositioned {
             bounds = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat()))
         }
-        .then(if (classicExit) Modifier.graphicsLayer {
+        .then(if (classicProjection) Modifier.graphicsLayer {
             alpha = motion().alpha
         }.drawWithContent {
             val frame = motion()
@@ -2422,7 +2428,9 @@ private fun Modifier.phoneFolderChromeMotion(
                     elementWidthCssPx = width, elementHeightCssPx = height,
                     viewportWidthCssPx = pageWidth, viewportHeightCssPx = pageHeight,
                     motion = frame,
-                    cameraDistanceCssPx = PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX,
+                    cameraDistanceCssPx = if (scene.exiting)
+                        PhoneStartChoreography.CLASSIC_TILE_PERSPECTIVE_CSS_PX
+                    else PhoneStartChoreography.nativeCameraDistance(pageWidth),
                 )
             }
             val canvas = drawContext.canvas.nativeCanvas
@@ -2483,6 +2491,7 @@ private fun PhoneStartGrid(
     val slots = remember(tiles, columns) { packPhoneTiles(tiles.map(TileModel::size), columns) }
     var retainedFolder by remember { mutableStateOf(expandedFolder) }
     val mobileFolderClock = remember { Animatable(0f) }
+    val classicFolderClock = remember { Animatable(0f) }
     // Keep renamed/reordered content for the return trip without restarting
     // the identity-keyed motion coroutine on every callback allocation.
     LaunchedEffect(expandedFolder) {
@@ -2509,15 +2518,28 @@ private fun PhoneStartGrid(
                     easing = PhoneFolderMotion.clockEasing))
                 retainedFolder = null
             }
-        } else if (expandedFolder != null) retainedFolder = expandedFolder
-        else {
-            delay(350)
-            retainedFolder = null
+        } else {
+            if (expandedFolder != null) {
+                if (retainedFolder?.folder?.id != expandedFolder.folder.id) {
+                    if (classicFolderClock.value > 0f) classicFolderClock.animateTo(0f, tween(
+                        ClassicPhoneFolderMotion.remainingDuration(classicFolderClock.value, false),
+                        easing = ClassicPhoneFolderMotion.clockEasing))
+                    retainedFolder = expandedFolder
+                }
+                classicFolderClock.animateTo(1f, tween(
+                    ClassicPhoneFolderMotion.remainingDuration(classicFolderClock.value, true),
+                    easing = ClassicPhoneFolderMotion.clockEasing))
+            } else {
+                if (classicFolderClock.value > 0f) classicFolderClock.animateTo(0f, tween(
+                    ClassicPhoneFolderMotion.remainingDuration(classicFolderClock.value, false),
+                    easing = ClassicPhoneFolderMotion.clockEasing))
+                retainedFolder = null
+            }
         }
     }
-    val displayedFolder = if (mode == LauncherUiMode.MOBILE_10) {
-        expandedFolder?.takeIf { it.folder.id == retainedFolder?.folder?.id } ?: retainedFolder
-    } else expandedFolder ?: retainedFolder
+    val displayedFolder = expandedFolder?.takeIf {
+        it.folder.id == retainedFolder?.folder?.id
+    } ?: retainedFolder
     val folderIndex = tiles.indexOfFirst { it.id == displayedFolder?.folder?.id }
     val insertionRow = remember(slots, folderIndex, mode) {
         val source = slots.getOrNull(folderIndex)
@@ -2585,20 +2607,15 @@ private fun PhoneStartGrid(
             expandedFolder.folder.id == displayedFolder?.folder?.id
         val fullFolderHeight = (cell + gap) * childRows +
             if (mode == LauncherUiMode.MOBILE_10) PhoneFolderDividerStyle.regionHeight * 2
-            else 58.dp
-        // Keep the classic phone's original easing. W10M needs one coordinated
-        // progress clock for grid displacement, the title, and the child reveal.
-        val classicExpansionHeight by animateDpAsState(
-            targetValue = if (expanded) fullFolderHeight else 0.dp,
-            animationSpec = tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            label = "phone-inline-folder-space-classic",
-        )
+            else ClassicPhoneFolderStyle.regionHeight * 2
         val mobileFolderProgress = mobileFolderClock.value
-        val expansionHeight = if (mode == LauncherUiMode.MOBILE_10)
-            fullFolderHeight * PhoneFolderMotion.spaceProgress(mobileFolderProgress)
-            else classicExpansionHeight
+        val classicFolderProgress = classicFolderClock.value
+        val folderProgress = if (mode == LauncherUiMode.MOBILE_10)
+            mobileFolderProgress else classicFolderProgress
+        val expansionHeight = fullFolderHeight * folderProgress.coerceIn(0f, 1f)
         val folderMotion = if (mode == LauncherUiMode.MOBILE_10)
-            PhoneFolderMotion.frame(mobileFolderProgress) else PhoneFolderMotion.Frame.Visible
+            PhoneFolderMotion.frame(mobileFolderProgress)
+            else ClassicPhoneFolderMotion.frame(classicFolderProgress)
         val childOrigins = remember(displayedFolder?.folder?.id, displayedFolder?.children,
             slots, folderIndex, cell, gap, side, insertionRow) {
             val source = slots.getOrNull(folderIndex)
@@ -2760,9 +2777,10 @@ private fun PhoneStartGrid(
                                 targetLeft + (cell * pos.columns + gap * (pos.columns - 1)).value,
                                 targetTop + (cell * pos.rows + gap * (pos.rows - 1)).value))
                     } else null
-                    val folderFaceProgress = if (mode == LauncherUiMode.MOBILE_10 &&
-                        tile.id == displayedFolder?.folder?.id) mobileFolderProgress else 0f
-                    val folderFaceMotion = PhoneFolderMotion.sourceFrame(folderFaceProgress)
+                    val folderFaceProgress = if (tile.id == displayedFolder?.folder?.id)
+                        folderProgress else 0f
+                    val folderFaceMotion = PhoneFolderMotion.sourceFrame(
+                        if (mode == LauncherUiMode.MOBILE_10) folderFaceProgress else 0f)
                     val deletion by animateFloatAsState(
                         targetValue = if (deletingTileId == editKey) 1f else 0f,
                         animationSpec = tween(
@@ -3042,6 +3060,7 @@ private fun PhoneStartGrid(
                 val folderTopPx = topInsetPx + insertionRow * cellStepPx - scrollOffsetPx
                 val chromeScene = PhoneFolderChromeScene(
                     exiting = isLaunching,
+                    mode = mode,
                     launchMotionMode = launchMotionMode,
                     elapsedMillis = elapsedMillis,
                     surfaceBounds = surfaceBounds,
@@ -3057,25 +3076,26 @@ private fun PhoneStartGrid(
                     .height(expansionHeight)
                     // Clip miniature travel while folding, but let the opened
                     // folder's actors participate in Start launch/return zooms.
-                    .then(if (mode != LauncherUiMode.MOBILE_10 ||
-                        (mobileFolderProgress < .999f && !isLaunching)) Modifier.clipToBounds()
+                    .then(if (folderProgress < .999f && !isLaunching) Modifier.clipToBounds()
                     else Modifier)
                     .then(if (mode == LauncherUiMode.MOBILE_10) Modifier.zIndex(1f) else Modifier)
                     .testTag("phone-expanded-folder")) {
-                    Column(if (mode == LauncherUiMode.MOBILE_10)
-                        Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true)
-                            .requiredHeight(fullFolderHeight)
-                    else Modifier.fillMaxWidth().height(expansionHeight)) {
-                        val headerChrome = if (mode == LauncherUiMode.MOBILE_10)
-                            Modifier.phoneFolderChromeMotion("phone-folder-header-${folder.folder.id}",
+                    Column(Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true)
+                        .requiredHeight(fullFolderHeight)) {
+                        val headerChrome = Modifier.phoneFolderChromeMotion("phone-folder-header-${folder.folder.id}",
                                 MobileStartMotion.rowFraction(folderTopPx, firstVisibleTop, lastVisibleTop),
-                                chromeScene) else Modifier
+                                chromeScene)
                         Box(headerChrome.graphicsLayer {
                             alpha = folderMotion.headerOpacity
                             translationY = folderMotion.headerOffsetDp * density
                         }) {
                             PhoneFolderHeader(folder, interactionEnabled && !isLaunching &&
-                                expanded, mode)
+                                expanded, mode,
+                                horizontalInset = if (mode == LauncherUiMode.PHONE_8) side
+                                    else PhoneFolderDividerStyle.horizontalInset,
+                                ruleThickness = if (mode == LauncherUiMode.PHONE_8)
+                                    ClassicPhoneFolderStyle.ruleThickness(maxWidth)
+                                    else PhoneFolderDividerStyle.thickness)
                         }
                         // Only WP8.1 retains the legacy group reveal. W10M reveals
                         // each actual child tile, with one shared reversible clock.
@@ -3092,8 +3112,7 @@ private fun PhoneStartGrid(
                                 (PhoneFolderDividerStyle.regionHeight.value * density)).roundToInt(),
                             elapsedMillis = elapsedMillis, surfaceBounds = surfaceBounds,
                             viewportBounds = viewportBounds, viewportHeightPx = viewportHeightPx,
-                            interactionEnabled = interactionEnabled && expanded &&
-                                (mode != LauncherUiMode.MOBILE_10 || mobileFolderProgress >= .99f),
+                            interactionEnabled = interactionEnabled && expanded && folderProgress >= .99f,
                             launchingTileId = launchingTileId, isLaunching = isLaunching,
                             resumeUsesBackMotion = resumeUsesBackMotion, mode = mode,
                             launchMotionMode = launchMotionMode, hideOriginalTileId = hideOriginalTileId,
@@ -3114,23 +3133,30 @@ private fun PhoneStartGrid(
                         )
                         }
                     }
-                    if (mode == LauncherUiMode.MOBILE_10) {
+                    run {
                         // The lower rule follows the expanding gap instead of
                         // jumping to the final position after the children.
+                        val regionHeight = if (mode == LauncherUiMode.PHONE_8)
+                            ClassicPhoneFolderStyle.regionHeight else PhoneFolderDividerStyle.regionHeight
+                        val thickness = if (mode == LauncherUiMode.PHONE_8)
+                            ClassicPhoneFolderStyle.ruleThickness(maxWidth) else PhoneFolderDividerStyle.thickness
+                        val inset = if (mode == LauncherUiMode.PHONE_8) side
+                            else PhoneFolderDividerStyle.horizontalInset
                         val bottomTopPx = folderTopPx + expansionHeight.value * density -
-                            PhoneFolderDividerStyle.regionHeight.value * density / 2f
+                            regionHeight.value * density / 2f
                         Spacer(Modifier.align(Alignment.BottomCenter)
                             .fillMaxWidth().padding(
-                                start = PhoneFolderDividerStyle.horizontalInset,
-                                end = PhoneFolderDividerStyle.horizontalInset,
-                                bottom = PhoneFolderDividerStyle.bottomInset,
+                                start = inset,
+                                end = inset,
+                                bottom = (regionHeight - thickness) / 2,
                             )
-                            .height(PhoneFolderDividerStyle.thickness)
+                            .height(thickness)
                             .phoneFolderChromeMotion("phone-folder-bottom-${folder.folder.id}",
                                 MobileStartMotion.rowFraction(bottomTopPx, firstVisibleTop, lastVisibleTop),
                                 chromeScene)
                             .graphicsLayer { alpha = folderMotion.headerOpacity }
-                            .background(PhoneFolderDividerStyle.color)
+                            .background(if (mode == LauncherUiMode.PHONE_8)
+                                StartPersonalization.wallpaperAccentColor else PhoneFolderDividerStyle.color)
                             .testTag("phone-folder-bottom-divider"))
                     }
                 }
@@ -3311,21 +3337,26 @@ private fun PhoneTile(
         appIcon = icon,
         contentOverride = if (folderChildren.isNotEmpty()) ({
             Box(Modifier.fillMaxSize()) {
+                val previewAlpha = if (mode == LauncherUiMode.PHONE_8)
+                    ClassicPhoneFolderMotion.previewOpacity(folderOpenProgress)
+                    else PhoneFolderMotion.previewOpacity(folderOpenProgress)
                 PhoneFolderPreview(
                     folderChildren, repository,
                     Modifier.fillMaxSize().graphicsLayer {
-                        alpha = PhoneFolderMotion.previewOpacity(folderOpenProgress)
+                        alpha = previewAlpha
                     },
                     mode = mode,
                 )
                 if (tile.size != TileSize.SMALL) Text(tile.title,
                     color = Color.White, fontSize = 11.sp, maxLines = 1,
                     modifier = Modifier.align(Alignment.BottomStart)
-                        .graphicsLayer { alpha = PhoneFolderMotion.previewOpacity(folderOpenProgress) }
+                        .graphicsLayer { alpha = previewAlpha }
                         .padding(start = 8.dp, bottom = 6.dp))
-                if (mode == LauncherUiMode.MOBILE_10 && folderOpenProgress > 0f) {
+                if (folderOpenProgress > 0f) {
                     androidx.compose.foundation.Canvas(Modifier.fillMaxSize()
-                        .graphicsLayer { alpha = PhoneFolderMotion.collapseOpacity(folderOpenProgress) }
+                        .graphicsLayer { alpha = if (mode == LauncherUiMode.PHONE_8)
+                            ClassicPhoneFolderMotion.emptyGridOpacity(folderOpenProgress)
+                            else PhoneFolderMotion.collapseOpacity(folderOpenProgress) }
                         .semantics {
                             contentDescription = "Collapse folder"
                             semanticsOnClick {
@@ -3335,13 +3366,27 @@ private fun PhoneTile(
                                 } else false
                             }
                         }) {
-                        val half = minOf(size.width, size.height) * .14f
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val rise = half * .55f
-                        drawLine(Color.White, center + Offset(-half, rise),
-                            center + Offset(0f, -rise), strokeWidth = 2.dp.toPx())
-                        drawLine(Color.White, center + Offset(0f, -rise),
-                            center + Offset(half, rise), strokeWidth = 2.dp.toPx())
+                        if (mode == LauncherUiMode.PHONE_8) {
+                            // The expanded classic folder leaves a 3x3 empty
+                            // grid on its tile, as in Microsoft's demonstration.
+                            val stroke = maxOf(1.dp.toPx(), size.minDimension * .014f)
+                            for (index in 1..2) {
+                                val x = size.width * index / 3f
+                                val y = size.height * index / 3f
+                                drawLine(Color.Black.copy(alpha = .55f), Offset(x, 0f),
+                                    Offset(x, size.height), strokeWidth = stroke)
+                                drawLine(Color.Black.copy(alpha = .55f), Offset(0f, y),
+                                    Offset(size.width, y), strokeWidth = stroke)
+                            }
+                        } else {
+                            val half = minOf(size.width, size.height) * .14f
+                            val center = Offset(size.width / 2f, size.height / 2f)
+                            val rise = half * .55f
+                            drawLine(Color.White, center + Offset(-half, rise),
+                                center + Offset(0f, -rise), strokeWidth = 2.dp.toPx())
+                            drawLine(Color.White, center + Offset(0f, -rise),
+                                center + Offset(half, rise), strokeWidth = 2.dp.toPx())
+                        }
                     }
                 }
             }

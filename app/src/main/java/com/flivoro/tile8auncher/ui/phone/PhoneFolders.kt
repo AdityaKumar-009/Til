@@ -19,11 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.Canvas
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -48,6 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -200,11 +197,19 @@ internal object PhoneFolderDividerStyle {
     val bottomInset = (regionHeight - thickness) / 2
 }
 
+/** The classic Lumia reference uses thicker lines in the chosen accent. */
+internal object ClassicPhoneFolderStyle {
+    val regionHeight = 48.dp
+    fun ruleThickness(screenWidth: Dp): Dp = screenWidth * (4f / 212f)
+}
+
 @Composable
 internal fun PhoneFolderHeader(
     expansion: PhoneFolderExpansion,
     enabled: Boolean,
     mode: LauncherUiMode = LauncherUiMode.PHONE_8,
+    horizontalInset: Dp = PhoneFolderDividerStyle.horizontalInset,
+    ruleThickness: Dp = PhoneFolderDividerStyle.thickness,
 ) {
     var draft by remember(expansion.folder.id) { mutableStateOf(expansion.folder.name) }
     var editing by remember(expansion.folder.id) { mutableStateOf(false) }
@@ -220,8 +225,9 @@ internal fun PhoneFolderHeader(
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val titleLimit = maxWidth * .72f
     Row(
-        Modifier.fillMaxWidth().height(PhoneFolderDividerStyle.regionHeight)
-            .padding(horizontal = PhoneFolderDividerStyle.horizontalInset),
+        Modifier.fillMaxWidth().height(if (mode == LauncherUiMode.PHONE_8)
+            ClassicPhoneFolderStyle.regionHeight else PhoneFolderDividerStyle.regionHeight)
+            .padding(horizontal = horizontalInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (editing && enabled) {
@@ -233,7 +239,8 @@ internal fun PhoneFolderHeader(
                 textStyle = androidx.compose.ui.text.TextStyle(
                     color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Light
                 ),
-                modifier = Modifier.weight(1f)
+                modifier = (if (mode == LauncherUiMode.PHONE_8)
+                    Modifier.widthIn(min = 60.dp, max = titleLimit) else Modifier.weight(1f))
                     .focusRequester(focusRequester)
                     .onFocusChanged { state ->
                         if (state.isFocused) hasFocused = true
@@ -256,45 +263,25 @@ internal fun PhoneFolderHeader(
                 fontWeight = FontWeight.Light,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = (if (mode == LauncherUiMode.MOBILE_10)
-                    Modifier.widthIn(max = titleLimit) else Modifier.weight(1f))
-                    .pointerInput(enabled, expansion.folder.id) {
-                        detectTapGestures(onLongPress = {
-                            if (enabled) editing = true
-                        })
-                    }
+                modifier = Modifier.widthIn(max = titleLimit)
+                    .then(if (mode == LauncherUiMode.PHONE_8)
+                        Modifier.clickable(enabled = enabled) { editing = true }
+                    else Modifier.pointerInput(enabled, expansion.folder.id) {
+                        detectTapGestures(onLongPress = { if (enabled) editing = true })
+                    })
                     .testTag("phone-folder-title")
-                    .semantics { contentDescription = "Folder name; long press to rename" },
+                    .semantics { contentDescription = if (mode == LauncherUiMode.PHONE_8)
+                        "Folder name; tap to rename" else "Folder name; long press to rename" },
             )
         }
-        if (mode == LauncherUiMode.MOBILE_10 && !editing) {
-            // Live Folder names interrupt a thin divider. The source tile,
-            // rather than a second toolbar button, is the collapse target.
+        if (mode == LauncherUiMode.PHONE_8 || !editing) {
+            // Both phones put the name in the upper rule, but WP8.1 uses
+            // a thick theme-accent line; W10M keeps the user's white rule.
             Spacer(Modifier.width(10.dp))
-            Spacer(Modifier.weight(1f).height(PhoneFolderDividerStyle.thickness)
-                .background(PhoneFolderDividerStyle.color)
+            Spacer(Modifier.weight(1f).height(ruleThickness)
+                .background(if (mode == LauncherUiMode.PHONE_8)
+                    StartPersonalization.wallpaperAccentColor else PhoneFolderDividerStyle.color)
                 .testTag("phone-folder-top-divider"))
-        } else if (mode != LauncherUiMode.MOBILE_10) Canvas(
-            modifier = Modifier.size(48.dp)
-                .clickable(enabled = enabled) {
-                    if (editing) {
-                        expansion.onRename(draft.trim().ifBlank { "Folder" })
-                        editing = false
-                    }
-                    expansion.onDismiss()
-                }
-                .semantics { contentDescription = "Collapse folder" },
-        ) {
-            // Crisp, density-independent Metro chevron rather than a font-dependent glyph.
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val half = size.width * .15f
-            val rise = size.height * .075f
-            val path = Path().apply {
-                moveTo(center.x - half, center.y + rise)
-                lineTo(center.x, center.y - rise)
-                lineTo(center.x + half, center.y + rise)
-            }
-            drawPath(path, Color.White, style = Stroke(width = 2.dp.toPx()))
         }
     }
     }
