@@ -59,9 +59,9 @@ class LauncherUnlockRecoveryTest {
     private fun allModes(block: (LauncherUiMode) -> Unit) {
         val context = instrumentation.targetContext
         val previous = LauncherFeatureStore.launcherUiMode(context)
-        compose.mainClock.autoAdvance = false
         try {
             for (mode in LauncherUiMode.entries) {
+                compose.mainClock.autoAdvance = true
                 compose.runOnUiThread { LauncherFeatureStore.setLauncherUiMode(context, mode) }
                 compose.waitUntil(20_000) {
                     val repository = (compose.activity.application as Tile8Application).appsRepository
@@ -73,6 +73,7 @@ class LauncherUnlockRecoveryTest {
                                 .fetchSemanticsNodes().isNotEmpty()
                         }
                 }
+                compose.mainClock.autoAdvance = false
                 compose.mainClock.advanceTimeBy(2_500)
                 compose.waitForIdle()
                 block(mode)
