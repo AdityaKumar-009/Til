@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.ui.components
 
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -26,9 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.AppsRepository
-import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.lockscreen.WindowsLockScreenPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val wallpaperNames = listOf(
@@ -56,7 +57,8 @@ internal fun WallpaperPicker(
 ) {
     val context = LocalContext.current
     val resources = context.resources
-    LaunchedEffect(context) { StartPersonalization.ensureLoaded(context) }
+    StartPersonalization.ensureLoaded(context)
+    val pickerScope = rememberCoroutineScope()
 
     var lockScreenEnabled by remember {
         mutableStateOf(WindowsLockScreenPreferences.isEnabled(context))
@@ -80,12 +82,24 @@ internal fun WallpaperPicker(
         }
     }
 
+    // GET_CONTENT supports more gallery and cloud-photo providers than the SAF
+    // document-only picker. Copy the chosen image while the temporary read grant
+    // is live, so its display never depends on provider permissions afterward.
     val startWallpaperPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
+        ActivityResultContracts.GetContent(),
     ) { uri ->
-        if (uri != null) {
-            persistReadPermission(uri)
-            StartPersonalization.setCustomWallpaperUri(context, uri.toString())
+        if (uri != null) pickerScope.launch {
+            val savedUri = withContext(Dispatchers.IO) {
+                LauncherImageCache.importWallpaper(context, uri)
+            }
+            if (savedUri != null) {
+                StartPersonalization.setCustomWallpaperUri(context, savedUri)
+            } else {
+                Toast.makeText(
+                    context, "Couldn't open this image. Try another photo.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -127,7 +141,7 @@ internal fun WallpaperPicker(
             color = Color.White,
             modifier = Modifier
                 .background(Color(0xFF5133AB))
-                .clickable { startWallpaperPicker.launch(arrayOf("image/*")) }
+                .clickable { startWallpaperPicker.launch("image/*") }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         )
         if (customStartWallpaperUri != null) {
@@ -178,7 +192,7 @@ internal fun WallpaperPicker(
                         Modifier
                             .weight(1f)
                             .selectable(
-                                selected = selected == index,
+                                selected = customStartWallpaperUri == null && selected == index,
                                 role = Role.RadioButton,
                                 onClick = {
                                     StartPersonalization.setCustomWallpaperUri(context, null)
@@ -186,8 +200,8 @@ internal fun WallpaperPicker(
                                 },
                             )
                             .border(
-                                if (selected == index) 3.dp else 1.dp,
-                                if (selected == index) Color(0xFF5133AB) else Color(0xFFCCCCCC),
+                                if (customStartWallpaperUri == null && selected == index) 3.dp else 1.dp,
+                                if (customStartWallpaperUri == null && selected == index) Color(0xFF5133AB) else Color(0xFFCCCCCC),
                             )
                             .padding(4.dp),
                     ) {
@@ -347,7 +361,6 @@ internal fun WallpaperPicker(
         )
     }
 
-    LauncherFeatureSettings(appsRepository = appsRepository)
 }
 
 @Composable

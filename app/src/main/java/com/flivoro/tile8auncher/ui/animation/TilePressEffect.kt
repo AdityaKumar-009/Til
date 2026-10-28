@@ -13,6 +13,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
@@ -67,6 +80,7 @@ fun Modifier.metroTilePress(
     val latestDragCancel by rememberUpdatedState(onDragCancel)
 
     var isPressed by remember { mutableStateOf(false) }
+    var hasKeyboardFocus by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var lastLayoutTopLeft by remember { mutableStateOf<Offset?>(null) }
     var targetScaleX by remember { mutableFloatStateOf(1f) }
@@ -116,6 +130,36 @@ fun Modifier.metroTilePress(
     }
 
     this
+        .semantics(mergeDescendants = true) {
+            role = Role.Button
+            onClick {
+                currentClick(coordsHolder.coordinates?.takeIf { it.isAttached }?.boundsInWindow() ?: Rect.Zero)
+                true
+            }
+            if (currentLongClick != null) onLongClick { currentLongClick?.invoke(); true }
+        }
+        .onFocusChanged { hasKeyboardFocus = it.isFocused }
+        .onKeyEvent { event ->
+            val key = event.nativeKeyEvent
+            if (key.action != AndroidKeyEvent.ACTION_UP) false
+            else when {
+                key.keyCode in listOf(AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                    AndroidKeyEvent.KEYCODE_SPACE) -> {
+                    currentClick(coordsHolder.coordinates?.takeIf { it.isAttached }?.boundsInWindow() ?: Rect.Zero)
+                    true
+                }
+                key.keyCode == AndroidKeyEvent.KEYCODE_MENU ||
+                    (key.isShiftPressed && key.keyCode == AndroidKeyEvent.KEYCODE_F10) -> {
+                    currentLongClick?.invoke(); currentLongClick != null
+                }
+                else -> false
+            }
+        }
+        .focusable()
+        .drawWithContent {
+            drawContent()
+            if (hasKeyboardFocus) drawRect(Color.White, style = Stroke(2.dp.toPx()))
+        }
         .onGloballyPositioned { coordinates ->
             coordsHolder.coordinates = coordinates
             if (!coordinates.isAttached) return@onGloballyPositioned
@@ -135,6 +179,11 @@ fun Modifier.metroTilePress(
         .pointerInput(tileSize, gridGapPx, dragEnabled) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
+                if (currentEvent.buttons.isSecondaryPressed) {
+                    currentLongClick?.invoke()
+                    down.consume()
+                    return@awaitEachGesture
+                }
                 val transform = tilePressTransform(
                     tileSize = tileSize,
                     widthPx = size.width.toFloat(),

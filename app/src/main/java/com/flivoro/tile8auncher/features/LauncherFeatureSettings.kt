@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,11 +23,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -34,11 +39,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -46,47 +56,76 @@ import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
+import com.flivoro.tile8auncher.ui.phone.PhoneLayoutStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val settingsPurple = Color(0xFF5133AB)
+private val settingsRowShape = RoundedCornerShape(14.dp)
+
+enum class LauncherSettingsSection { APPEARANCE, START, PRIVACY, DATA }
 
 @Composable
-fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
+fun LauncherFeatureSettings(
+    appsRepository: AppsRepository?,
+    section: LauncherSettingsSection = LauncherSettingsSection.START,
+) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val repository = appsRepository ?: remember(context) { AppsRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var appPickerMode by remember { mutableStateOf<AppPickerMode?>(null) }
     var showIconPacks by remember { mutableStateOf(false) }
     var showIconStyles by remember { mutableStateOf(false) }
+    var confirmLayoutReset by remember { mutableStateOf(false) }
+    var showPhoneColumnsPicker by remember { mutableStateOf(false) }
+    var showPhoneTransparencyPicker by remember { mutableStateOf(false) }
+    val launcherModeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val launcherMode = remember(launcherModeRevision) { LauncherFeatureStore.launcherUiMode(context) }
     var showDoubleTapActions by remember { mutableStateOf(false) }
     var showStartGroupHeadings by remember {
         mutableStateOf(LauncherFeatureStore.showStartGroupHeadings(context))
     }
+    var showRecentlyInstalledApps by remember {
+        mutableStateOf(LauncherFeatureStore.showRecentlyInstalledPhoneApps(context))
+    }
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
     }
-
-    LaunchedEffect(Unit) {
-        LiveTileRuntime.requestReconnect(context)
+    var permissionRevision by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) permissionRevision++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val contactsAllowed = remember(permissionRevision) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    val usageAllowed = remember(permissionRevision) { hasUsageAccess(context) }
+
+    // MainActivity already requests the listener on resume. Reconnecting again
+    // as soon as Settings composes competes with the app-opening transition.
     val liveTileAccessGranted = LiveTileRuntime.hasNotificationAccess(context)
     val liveTileConnected = LiveTileRuntime.listenerConnected
     val liveUpdateCount = LiveTileNotificationStore.current().size
     val liveTileStatus = when {
-        liveTileConnected && liveUpdateCount > 0 ->
-            "Connected • $liveUpdateCount active update(s) captured. Medium/wide tiles keep live content visible; small tiles show badges."
-        liveTileConnected ->
-            "Connected • waiting for notifications. A tile becomes live when its Android app posts readable notification content."
-        liveTileAccessGranted ->
-            "Notification access is granted, but the listener is reconnecting. Tap here if it remains disconnected."
-        else ->
-            "Grant Notification access so Tile8 can project Android notifications into Windows-style live tile updates."
+        liveTileConnected -> "Connected · $liveUpdateCount active updates"
+        liveTileAccessGranted -> "Notification access granted · reconnecting"
+        else -> "Notification access needed"
     }
 
-    val installedApps by produceState<List<AppInfo>>(emptyList(), repository) {
-        value = withContext(Dispatchers.IO) { repository.getInstalledApps() }
+    // Avoid package-manager work while a Settings window is animating open.
+    // Only populate the catalog when a picker actually needs the app list.
+    val installedApps by produceState<List<AppInfo>>(
+        emptyList(), repository, appPickerMode, showIconStyles, showIconPacks,
+    ) {
+        if (appPickerMode != null || showIconStyles || showIconPacks) {
+            value = withContext(Dispatchers.IO) { repository.getInstalledApps() }
+        }
     }
     val iconPacks by produceState<List<Pair<String, String>>>(emptyList(), showIconPacks) {
         if (showIconPacks) {
@@ -99,6 +138,7 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
     val contactPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        permissionRevision++
         Toast.makeText(
             context,
             if (granted) "Contact search enabled" else "Contact permission was not granted",
@@ -147,146 +187,160 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
         }
     }
 
-    Spacer(Modifier.height(28.dp))
-    Text("Launcher features", color = settingsPurple, fontSize = 20.sp)
-    Spacer(Modifier.height(6.dp))
-    Text(
-        "Windows 8.1 behavior stays the default. Android-only extensions below are isolated from Start, All Apps and app-launch motion timing.",
-        color = Color(0xFF666666),
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-    )
-    Spacer(Modifier.height(12.dp))
-
-    SettingsActionRow(
-        title = if (liveTileConnected) "Live tiles • Connected" else "Live tiles",
-        description = liveTileStatus,
-        glyph = "mail",
-    ) {
-        LiveTileRuntime.requestReconnect(context)
-        runCatching { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-    }
-
-    SettingsActionRow(
-        title = "Add Android widget",
-        description = "Pin a real Android widget as a wide Start tile. Multiple widgets can be stacked later from Start customize mode.",
-        glyph = "app",
-    ) {
-        context.startActivity(Intent(context, WidgetPickerActivity::class.java))
-    }
-
-    SettingsActionRow(
-        title = "App icon style",
-        description = "Style: ${LauncherFeatureStore.appIconStyle(context).displayName()}",
-        glyph = "app",
-    ) { showIconStyles = true }
-
-    SettingsToggleRow(
-        title = "App colors in All Apps",
-        description = "Use each app's extracted accent color for its All Apps tile, matching the color Tile8 uses when that app is pinned to Start.",
-        checked = useAppAccentColorsInAllApps,
-        onCheckedChange = { enabled ->
-            useAppAccentColorsInAllApps = enabled
-            LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
-        },
-    )
-
-    SettingsActionRow(
-        title = "Icon pack",
-        description = LauncherFeatureStore.selectedIconPack(context)?.let { "Selected: $it" }
-            ?: "Use compatible ADW/Nova-style icon packs. Icon packs apply when App icon style is Default.",
-        glyph = "photos",
-    ) { showIconPacks = true }
-
-    SettingsActionRow(
-        title = "Double-tap Start",
-        description = "Action: ${LauncherFeatureStore.doubleTapAction(context).displayName()}",
-        glyph = "app",
-    ) { showDoubleTapActions = true }
-
-    SettingsToggleRow(
-        title = "Start group headings",
-        description = "Show group names above tile groups on the normal Start screen. Off by default.",
-        checked = showStartGroupHeadings,
-        onCheckedChange = { enabled ->
-            showStartGroupHeadings = enabled
-            LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
-        },
-    )
-
-    SettingsActionRow(
-        title = "Hidden apps",
-        description = "Keep selected apps out of All Apps and launcher search.",
-        glyph = "search",
-    ) { appPickerMode = AppPickerMode.HIDDEN }
-
-    SettingsActionRow(
-        title = "Private apps",
-        description = "Hide selected apps until Android device credentials are confirmed in All Apps.",
-        glyph = "people",
-    ) { appPickerMode = AppPickerMode.PRIVATE }
-
-    SettingsActionRow(
-        title = "Contact search",
-        description = "Allow universal search to find saved contacts. Permission is requested only when you enable it.",
-        glyph = "people",
-    ) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            Toast.makeText(context, "Contact search is already enabled", Toast.LENGTH_SHORT).show()
-        } else {
-            contactPermission.launch(Manifest.permission.READ_CONTACTS)
+    when (section) {
+        LauncherSettingsSection.APPEARANCE -> {
+            if (launcherMode != LauncherUiMode.DESKTOP) {
+                SettingsActionRow("Tile density", "${LauncherFeatureStore.phoneSmallColumns(context, launcherMode)} small tiles across", "app") {
+                    showPhoneColumnsPicker = true
+                }
+            }
+            if (launcherMode == LauncherUiMode.MOBILE_10) {
+                SettingsActionRow("Tile transparency", "${(LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt()}% opacity", "photos") {
+                    showPhoneTransparencyPicker = true
+                }
+            }
+            SettingsActionRow("App icon style", LauncherFeatureStore.appIconStyle(context).displayName(), "app") {
+                showIconStyles = true
+            }
+            SettingsActionRow("Icon pack", if (LauncherFeatureStore.appIconStyle(context) != AppIconStyle.DEFAULT)
+                "Available with Default icon style" else LauncherFeatureStore.selectedIconPack(context)
+                    ?: "System icons", "photos") { showIconPacks = true }
+            SettingsToggleRow("App colors in All Apps", "Use each app's accent color", useAppAccentColorsInAllApps) { enabled ->
+                useAppAccentColorsInAllApps = enabled
+                LauncherFeatureStore.setUseAppAccentColorsInAllApps(context, enabled)
+            }
+            SettingsActionRow("Lock-screen slideshow", LauncherFeatureStore.lockSlideshowUris(context).let {
+                if (it.isEmpty()) "No photos selected" else "${it.size} photos selected"
+            }, "photos") { slideshowPicker.launch(arrayOf("image/*")) }
+            SettingsActionRow("Quick status apps", "Up to seven apps on the lock screen", "app") {
+                appPickerMode = AppPickerMode.LOCK_QUICK
+            }
+            SettingsActionRow("Detailed status app", "One app for expanded lock-screen updates", "mail") {
+                appPickerMode = AppPickerMode.LOCK_DETAILED
+            }
+        }
+        LauncherSettingsSection.START -> {
+            SettingsActionRow("Live tiles & notifications", liveTileStatus, "mail") {
+                LiveTileRuntime.requestReconnect(context)
+                runCatching { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            }
+            if (launcherMode != LauncherUiMode.DESKTOP) {
+                SettingsActionRow("Add Android widget", "Pin a widget to your Start screen", "app") {
+                    context.startActivity(Intent(context, WidgetPickerActivity::class.java))
+                }
+            }
+            if (launcherMode == LauncherUiMode.MOBILE_10) {
+                SettingsToggleRow("Recently installed apps", "Show new apps first in All Apps", showRecentlyInstalledApps) { enabled ->
+                    showRecentlyInstalledApps = enabled
+                    LauncherFeatureStore.setShowRecentlyInstalledPhoneApps(context, enabled)
+                }
+            }
+            if (launcherMode == LauncherUiMode.DESKTOP) {
+                SettingsToggleRow("Start group headings", "Show names above tile groups", showStartGroupHeadings) { enabled ->
+                    showStartGroupHeadings = enabled
+                    LauncherFeatureStore.setShowStartGroupHeadings(context, enabled)
+                }
+            }
+            SettingsActionRow("Double-tap Start", LauncherFeatureStore.doubleTapAction(context).displayName(), "app") {
+                showDoubleTapActions = true
+            }
+        }
+        LauncherSettingsSection.PRIVACY -> {
+            SettingsActionRow("Hidden apps", "Hide apps from the list and search", "search") {
+                appPickerMode = AppPickerMode.HIDDEN
+            }
+            SettingsActionRow("Private apps", "Require device authentication before opening", "people") {
+                appPickerMode = AppPickerMode.PRIVATE
+            }
+            SettingsActionRow("Contact search",
+                if (contactsAllowed) "Allowed" else "Permission needed",
+                "people") {
+                if (contactsAllowed) {
+                    Toast.makeText(context, "Contact search is already enabled", Toast.LENGTH_SHORT).show()
+                } else contactPermission.launch(Manifest.permission.READ_CONTACTS)
+            }
+            SettingsActionRow("Most-used app sorting",
+                if (usageAllowed) "Usage access granted" else "Usage access needed", "clock") {
+                runCatching { context.startActivity(usageAccessSettingsIntent()) }
+            }
+        }
+        LauncherSettingsSection.DATA -> {
+            SettingsActionRow("Back up launcher", "Save your tiles, layouts and preferences", "pin") {
+                exportBackup.launch("TIL-Launcher-backup.json")
+            }
+            SettingsActionRow("Restore backup", "Import a previously saved launcher backup", "unpin") {
+                restoreBackup.launch(arrayOf("application/json", "text/plain"))
+            }
+            if (launcherMode != LauncherUiMode.DESKTOP) {
+                SettingsActionRow("Reset phone Start layout", "Restore the original Lumia tile arrangement", "app") {
+                    confirmLayoutReset = true
+                }
+            }
+            LauncherFeatureStore.lastPhoneCrash(context)?.let { crash ->
+                SettingsActionRow("Copy crash report", "Diagnostic details from the last phone-mode recovery", "settings") {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TIL phone crash", crash))
+                    Toast.makeText(context, "Crash details copied", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
-    SettingsActionRow(
-        title = "Most used app sorting",
-        description = "Grant Android Usage Access so Windows 8.1's Most used sort can use real foreground history.",
-        glyph = "clock",
-    ) {
-        runCatching { context.startActivity(usageAccessSettingsIntent()) }
+    if (confirmLayoutReset) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmLayoutReset = false },
+            title = { Text("Reset phone Start?") },
+            text = { Text("This restores the default phone tile arrangement. Your Desktop layout is unaffected.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    confirmLayoutReset = false
+                    PhoneLayoutStore.resetOrder(context, launcherMode)
+                    (context as? Activity)?.recreate()
+                }) { Text("Reset") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { confirmLayoutReset = false }) { Text("Cancel") }
+            },
+        )
+    }
+    if (showPhoneColumnsPicker) {
+        Dialog(onDismissRequest = { showPhoneColumnsPicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Phone tile density", fontSize = 22.sp, color = settingsPurple)
+                listOf(4, 6).forEach { n ->
+                    ChoiceRow(
+                        label = if (n == 4) "Classic: 2 medium tiles across" else "Dense: 3 medium tiles across",
+                        selected = LauncherFeatureStore.phoneSmallColumns(context, launcherMode) == n,
+                        lightSurface = true,
+                        onClick = {
+                            LauncherFeatureStore.setPhoneSmallColumns(context, launcherMode, n)
+                            showPhoneColumnsPicker = false
+                        },
+                    )
+                }
+            }
+        }
     }
 
-    Spacer(Modifier.height(20.dp))
-    Text("Windows 8.1 lock screen extras", color = settingsPurple, fontSize = 18.sp)
-    Spacer(Modifier.height(10.dp))
-
-    SettingsActionRow(
-        title = "Lock-screen slideshow",
-        description = LauncherFeatureStore.lockSlideshowUris(context).let { uris ->
-            if (uris.isEmpty()) "Choose multiple pictures for the Windows 8.1 slideshow." else "${uris.size} slideshow picture(s) selected."
-        },
-        glyph = "photos",
-    ) { slideshowPicker.launch(arrayOf("image/*")) }
-
-    SettingsActionRow(
-        title = "Quick status apps",
-        description = "Choose up to seven apps for Windows 8.1-style lock-screen status slots.",
-        glyph = "app",
-    ) { appPickerMode = AppPickerMode.LOCK_QUICK }
-
-    SettingsActionRow(
-        title = "Detailed status app",
-        description = "Choose one app whose latest notification can appear as detailed lock-screen status.",
-        glyph = "mail",
-    ) { appPickerMode = AppPickerMode.LOCK_DETAILED }
-
-    Spacer(Modifier.height(20.dp))
-    Text("Backup", color = settingsPurple, fontSize = 18.sp)
-    Spacer(Modifier.height(10.dp))
-
-    SettingsActionRow(
-        title = "Back up Mosaic",
-        description = "Export Start layout, tile sizes/colors/groups, wallpapers, lock screen and launcher feature preferences.",
-        glyph = "pin",
-    ) { exportBackup.launch("Mosaic-Launcher-backup.json") }
-
-    SettingsActionRow(
-        title = "Restore Mosaic",
-        description = "Restore a Mosaic Launcher JSON backup and reload the launcher configuration.",
-        glyph = "unpin",
-    ) { restoreBackup.launch(arrayOf("application/json", "text/plain")) }
+    if (showPhoneTransparencyPicker) {
+        Dialog(onDismissRequest = { showPhoneTransparencyPicker = false }) {
+            Column(Modifier.fillMaxWidth().background(Color.White).padding(20.dp)) {
+                Text("Windows 10 Mobile tile opacity", fontSize = 20.sp, color = settingsPurple)
+                listOf(0, 25, 50, 75, 82, 100).forEach { value ->
+                    ChoiceRow(
+                        label = "$value%",
+                        selected = (LauncherFeatureStore.phoneTileOpacity(context) * 100).toInt() == value,
+                        lightSurface = true,
+                        onClick = {
+                            LauncherFeatureStore.setPhoneTileOpacity(context, value)
+                            showPhoneTransparencyPicker = false
+                        },
+                    )
+                }
+            }
+        }
+    }
 
     if (showIconStyles) {
         AppIconStyleDialog(
@@ -353,6 +407,13 @@ fun LauncherFeatureSettings(appsRepository: AppsRepository?) {
 private enum class AppPickerMode { HIDDEN, PRIVATE, LOCK_QUICK, LOCK_DETAILED }
 
 @Composable
+private fun SettingsCategoryHeader(title: String) {
+    Spacer(Modifier.height(22.dp))
+    Text(title, color = settingsPurple, fontSize = 18.sp)
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
 private fun SettingsActionRow(
     title: String,
     description: String,
@@ -362,19 +423,26 @@ private fun SettingsActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFFD0D0D0))
+            .clip(settingsRowShape)
             .background(Color.White)
+            .border(1.dp, Color(0xFFE4E7EF), settingsRowShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MetroIcon(glyph = glyph, color = settingsPurple, size = 21.dp)
+        Box(Modifier.size(42.dp).clip(RoundedCornerShape(11.dp))
+            .background(Color(0xFFF0ECFB)), contentAlignment = Alignment.Center) {
+            MetroIcon(glyph = glyph, color = settingsPurple, size = 22.dp)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color(0xFF222222), fontSize = 15.sp)
+            Text(title, color = Color(0xFF1C2435), fontSize = 15.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             Spacer(Modifier.height(3.dp))
-            Text(description, color = Color(0xFF666666), fontSize = 11.sp, lineHeight = 15.sp)
+            Text(description, color = Color(0xFF687183), fontSize = 12.sp, lineHeight = 17.sp)
         }
+        Spacer(Modifier.width(10.dp))
+        Text("›", color = Color(0xFF99A0B0), fontSize = 25.sp)
     }
     Spacer(Modifier.height(9.dp))
 }
@@ -389,16 +457,18 @@ private fun SettingsToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFFD0D0D0))
+            .clip(settingsRowShape)
             .background(Color.White)
+            .border(1.dp, Color(0xFFE4E7EF), settingsRowShape)
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 15.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color(0xFF222222), fontSize = 15.sp)
+            Text(title, color = Color(0xFF1C2435), fontSize = 15.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             Spacer(Modifier.height(3.dp))
-            Text(description, color = Color(0xFF666666), fontSize = 11.sp, lineHeight = 15.sp)
+            Text(description, color = Color(0xFF687183), fontSize = 12.sp, lineHeight = 17.sp)
         }
         Spacer(Modifier.width(12.dp))
         Switch(
@@ -416,17 +486,18 @@ private fun AppIconStyleDialog(
     onSelect: (AppIconStyle) -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().background(Color(0xF0180424)).padding(18.dp)) {
+        Column(Modifier.fillMaxWidth().clip(settingsRowShape)
+            .background(Color(0xFFF6F7FA)).padding(18.dp)) {
             Text(
                 "App icon style",
-                color = Color.White,
+                color = Color(0xFF1C2435),
                 style = WindowsTypography.titleLarge.copy(fontSize = 19.sp),
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Default keeps icon-pack/custom overrides. Android adaptive uses the app's platform icon. White monochrome uses Android's true monochrome layer when available; otherwise Tile8 extracts a clean white logo/detail and preserves the normal icon if extraction would become a blank plate.",
-                color = Color.White.copy(alpha = .72f),
-                style = WindowsTypography.bodyMedium.copy(fontSize = 11.sp, lineHeight = 15.sp),
+                "Choose how app icons look on Start and in All Apps. Icon packs work with Default.",
+                color = Color(0xFF687183),
+                style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 17.sp),
             )
             Spacer(Modifier.height(10.dp))
             AppIconStyle.entries.forEach { style ->
@@ -444,8 +515,9 @@ private fun IconPackDialog(
     onSelect: (String?) -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().background(Color(0xF0180424)).padding(18.dp)) {
-            Text("Icon pack", color = Color.White, style = WindowsTypography.titleLarge.copy(fontSize = 19.sp))
+        Column(Modifier.fillMaxWidth().clip(settingsRowShape)
+            .background(Color(0xFFF6F7FA)).padding(18.dp)) {
+            Text("Icon pack", color = Color(0xFF1C2435), style = WindowsTypography.titleLarge.copy(fontSize = 19.sp))
             Spacer(Modifier.height(10.dp))
             LazyColumn(Modifier.fillMaxWidth()) {
                 item {
@@ -466,8 +538,9 @@ private fun DoubleTapActionDialog(
     onSelect: (StartDoubleTapAction) -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().background(Color(0xF0180424)).padding(18.dp)) {
-            Text("Double-tap Start", color = Color.White, style = WindowsTypography.titleLarge.copy(fontSize = 19.sp))
+        Column(Modifier.fillMaxWidth().clip(settingsRowShape)
+            .background(Color(0xFFF6F7FA)).padding(18.dp)) {
+            Text("Double-tap Start", color = Color(0xFF1C2435), style = WindowsTypography.titleLarge.copy(fontSize = 19.sp))
             Spacer(Modifier.height(10.dp))
             StartDoubleTapAction.entries.forEach { action ->
                 ChoiceRow(action.displayName(), action == selected) { onSelect(action) }
@@ -477,19 +550,32 @@ private fun DoubleTapActionDialog(
 }
 
 @Composable
-private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ChoiceRow(
+    label: String,
+    selected: Boolean,
+    lightSurface: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val foreground = if (lightSurface) Color(0xFF242424) else Color.White
+    val accent = if (lightSurface) settingsPurple else Color.White
+    val outline = if (lightSurface) Color(0xFF777777) else Color(0x99FFFFFF)
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .then(modifier)
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (lightSurface && selected) Color(0xFFF1EBFA) else Color.White)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier
-                .size(17.dp)
-                .border(2.dp, if (selected) Color.White else Color(0x99FFFFFF))
-                .background(if (selected) Color.White else Color.Transparent),
+            Modifier.size(18.dp)
+                .border(2.dp, if (selected) accent else outline)
+                .background(if (selected) accent else Color.Transparent),
         )
-        Spacer(Modifier.width(10.dp))
-        Text(label, color = Color.White, style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = foreground, style = WindowsTypography.bodyMedium.copy(fontSize = 14.sp))
     }
 }
 
@@ -514,12 +600,13 @@ private fun AppSelectionDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().background(Color(0xF0180424)).padding(16.dp)) {
-            Text(title, color = Color.White, style = WindowsTypography.titleLarge.copy(fontSize = 19.sp))
+        Column(Modifier.fillMaxWidth().clip(settingsRowShape)
+            .background(Color(0xFFF6F7FA)).padding(16.dp)) {
+            Text(title, color = Color(0xFF1C2435), style = WindowsTypography.titleLarge.copy(fontSize = 19.sp))
             if (mode == AppPickerMode.LOCK_QUICK) {
                 Text(
                     "${quick.size}/7 selected",
-                    color = Color.White.copy(alpha = .7f),
+                    color = Color(0xFF687183),
                     style = WindowsTypography.labelSmall.copy(fontSize = 10.sp),
                 )
             }
@@ -577,12 +664,12 @@ private fun AppSelectionDialog(
                         Spacer(Modifier.width(10.dp))
                         Text(
                             app.label,
-                            color = Color.White,
+                            color = Color(0xFF1C2435),
                             style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
                             modifier = Modifier.weight(1f),
                             maxLines = 1,
                         )
-                        if (checked) Text("✓", color = Color.White, fontSize = 17.sp)
+                        if (checked) Text("✓", color = settingsPurple, fontSize = 17.sp)
                     }
                 }
             }
@@ -607,6 +694,7 @@ private fun StartDoubleTapAction.displayName(): String = when (this) {
 
 
 private fun AppIconStyle.displayName(): String = when (this) {
+    AppIconStyle.DISCO_LAYERED -> "Disco layered (recommended)"
     AppIconStyle.DEFAULT -> "Default / icon pack"
     AppIconStyle.ANDROID_ADAPTIVE -> "Android adaptive"
     AppIconStyle.WHITE_MONOCHROME -> "White monochrome"

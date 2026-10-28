@@ -7,7 +7,6 @@ import android.graphics.BitmapShader
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
-import android.util.LruCache
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -35,6 +34,91 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+
+/**
+ * Draw a single cropped fragment of the *shared* phone Start wallpaper.
+ *
+ * Unlike a wallpaper layer behind the grid, this fragment lives inside the tile's
+ * own Compose graphics transform, so its pixels take the same opening/closing
+ * pose as the icon and label. The bitmap cache is shared by all tiles.
+ */
+@Composable
+fun PhoneTilePicture(
+    modifier: Modifier = Modifier,
+    wallpaperStyle: Int,
+    tileLeftPx: Float,
+    tileTopPx: Float,
+    gridWidthPx: Float,
+    gridHeightPx: Float,
+    /** Undo the tile's animation matrix AFTER clipping to its moving face. */
+    inverseTileProjection: (() -> Matrix?)? = null,
+    /** Keep the same wallpaper plane beyond its original Start grid while a folder is open. */
+    extendOutsideGrid: Boolean = false,
+) {
+    val uri = StartPersonalization.customWallpaperUri
+    val bitmap = if (uri != null) {
+        rememberCustomWallpaperBitmap(uri)
+    } else if (wallpaperStyle > 0) {
+        rememberWallpaperBitmap(wallpaperResourceId(wallpaperStyle))
+    } else {
+        // Style 0 is procedural, but TILE_PICTURE still needs real shared pixels.
+        // Render the native purple ribbons once and sample them just like a stock photo.
+        remember(gridWidthPx, gridHeightPx) {
+            ProceduralPurpleWallpaper.bitmap(gridWidthPx, gridHeightPx)
+        }
+    }
+    val overlay = if (uri != null)
+        StartPersonalization.customWallpaperOverlay.coerceIn(0f, .72f) else 0f
+    val paint = remember {
+        Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    }
+    val extendedShader = remember(bitmap) {
+        bitmap?.let { BitmapShader(it, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR) }
+    }
+    val shaderMatrix = remember { Matrix() }
+    androidx.compose.foundation.Canvas(modifier) {
+        if (bitmap != null && bitmap.width > 0 && bitmap.height > 0) {
+            val scale = max(
+                gridWidthPx / bitmap.width.coerceAtLeast(1),
+                gridHeightPx / bitmap.height.coerceAtLeast(1),
+            )
+            val scaledWidth = bitmap.width * scale
+            val scaledHeight = bitmap.height * scale
+            val x = (gridWidthPx - scaledWidth) * .5f - tileLeftPx
+            val y = (gridHeightPx - scaledHeight) * .5f - tileTopPx
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                val save = native.save()
+                native.clipRect(0f, 0f, size.width, size.height)
+                // The clip stays on the animated tile, while bitmap sampling is
+                // transformed back into the unchanged Start wallpaper plane.
+                // This is Disco's static-wallpaper-through-moving-tiles effect.
+                inverseTileProjection?.invoke()?.let(native::concat)
+                if (extendOutsideGrid && extendedShader != null) {
+                    // In-bounds pixels are unchanged. Mirroring only supplies
+                    // pixels past the original plane for displaced folder tiles.
+                    shaderMatrix.setScale(scale, scale)
+                    shaderMatrix.postTranslate(x, y)
+                    extendedShader.setLocalMatrix(shaderMatrix)
+                    paint.shader = extendedShader
+                    native.drawPaint(paint)
+                    paint.shader = null
+                } else {
+                    native.drawBitmap(bitmap, null,
+                        android.graphics.RectF(x, y, x + scaledWidth, y + scaledHeight),
+                        paint)
+                }
+                if (overlay > 0f) {
+                    native.drawColor(
+                        android.graphics.Color.argb((overlay * 255).toInt(), 0, 0, 0),
+                    )
+                }
+                native.restoreToCount(save)
+            }
+        }
+    }
+}
 
 private const val REPEATED_LAYER_WIDTHS = 3f
 private const val WALLPAPER_STYLE_MIN = 0
@@ -524,13 +608,20 @@ private fun wallpaperResourceId(style: Int): Int = when (style) {
 @Composable
 private fun rememberCustomWallpaperBitmap(uriString: String): Bitmap? {
     val context = LocalContext.current
+    // Reading a cached bitmap is immediate; disk-preview decode must not run
+    // in a Compose initializer on the main thread.
     val initial = remember(context, uriString) {
-        LauncherImageCache.peekOrPreview(context, uriString)
+        LauncherImageCache.peek(uriString)
     }
     return produceState<Bitmap?>(initial, context, uriString) {
-        value = withContext(Dispatchers.IO) {
-            LauncherImageCache.getOrDecode(context, uriString, maxSide = 2560)
+        if (initial == null) {
+            withContext(Dispatchers.IO) {
+                LauncherImageCache.peekOrPreview(context, uriString)
+            }?.let { value = it }
         }
+        withContext(Dispatchers.IO) {
+            LauncherImageCache.getOrDecode(context, uriString, maxSide = 2560)
+        }?.let { value = it }
     }.value
 }
 
@@ -549,35 +640,18 @@ private fun rememberWallpaperBitmap(resourceId: Int): Bitmap? {
 private object WallpaperBitmapCache {
     private const val MAX_CACHE_BYTES = 12 * 1024 * 1024
 
-    private val cache = object : LruCache<Int, Bitmap>(MAX_CACHE_BYTES) {
-        override fun sizeOf(key: Int, value: Bitmap): Int = value.allocationByteCount.coerceAtLeast(1)
-    }
+    private val cache = BitmapDecodeCache<Int>(MAX_CACHE_BYTES)
 
-    fun peek(resourceId: Int): Bitmap? = synchronized(cache) {
-        cache.get(resourceId)
-    }
+    fun peek(resourceId: Int): Bitmap? = cache.peek(resourceId)
 
-    fun getOrDecode(resources: Resources, resourceId: Int): Bitmap? {
-        peek(resourceId)?.let { return it }
-
-        val decoded = BitmapFactory.decodeResource(
+    fun getOrDecode(resources: Resources, resourceId: Int): Bitmap? = cache.getOrDecode(resourceId) {
+        BitmapFactory.decodeResource(
             resources,
             resourceId,
             BitmapFactory.Options().apply {
                 inScaled = false
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             },
-        ) ?: return null
-
-        return synchronized(cache) {
-            val racedBitmap = cache.get(resourceId)
-            if (racedBitmap != null) {
-                decoded.recycle()
-                racedBitmap
-            } else {
-                cache.put(resourceId, decoded)
-                decoded
-            }
-        }
+        )
     }
 }

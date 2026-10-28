@@ -84,6 +84,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +98,7 @@ import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.features.HostedWidgetTile
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.passiveDoubleTap
 import com.flivoro.tile8auncher.features.performStartDoubleTapAction
 import com.flivoro.tile8auncher.ui.animation.StartEntranceKind
@@ -105,6 +107,9 @@ import com.flivoro.tile8auncher.ui.components.MetroIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import com.flivoro.tile8auncher.ui.components.WindowsTileFace
 import com.flivoro.tile8auncher.ui.components.WindowsTileView
+import com.flivoro.tile8auncher.ui.components.borrowedPhoneScene
+import com.flivoro.tile8auncher.ui.components.storyLaunchActor
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.rememberStartAppIcon
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
@@ -231,12 +236,18 @@ fun StartScreen(
     onSearchClick: () -> Unit,
     onAddAppsClick: () -> Unit,
     onNavigateToAllApps: () -> Unit,
+    onTypeToSearch: (String) -> Unit = { onSearchClick() },
     onCharmsClick: () -> Unit = {},
     onTilesChanged: (List<TileModel>) -> Unit = {},
     initialWallpaperScrollPx: Float = 0f,
     onWallpaperScrollOffsetChanged: (Float) -> Unit = {},
+    tilePictureMode: Boolean = false,
+    tileWallpaperStyle: Int = 0,
     modifier: Modifier = Modifier,
     launchingTileId: String? = null,
+    borrowedLaunchStyle: MasterLaunchAnimation? = null,
+    borrowedLaunchSelectedId: String? = null,
+    borrowedLaunchProgress: () -> Float = { 0f },
     entranceRequest: Int = 0,
     entranceKind: StartEntranceKind = StartEntranceKind.RETURN,
     entranceEnabled: Boolean = true,
@@ -976,6 +987,23 @@ fun StartScreen(
 
     Box(
         modifier = modifier
+            .desktopStartInput(
+                enabled = interactionEnabled && !entranceRunning && launchingTileId == null,
+                onZoom = { zoomIn ->
+                    if (zoomIn) { if (showBandOverview) zoomBackToSemanticOrigin() }
+                    else if (!showBandOverview) openBandOverview()
+                },
+                onEscape = {
+                    when {
+                        showBandOverview -> { zoomBackToSemanticOrigin(); true }
+                        selectedTileIds.isNotEmpty() -> { selectedTileIds = emptySet(); true }
+                        else -> false
+                    }
+                },
+                onSearch = onTypeToSearch,
+                onCharms = onCharmsClick,
+                onScroll = { delta -> scope.launch { listState.scrollBy(delta * 48f * dragDensity.density) } },
+            )
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
@@ -999,6 +1027,7 @@ fun StartScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
+                    .storyLaunchActor("desktop-start-heading", LaunchOrigin.START, sourceCandidate = false)
                     .graphicsLayer { alpha = StartEntranceMotion.headerAlpha(entranceProgress, playingKind) },
             ) {
                 val availableWidth = maxWidth
@@ -1500,7 +1529,8 @@ fun StartScreen(
                                         maxLines = 1,
                                         modifier = Modifier
                                             .offset(x = leadingSpacingDp.dp)
-                                            .height(groupLabelHeightDp.dp),
+                                            .height(groupLabelHeightDp.dp)
+                                            .storyLaunchActor("desktop-group-$bandIndex", LaunchOrigin.START, sourceCandidate = false),
                                     )
                                 }
 
@@ -1704,6 +1734,22 @@ fun StartScreen(
                                                         0f
                                                     }
                                                 }
+                                                // The ORIGINAL visible tile owns the borrowed phone
+                                                // exit (not a duplicate overlay). The same clock
+                                                // projects every neighboring tile and live tile.
+                                                .borrowedPhoneScene(
+                                                    style = borrowedLaunchStyle,
+                                                    progress = borrowedLaunchProgress,
+                                                    source = { tileBounds[tile.id] ?: Rect.Zero },
+                                                    viewport = { tileViewportBounds },
+                                                    selected = tile.id == borrowedLaunchSelectedId,
+                                                    stagger = (1f -
+                                                        (placed.row.toFloat() / maxOf(1, metrics.rows)) * .78f -
+                                                        (placed.column.toFloat() / maxOf(1, metrics.columns)) * .22f)
+                                                        .coerceIn(0f, 1f),
+                                                    allApps = false,
+                                                    density = dragDensity.density,
+                                                )
                                                 // During a drag the grid copy is only the live
                                                 // placeholder. A separate absolute proxy follows
                                                 // the finger, so reflow can never tug the held tile.
@@ -1748,7 +1794,32 @@ fun StartScreen(
                                                 WindowsTileView(
                                                     tile = tile,
                                                     appIcon = appIcon,
-                                                    modifier = Modifier.fillMaxSize(),
+                                                    backgroundContent = if (tilePictureMode) {
+                                                        {
+                                                            com.flivoro.tile8auncher.ui.components.PhoneTilePicture(
+                                                                modifier = Modifier.fillMaxSize(),
+                                                                wallpaperStyle = tileWallpaperStyle,
+                                                                // Window-fixed wallpaper fragments across the
+                                                                // complete horizontally scrolling Start grid.
+                                                                // Unscrolling the absolute band coordinate
+                                                                // makes neighboring tiles reveal one canvas.
+                                                                tileLeftPx = bandItemWidthsPx.take(bandIndex).sum() +
+                                                                    with(dragDensity) { targetX.toPx() } -
+                                                                    absoluteStartScrollPx(
+                                                                        bandItemWidthsPx,
+                                                                        listState.firstVisibleItemIndex,
+                                                                        listState.firstVisibleItemScrollOffset,
+                                                                    ),
+                                                                tileTopPx = with(dragDensity) { targetY.toPx() },
+                                                                gridWidthPx = with(dragDensity) { layoutWidth.toPx() },
+                                                                gridHeightPx = with(dragDensity) {
+                                                                    (metrics.bandHeightDp + groupLabelHeightDp).dp.toPx()
+                                                                },
+                                                            )
+                                                        }
+                                                    } else null,
+                                                    modifier = Modifier.fillMaxSize()
+                                                        .testTag("desktop-start-tile-${tile.id}"),
                                                     onClick = { bounds ->
                                                         if (!semanticZoomActive) {
                                                             handleTileClick(tile, bounds)
@@ -1931,7 +2002,8 @@ fun StartScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 14.dp),
+                    .padding(bottom = 14.dp)
+                    .storyLaunchActor("desktop-start-footer", LaunchOrigin.START, sourceCandidate = false),
             ) {
                 Box(
                     modifier = Modifier
@@ -2431,6 +2503,19 @@ private fun StartCustomizationBar(
                         )
                     }
                 }
+            }
+
+            // Desktop Windows 8.1 organized Start into groups; tile folders
+            // are an optional launcher extension, exposed only for a valid
+            // multi-selection instead of changing the native drag gesture.
+            onCreateFolder?.let { createFolder ->
+                StartCommandButton(
+                    label = "Create folder",
+                    glyph = "folder",
+                    commandWidth = commandWidth,
+                    compact = compact,
+                    onClick = createFolder,
+                )
             }
 
             if (singleTile != null && onToggleLiveTile != null && liveTileEnabled != null) {

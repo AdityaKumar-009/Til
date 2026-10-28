@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,8 +49,10 @@ import androidx.compose.ui.unit.sp
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.data.TileType
+import com.flivoro.tile8auncher.data.isStockDefaultTileId
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.LiveTileNotification
 import com.flivoro.tile8auncher.features.LiveTileNotificationStore
 import com.flivoro.tile8auncher.ui.animation.metroTilePress
@@ -60,6 +63,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Fade only the title layer during optional story launch and reverse. */
+@Composable
+private fun Modifier.storyTitleFade(): Modifier {
+    val alpha = LocalStoryTileTitleOpacity.current
+    return this.graphicsLayer { this.alpha = alpha() }
+}
+
 @Composable
 fun WindowsTileView(
     tile: TileModel,
@@ -68,6 +78,7 @@ fun WindowsTileView(
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
     dragEnabled: Boolean = false,
+    backgroundContent: (@Composable () -> Unit)? = null,
     onDragStart: (bounds: Rect) -> Unit = {},
     onDrag: (delta: Offset) -> Unit = {},
     onDragLayoutShift: (delta: Offset) -> Unit = {},
@@ -77,7 +88,9 @@ fun WindowsTileView(
     WindowsTileFace(
         tile = tile,
         appIcon = appIcon,
+        backgroundContent = backgroundContent,
         modifier = modifier
+            .storyLaunchActor(tile.id, com.flivoro.tile8auncher.ui.animation.LaunchOrigin.START)
             .metroTilePress(
                 tileSize = tile.size,
                 onClick = onClick,
@@ -92,15 +105,57 @@ fun WindowsTileView(
     )
 }
 
+/**
+ * Desktop's original Windows 8.1 Start tiles retain the fixed Metro palette, even when their
+ * shortcuts resolve to real Android apps. Other pinned apps still use the WP8.1/Disco layered
+ * foreground and adaptive-background color policy. Phone-mode policy is unaffected.
+ */
+internal fun shouldDeriveAppTileBackground(tileId: String, launcherMode: LauncherUiMode): Boolean =
+    launcherMode != LauncherUiMode.DESKTOP || !isStockDefaultTileId(tileId)
+
 @Composable
 internal fun WindowsTileFace(
     tile: TileModel,
     appIcon: ImageBitmap?,
     modifier: Modifier = Modifier,
     logoModifier: Modifier = Modifier,
+    innerModifier: Modifier = Modifier,
+    backgroundAlpha: Float = 1f,
+    /** The tile picture is drawn within the transformed tile, not behind the grid. */
+    backgroundContent: (@Composable () -> Unit)? = null,
+    /** Phone mode callers can retain their existing per-mode stock tile color policy. */
+    allowAppDerivedBackground: Boolean = true,
+    contentOverride: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val tileColor = tile.colorValue.toTileColor()
+    // The default Disco style paints every app tile with the extracted
+    // adaptive-background color, not the entire full-color icon bitmap.
+    // The visual cache persists this value across cold launcher restarts.
+    val iconRevisionForBackground = LauncherFeatureRuntime.iconsRevision
+    val iconStyleForBackground = remember(iconRevisionForBackground) {
+        LauncherFeatureStore.appIconStyle(context)
+    }
+    val useAppBackground = allowAppDerivedBackground && shouldDeriveAppTileBackground(
+        tile.id, LauncherFeatureStore.launcherUiMode(context),
+    )
+    val tileBackgroundArgb = remember(tile.packageName, tile.colorValue, appIcon,
+        iconRevisionForBackground, iconStyleForBackground, useAppBackground) {
+        if (useAppBackground &&
+            iconStyleForBackground == com.flivoro.tile8auncher.features.AppIconStyle.DISCO_LAYERED &&
+            !tile.packageName.isNullOrBlank()) {
+            com.flivoro.tile8auncher.data.discoLayeredAccentOrNull(
+                context, tile.packageName,
+                context.getSharedPreferences("tile8_app_visual_cache_v1",
+                    android.content.Context.MODE_PRIVATE).getLong(
+                    "app_visual_accent_color:${tile.packageName}", tile.colorValue),
+            ) ?: tile.colorValue
+        } else tile.colorValue
+    }
+    val tileColor = tileBackgroundArgb.toTileColor()
+    // The glyph/title template must use the same color contrast as the
+    // actual layered tile background (black text on intentional white).
+    val effectiveTile = if (tileBackgroundArgb != tile.colorValue)
+        tile.copy(colorValue = tileBackgroundArgb) else tile
     val liveTilesRevision = LauncherFeatureRuntime.liveTilesRevision
     val liveTileEnabled = remember(tile.packageName, liveTilesRevision) {
         LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName)
@@ -112,13 +167,19 @@ internal fun WindowsTileFace(
     }
 
     Box(
-        modifier = modifier.background(tileColor),
+        modifier = modifier.background(tileColor.copy(alpha = backgroundAlpha.coerceIn(0f, 1f))),
     ) {
-        if (tile.size == TileSize.SMALL) {
+        backgroundContent?.invoke()
+        // Keep the tile's colored face on its outer layer. Windows Phone 8.1's
+        // home-return transition turns the inner icon/text layer independently.
+        Box(Modifier.fillMaxSize().then(innerModifier)) {
+        if (contentOverride != null) {
+            contentOverride()
+        } else if (effectiveTile.size == TileSize.SMALL) {
             // Compact Windows-style templates keep glanceable built-in information usable even
             // at 1x1. App notification tiles still stay logo-first and use a corner count.
             SmallTileContent(
-                tile = tile,
+                tile = effectiveTile,
                 appIcon = appIcon,
                 logoModifier = logoModifier,
             )
@@ -131,11 +192,11 @@ internal fun WindowsTileFace(
             }
         } else {
             when {
-            liveQueue.isNotEmpty() && tile.size == TileSize.LARGE -> {
+            liveQueue.isNotEmpty() && effectiveTile.size == TileSize.LARGE -> {
                 // Windows 8.1 had large list templates that showed several updates at once. This
                 // is intentionally stable instead of constantly rotating an already-dense tile.
                 LargeLiveNotificationTileContent(
-                    tile = tile,
+                    tile = effectiveTile,
                     live = liveQueue.take(3),
                     appIcon = appIcon,
                 )
@@ -143,7 +204,7 @@ internal fun WindowsTileFace(
 
             liveQueue.isNotEmpty() -> {
                 LiveNotificationCarousel(
-                    tile = tile,
+                    tile = effectiveTile,
                     live = liveQueue,
                     appIcon = appIcon,
                 )
@@ -151,12 +212,13 @@ internal fun WindowsTileFace(
 
             else -> {
                 DefaultTileContent(
-                    tile = tile,
+                    tile = effectiveTile,
                     appIcon = appIcon,
                     logoModifier = logoModifier,
                 )
             }
             }
+        }
         }
     }
 }
@@ -239,7 +301,9 @@ private fun SmallTileContent(
                     builtInGlyph != null -> MetroIcon(
                         glyph = builtInGlyph,
                         color = contentColor,
-                        size = 28.dp,
+                        // Phone is painted at final size instead of upscaling
+                        // a small rasterized graphics layer.
+                        size = if (builtInGlyph == "wp81_phone") 28.dp * 1.555f else 28.dp,
                         modifier = logoModifier,
                     )
                     appIcon != null -> Image(
@@ -290,7 +354,7 @@ private fun CompactWeatherTileContent(contentColor: Color, logoModifier: Modifie
     ) {
         MetroIcon(glyph = "weather", color = contentColor, size = 20.dp, modifier = logoModifier)
         Text(
-            "24°",
+            "Demo",
             color = contentColor,
             style = WindowsTypography.titleMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
             maxLines = 1,
@@ -469,7 +533,8 @@ private fun StaticAppTileContent(
                 maxLines = 1,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 8.dp, bottom = 6.dp),
+                    .padding(start = 8.dp, bottom = 6.dp)
+                    .storyTitleFade(),
             )
         }
     }
@@ -662,7 +727,8 @@ private fun BoxScope.LiveTileBranding(
         color = labelColor,
         maxLines = 1,
         modifier = Modifier
-            .align(Alignment.BottomStart),
+            .align(Alignment.BottomStart)
+            .storyTitleFade(),
     )
     if (count > 0) {
         LiveTileBadge(
@@ -708,7 +774,9 @@ private fun LiveTileAppIcon(
         MetroIcon(
             glyph = tile.iconGlyph,
             color = contentColor,
-            size = size,
+            // Draw the vector at final density: never enlarge a 44dp
+            // rasterized layer with graphicsLayer on high-resolution phones.
+            size = if (tile.iconGlyph == "wp81_phone") size * 1.555f else size,
             modifier = modifier,
         )
     } else if (appIcon != null) {
@@ -813,12 +881,12 @@ private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Mod
         if (isWide) {
             Column(modifier = Modifier.align(Alignment.CenterStart)) {
                 Text(
-                    text = "24°",
+                    text = "Demo",
                     style = WindowsTypography.displayLarge.copy(fontSize = 38.sp, fontWeight = FontWeight.Light),
                     color = contentColor,
                 )
                 Text(
-                    text = "Mostly Sunny",
+                    text = "Sample weather",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
                     color = contentColor.copy(alpha = 0.9f),
                 )
@@ -834,7 +902,7 @@ private fun WeatherTileContent(title: String, isWide: Boolean, logoModifier: Mod
                 MetroIcon(glyph = "weather", color = contentColor, size = 36.dp, modifier = logoModifier)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "24° Sunny",
+                    text = "Demo weather",
                     style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
                     color = contentColor,
                 )

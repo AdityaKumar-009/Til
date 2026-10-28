@@ -128,6 +128,7 @@ fun WindowsCharmsOverlay(
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onAddApps: () -> Unit,
+    onAddWidget: () -> Unit,
     onDevices: () -> Unit,
     onPower: () -> Unit,
     modifier: Modifier = Modifier,
@@ -138,6 +139,7 @@ fun WindowsCharmsOverlay(
     val latestOnSearch = rememberUpdatedState(onSearch)
     val latestOnSettings = rememberUpdatedState(onSettings)
     val latestOnAddApps = rememberUpdatedState(onAddApps)
+    val latestOnAddWidget = rememberUpdatedState(onAddWidget)
     val latestOnDevices = rememberUpdatedState(onDevices)
     val latestOnPower = rememberUpdatedState(onPower)
     var panel by remember { mutableStateOf<CharmPanel?>(null) }
@@ -354,6 +356,11 @@ fun WindowsCharmsOverlay(
                         onAddApps = {
                             panel = null
                             latestOnAddApps.value()
+                            latestOnDismiss.value()
+                        },
+                        onAddWidget = {
+                            panel = null
+                            latestOnAddWidget.value()
                             latestOnDismiss.value()
                         },
                         onDevices = {
@@ -578,6 +585,7 @@ private fun CharmsPanelPane(
     onSearch: () -> Unit,
     onSettings: () -> Unit,
     onAddApps: () -> Unit,
+    onAddWidget: () -> Unit,
     onDevices: () -> Unit,
     onPower: () -> Unit,
 ) {
@@ -610,6 +618,7 @@ private fun CharmsPanelPane(
             CharmPanel.Settings -> SettingsPane(
                 onSettings = onSettings,
                 onAddApps = onAddApps,
+                onAddWidget = onAddWidget,
                 onDevices = onDevices,
                 onPower = onPower,
             )
@@ -853,6 +862,7 @@ private fun DevicesPane(onDevices: () -> Unit) {
 private fun SettingsPane(
     onSettings: () -> Unit,
     onAddApps: () -> Unit,
+    onAddWidget: () -> Unit,
     onDevices: () -> Unit,
     onPower: () -> Unit,
 ) {
@@ -877,7 +887,8 @@ private fun SettingsPane(
         )
         Spacer(Modifier.height(4.dp))
         SettingsRow(label = "Personalize", onClick = onSettings)
-        SettingsRow(label = "Tiles", onClick = onAddApps)
+        SettingsRow(label = "Pin apps", onClick = onAddApps)
+        SettingsRow(label = "Add widget", onClick = onAddWidget)
         SettingsRow(label = "Help", onClick = onSettings)
 
         Spacer(Modifier.height(10.dp))

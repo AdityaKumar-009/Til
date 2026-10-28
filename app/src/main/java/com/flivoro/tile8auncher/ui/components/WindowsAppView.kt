@@ -24,6 +24,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,9 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.FlipAnimationMode
 import com.flivoro.tile8auncher.data.LaunchTiming
@@ -44,6 +47,11 @@ import com.flivoro.tile8auncher.ui.animation.WindowsLaunchMotion
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileType
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
+import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
+import com.flivoro.tile8auncher.features.LauncherFeatureSettings
 import com.flivoro.tile8auncher.ui.theme.WindowsColors
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import com.flivoro.tile8auncher.ui.theme.toTileColor
@@ -63,6 +71,18 @@ fun WindowsAppView(
     onWallpaperStyleChanged: ((Int) -> Unit)? = null,
 ) {
     val accentColor = tile.colorValue.toTileColor()
+    val context = LocalContext.current
+    @Suppress("UNUSED_VARIABLE") val modeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val mode = LauncherFeatureStore.launcherUiMode(context)
+    if (tile.tileType == TileType.SETTINGS) {
+        LauncherSettingsScreen(
+            onClose = onClose,
+            appsRepository = appsRepository,
+            onWallpaperStyleChanged = onWallpaperStyleChanged,
+            onWallpaperParallaxChanged = onWallpaperParallaxChanged,
+        )
+        return
+    }
 
     Box(
         modifier = Modifier
@@ -395,22 +415,34 @@ private fun PCSettingsAppContent(
     onWallpaperStyleChanged: ((Int) -> Unit)?,
 ) {
     val context = LocalContext.current
+    var settingsPage by remember { mutableIntStateOf(0) }
+    var showMasterPicker by remember { mutableStateOf(false) }
+    var selectedLaunchStyle by remember {
+        mutableStateOf(LauncherFeatureStore.masterLaunchAnimation(context))
+    }
     var selectedMode by remember {
         mutableStateOf(appsRepository?.getFlipAnimationMode() ?: FlipAnimationMode.CLASSIC)
     }
-    var launchTiming by remember {
-        mutableStateOf(appsRepository?.getLaunchTiming() ?: LaunchTiming())
-    }
-    var editingAllApps by remember { mutableStateOf(false) }
+    var launchTiming by remember { mutableStateOf(appsRepository?.getLaunchTiming() ?: LaunchTiming()) }
     var allAppsTiming by remember {
         mutableStateOf(appsRepository?.getLaunchTiming(allApps = true) ?: LaunchTiming())
     }
+    var editingAllApps by remember { mutableStateOf(false) }
     var wallpaperStyle by remember { mutableStateOf(appsRepository?.getWallpaperStyle() ?: 0) }
     var wallpaperParallaxEnabled by remember {
         mutableStateOf(appsRepository?.getWallpaperParallaxEnabled() ?: true)
     }
     var useAppAccentColorsInAllApps by remember {
         mutableStateOf(LauncherFeatureStore.useAppAccentColorsInAllApps(context))
+    }
+    // Store writes update this revision immediately, so changing the tile-picture
+    // selection refreshes the preview and the visible launcher without reopening Settings.
+    val appearanceRevision = LauncherFeatureRuntime.launcherModeRevision
+    val appearanceMode = remember(appearanceRevision) {
+        LauncherFeatureStore.launcherUiMode(context)
+    }
+    val appearancePictureStyle = remember(appearanceRevision) {
+        LauncherFeatureStore.backgroundStyle(context, appearanceMode)
     }
 
     fun updateWallpaperParallax(enabled: Boolean) {
@@ -420,95 +452,66 @@ private fun PCSettingsAppContent(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
+        Modifier.fillMaxSize()
+            .testTag("til-advanced-settings-content")
             .background(Color(0xFFF0F0F0))
             .verticalScroll(rememberScrollState())
-            .padding(24.dp)
+            .padding(horizontal = 18.dp, vertical = 22.dp),
     ) {
-        // Page Title
-        Text(
-            text = "PC settings",
+        Text("Mosaic Settings",
             style = WindowsTypography.displayLarge.copy(
-                color = Color(0xFF222222),
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Light
-            )
+                color = Color(0xFF222222), fontSize = 30.sp, fontWeight = FontWeight.Light,
+            ),
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Group Header
-        Text(
-            text = "App opening animation",
-            style = WindowsTypography.titleLarge.copy(
-                color = Color(0xFF5133AB),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Normal
-            )
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Select the 3D transition effect when opening apps from tiles",
-            style = WindowsTypography.bodyMedium.copy(
-                color = Color(0xFF666666),
-                fontSize = 13.sp
-            )
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Option 1: Classic
-        AnimationModeOptionCard(
-            title = "Classic",
-            tag = "Authentic Windows 8.1",
-            description = "Continuous 3D flip from the tile into the full-screen app view.",
-            duration = "${launchTiming.durationMillis} ms",
-            isSelected = selectedMode == FlipAnimationMode.CLASSIC,
-            onSelect = {
-                selectedMode = FlipAnimationMode.CLASSIC
-                appsRepository?.setFlipAnimationMode(FlipAnimationMode.CLASSIC)
-            }
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Option 2: Modern
-        AnimationModeOptionCard(
-            title = "Modern",
-            tag = "Expanding Card (No Flip)",
-            description = "Smooth expansion from the tile into the full-screen app view without a flip.",
-            duration = "${launchTiming.durationMillis} ms",
-            isSelected = selectedMode == FlipAnimationMode.MODERN,
-            onSelect = {
-                selectedMode = FlipAnimationMode.MODERN
-                appsRepository?.setFlipAnimationMode(FlipAnimationMode.MODERN)
-            }
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(false to "Start screen", true to "All Apps").forEach { (allApps, label) ->
-                Text(label, color = if (editingAllApps == allApps) Color.White else Color(0xFF5133AB),
-                    modifier = Modifier.background(if (editingAllApps == allApps) Color(0xFF5133AB) else Color.White)
-                        .clickable { editingAllApps = allApps }.padding(horizontal = 14.dp, vertical = 10.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("Personalize your Start screen, adjust motion, or manage launcher features.",
+            color = Color(0xFF666666), fontSize = 13.sp, lineHeight = 18.sp)
+        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Launcher", "Appearance", "Motion").forEachIndexed { index, title ->
+                Text(title,
+                    color = if (settingsPage == index) Color.White else Color(0xFF313131),
+                    fontSize = 13.sp, maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                        .background(if (settingsPage == index) Color(0xFF5133AB)
+                            else Color(0xFFDEDEDE))
+                        .clickable { settingsPage = index }
+                        .padding(horizontal = 6.dp, vertical = 14.dp),
+                )
             }
         }
-        Spacer(Modifier.height(12.dp))
-        AnimationTimingSettings(
-            timing = if (editingAllApps) allAppsTiming else launchTiming,
-            referenceProgress = if (editingAllApps) AllAppsLaunchMotion::expansionFraction
-                else WindowsLaunchMotion::rotationFractionAtProgress,
-            onTimingChange = { timing ->
-                val safeTiming = timing.sanitized()
-                if (editingAllApps) allAppsTiming = safeTiming else launchTiming = safeTiming
-                appsRepository?.setLaunchTiming(safeTiming, allApps = editingAllApps)
-            },
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
-
+        Spacer(Modifier.height(20.dp))
+        when (settingsPage) {
+            1 -> {
+                Text("Start wallpaper & tiles", color = Color(0xFF5133AB), fontSize = 21.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Background placement • ${appearanceMode.title}",
+                    color = Color(0xFF666666), fontSize = 12.sp)
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PhoneBackgroundStyle.entries.forEach { style ->
+                        Text(
+                            style.displayName,
+                            color = if (style == appearancePictureStyle) Color.White
+                                else Color(0xFF333333),
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                                .background(if (style == appearancePictureStyle)
+                                    Color(0xFF5133AB) else Color(0xFFDEDEDE))
+                                .clickable {
+                                    LauncherFeatureStore.setBackgroundStyle(context, appearanceMode, style)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                WallpaperPicker(selected = wallpaperStyle, onSelect = { style ->
+                    wallpaperStyle = style
+                    appsRepository?.setWallpaperStyle(style)
+                    onWallpaperStyleChanged?.invoke(style)
+                })
+                Spacer(Modifier.height(18.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -543,8 +546,8 @@ private fun PCSettingsAppContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
 
+                Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -586,14 +589,114 @@ private fun PCSettingsAppContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
 
-        WallpaperPicker(selected = wallpaperStyle, onSelect = { style ->
-            wallpaperStyle = style
-            appsRepository?.setWallpaperStyle(style)
-            onWallpaperStyleChanged?.invoke(style)
-        })
-        Spacer(Modifier.height(20.dp))
+            }
+            2 -> {
+                Text("Global app-opening style", color = Color(0xFF5133AB), fontSize = 21.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Your chosen animation is shared across all three interfaces.",
+                    color = Color(0xFF666666), fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth().background(Color.White)
+                        .border(1.dp, Color(0xFFD0D0D0))
+                        .clickable { showMasterPicker = true }
+                        .padding(16.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Animation", color = Color(0xFF222222), fontSize = 15.sp)
+                        Text(selectedLaunchStyle.title, color = Color(0xFF5133AB), fontSize = 14.sp)
+                    }
+                    Text("Change", color = Color(0xFF5133AB), fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(26.dp))
+                Text("Launch timing • all three modes", color = Color(0xFF5133AB), fontSize = 19.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("Duration and curve apply to the selected global animation on Start and All Apps. Reference preserves its original pacing. Classic/Modern only applies to Default on Desktop.",
+                    color = Color(0xFF666666), fontSize = 12.sp, lineHeight = 16.sp)
+                Spacer(Modifier.height(16.dp))
+        // Group Header
+        Text(
+            text = "App opening animation",
+            style = WindowsTypography.titleLarge.copy(
+                color = Color(0xFF5133AB),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Normal
+            )
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Select the 3D transition effect when opening apps from tiles",
+            style = WindowsTypography.bodyMedium.copy(
+                color = Color(0xFF666666),
+                fontSize = 13.sp
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // This visual switch only applies to the native Desktop effect;
+        // it must not look like it controls Ripple, W10M, or any other preset.
+        if (selectedLaunchStyle == MasterLaunchAnimation.DEFAULT &&
+            LauncherFeatureStore.launcherUiMode(context) ==
+                com.flivoro.tile8auncher.features.LauncherUiMode.DESKTOP) {
+        // Option 1: Classic
+        AnimationModeOptionCard(
+            title = "Classic",
+            tag = "Authentic Windows 8.1",
+            description = "Continuous 3D flip from the tile into the full-screen app view.",
+            duration = "${launchTiming.durationMillis} ms",
+            isSelected = selectedMode == FlipAnimationMode.CLASSIC,
+            onSelect = {
+                selectedMode = FlipAnimationMode.CLASSIC
+                appsRepository?.setFlipAnimationMode(FlipAnimationMode.CLASSIC)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Option 2: Modern
+        AnimationModeOptionCard(
+            title = "Modern",
+            tag = "Expanding Card (No Flip)",
+            description = "Smooth expansion from the tile into the full-screen app view without a flip.",
+            duration = "${launchTiming.durationMillis} ms",
+            isSelected = selectedMode == FlipAnimationMode.MODERN,
+            onSelect = {
+                selectedMode = FlipAnimationMode.MODERN
+                appsRepository?.setFlipAnimationMode(FlipAnimationMode.MODERN)
+            }
+        )
+
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(false to "Start screen", true to "All Apps").forEach { (allApps, label) ->
+                Text(label, color = if (editingAllApps == allApps) Color.White else Color(0xFF5133AB),
+                    modifier = Modifier.background(if (editingAllApps == allApps) Color(0xFF5133AB) else Color.White)
+                        .clickable { editingAllApps = allApps }.padding(horizontal = 14.dp, vertical = 10.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        AnimationTimingSettings(
+            timing = if (editingAllApps) allAppsTiming else launchTiming,
+            referenceProgress = when {
+                selectedLaunchStyle.isStory -> { value ->
+                    com.flivoro.tile8auncher.ui.animation.StoryLaunchMotion.settle(0f, 1f, value)
+                }
+                selectedLaunchStyle == MasterLaunchAnimation.PHONE_8 ||
+                    selectedLaunchStyle == MasterLaunchAnimation.MOBILE_10 -> { value -> value }
+                editingAllApps -> AllAppsLaunchMotion::expansionFraction
+                else -> WindowsLaunchMotion::rotationFractionAtProgress
+            },
+            onTimingChange = { timing ->
+                val safeTiming = timing.sanitized()
+                if (editingAllApps) allAppsTiming = safeTiming else launchTiming = safeTiming
+                appsRepository?.setLaunchTiming(safeTiming, allApps = editingAllApps)
+            },
+        )
+
 
         // Test Animation Button
         Row(
@@ -603,7 +706,7 @@ private fun PCSettingsAppContent(
                 .clickable {
                     val testTile = TileModel(
                         id = "test_preview_tile",
-                        title = "PC settings",
+                        title = "Mosaic Settings",
                         colorValue = 0xFF5133AB,
                         tileType = TileType.SETTINGS,
                         iconGlyph = "settings"
@@ -627,6 +730,14 @@ private fun PCSettingsAppContent(
 
         Spacer(modifier = Modifier.height(28.dp))
 
+
+            }
+            else -> {
+                Text("Launcher & app features", color = Color(0xFF5133AB), fontSize = 21.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Interface, tiles, app list, privacy, lock-screen tools and backups.",
+                    color = Color(0xFF666666), fontSize = 13.sp)
+                LauncherFeatureSettings(appsRepository)
         // System Settings Section
         Text(
             text = "System",
@@ -686,6 +797,39 @@ private fun PCSettingsAppContent(
                 text = "Horizontal Start layout • Continuous tile flip",
                 style = WindowsTypography.bodyMedium.copy(color = Color.Gray, fontSize = 12.sp)
             )
+        }
+
+            }
+        }
+    }
+
+    if (showMasterPicker) {
+        Dialog(onDismissRequest = { showMasterPicker = false }) {
+            Column(
+                Modifier.fillMaxWidth().background(Color.White)
+                    .verticalScroll(rememberScrollState()).padding(18.dp),
+            ) {
+                Text("Choose app-opening animation", color = Color(0xFF5133AB), fontSize = 20.sp)
+                Text("Four subtle optional motions; existing saved presets remain usable.",
+                    color = Color(0xFF666666), fontSize = 12.sp)
+                Spacer(Modifier.height(12.dp))
+                MasterLaunchAnimation.selectableChoices.forEach { style ->
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                selectedLaunchStyle = style
+                                LauncherFeatureStore.setMasterLaunchAnimation(context, style)
+                                showMasterPicker = false
+                            }
+                            .background(if (selectedLaunchStyle == style)
+                                Color(0xFFEDE5FA) else Color.White)
+                            .padding(12.dp),
+                    ) {
+                        Text(style.title, color = Color(0xFF222222), fontSize = 15.sp)
+                        Text(style.detail, color = Color(0xFF666666), fontSize = 12.sp)
+                    }
+                }
+            }
         }
     }
 }

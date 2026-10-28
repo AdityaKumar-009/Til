@@ -52,6 +52,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -63,6 +64,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInWindow
@@ -85,10 +87,14 @@ import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.data.usableDiscoTileAccent
+import com.flivoro.tile8auncher.features.AppIconStyle
 import com.flivoro.tile8auncher.features.AppSortMode
+import com.flivoro.tile8auncher.features.canRequestAppUninstall
 import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
+import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.UniversalSearchResult
 import com.flivoro.tile8auncher.features.hasUsageAccess
 import com.flivoro.tile8auncher.features.launchUniversalResult
@@ -99,7 +105,11 @@ import com.flivoro.tile8auncher.features.universalNonAppResults
 import com.flivoro.tile8auncher.features.usageAccessSettingsIntent
 import com.flivoro.tile8auncher.ui.animation.TileCoordinatesHolder
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.borrowedPhoneScene
+import com.flivoro.tile8auncher.ui.components.storyLaunchActor
+import com.flivoro.tile8auncher.ui.animation.LaunchOrigin
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
+import com.flivoro.tile8auncher.ui.components.highlightedAppLabel
 import com.flivoro.tile8auncher.ui.components.elasticHorizontalScroll
 import com.flivoro.tile8auncher.ui.components.preloadAllAppsIcons
 import com.flivoro.tile8auncher.ui.components.rememberAllAppsIcon
@@ -113,6 +123,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.flivoro.tile8auncher.ui.start.desktopStartInput
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.onKeyEvent
+import android.view.KeyEvent as AndroidKeyEvent
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -139,9 +159,14 @@ fun AllAppsScreen(
     onOpenAppInfo: (packageName: String) -> Unit,
     onUninstallApp: (packageName: String) -> Unit,
     onNavigateToStart: () -> Unit,
+    onCharmsClick: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     searchFocusRequest: Int = 0,
+    initialSearchQuery: String = "",
     searchFocusEnabled: Boolean = true,
+    borrowedLaunchStyle: MasterLaunchAnimation? = null,
+    borrowedLaunchPackage: String? = null,
+    borrowedLaunchProgress: () -> Float = { 0f },
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
@@ -151,6 +176,8 @@ fun AllAppsScreen(
     var alphabetZoomAnchorLetter by remember { mutableStateOf<String?>(null) }
     var privateUnlocked by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val borrowedDensity = LocalDensity.current.density
+    var borrowedViewportBounds by remember { mutableStateOf(Rect.Zero) }
     val appTileAccent = StartPersonalization.wallpaperAccentColor
     val allAppsAppearanceRevision = LauncherFeatureRuntime.allAppsAppearanceRevision
     val useAppAccentColors = remember(allAppsAppearanceRevision) {
@@ -168,17 +195,11 @@ fun AllAppsScreen(
         privateUnlocked = result.resultCode == Activity.RESULT_OK
     }
 
-    val liveSections by produceState(
-        initialValue = sections,
-        sections,
-        packageCatalogRevision,
-    ) {
-        value = if (packageCatalogRevision == 0) sections else withContext(Dispatchers.IO) {
-            AppsRepository(context.applicationContext).getCategorizedApps()
-        }
-    }
-
-    val allApps = remember(liveSections) { liveSections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
+    // The root already reconciles package changes and supplies its prepared
+    // catalog. A second repository scan here replaced that input after any
+    // package event, raced the shared workspace, and invalidated isolated
+    // drawer scenes. Keep one catalog owner and only enrich its metadata below.
+    val allApps = remember(sections) { sections.flatMap(AppSection::apps).distinctBy(AppInfo::packageName) }
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) {
         LauncherFeatureStore.appIconStyle(context)
@@ -196,6 +217,7 @@ fun AllAppsScreen(
 
     LaunchedEffect(searchFocusRequest, searchFocusEnabled) {
         if (searchFocusEnabled && searchFocusRequest > handledSearchRequest) {
+            searchQuery = initialSearchQuery
             searchFocus.requestFocus()
             keyboard?.show()
             handledSearchRequest = searchFocusRequest
@@ -274,7 +296,8 @@ fun AllAppsScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()
+                .storyLaunchActor("desktop-apps-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false)) {
                 val isNarrow = maxWidth < 460.dp
                 val titleSize = when {
                     maxWidth < 300.dp -> 32.sp
@@ -385,6 +408,7 @@ fun AllAppsScreen(
             ) {
                 if (searchQuery.isNotBlank()) {
                     UniversalSearchPanel(
+                        query = searchQuery,
                         matchingApps = matchingApps,
                         universalResults = universalResults,
                         appsRepository = appsRepository,
@@ -435,19 +459,24 @@ fun AllAppsScreen(
                     // position therefore has its visible icons hot before distant columns.
                     LaunchedEffect(columns, iconsRevision, iconStyle) {
                         if (columns.isEmpty()) return@LaunchedEffect
-                        delay(180)
+                        delay(1_200)
                         val origin = listState.firstVisibleItemIndex.coerceIn(0, columns.lastIndex)
                         val priorityPackages = columns.indices
                             .sortedBy { index -> abs(index - origin) }
                             .flatMap { index -> columns[index].apps }
                             .map(AppInfo::packageName)
-                        preloadAllAppsIcons(
-                            context = context.applicationContext,
-                            repository = appsRepository,
-                            packageNames = priorityPackages,
-                            style = iconStyle,
-                            iconsRevision = iconsRevision,
-                        )
+                        priorityPackages.distinct().chunked(2).forEach { batch ->
+                            preloadAllAppsIcons(
+                                context = context.applicationContext,
+                                repository = appsRepository,
+                                packageNames = batch,
+                                style = iconStyle,
+                                iconsRevision = iconsRevision,
+                                parallelism = 2,
+                            )
+                            // Leave decode capacity for foreground rows and input/entrance frames.
+                            delay(24)
+                        }
                     }
 
                     val alphabetSources = remember(columns) {
@@ -471,7 +500,23 @@ fun AllAppsScreen(
                         }
                     }
 
-                    Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize()
+                        .desktopStartInput(
+                            enabled = searchFocusEnabled && borrowedLaunchStyle == null && searchQuery.isBlank(),
+                            onZoom = { zoomIn -> if (sortMode == AppSortMode.NAME) showAlphabetOverview = !zoomIn },
+                            onEscape = {
+                                if (alphabetSemanticActive) showAlphabetOverview = false else onNavigateToStart()
+                                true
+                            },
+                            onSearch = { query ->
+                                searchQuery = query
+                                searchFocus.requestFocus()
+                                keyboard?.show()
+                            },
+                            onCharms = onCharmsClick,
+                            onScroll = { delta -> scope.launch { listState.scrollBy(delta * 48f * borrowedDensity) } },
+                        )
+                        .onGloballyPositioned { borrowedViewportBounds = it.boundsInWindow() }) {
                         LazyRow(
                             state = listState,
                             userScrollEnabled = !alphabetSemanticActive,
@@ -507,6 +552,12 @@ fun AllAppsScreen(
                                     useAppAccentColors = useAppAccentColors,
                                     letterColor = appTileAccent,
                                     showLetterHeader = !alphabetSemanticActive,
+                                    borrowedLaunchStyle = borrowedLaunchStyle,
+                                    borrowedLaunchPackage = borrowedLaunchPackage,
+                                    borrowedLaunchProgress = borrowedLaunchProgress,
+                                    borrowedViewport = { borrowedViewportBounds },
+                                    borrowedDensity = borrowedDensity,
+                                    borrowedColumnOrdinal = columns.indexOf(column),
                                     onLetterClick = { letter ->
                                         if (sortMode == AppSortMode.NAME) {
                                             selectedAppForAction = null
@@ -553,7 +604,8 @@ fun AllAppsScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)
+                .storyLaunchActor("desktop-apps-footer", LaunchOrigin.ALL_APPS, sourceCandidate = false)) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
@@ -581,6 +633,9 @@ fun AllAppsScreen(
             val currentApp = selectedAppForAction
             if (currentApp != null) {
                 val isPinned = isAppPinned(currentApp.packageName)
+                val uninstallable = remember(currentApp.packageName) {
+                    canRequestAppUninstall(context, currentApp.packageName)
+                }
                 val icon = rememberAllAppsIcon(appsRepository, currentApp.packageName)
                 Surface(
                     color = Color(0xF0180424),
@@ -599,7 +654,10 @@ fun AllAppsScreen(
                                 modifier = Modifier.size(40.dp).background(appTileAccent),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (icon != null) Image(icon, currentApp.label, Modifier.size(28.dp))
+                                if (icon != null) Image(
+                                    icon, currentApp.label, Modifier.size(28.dp),
+                                    colorFilter = null,
+                                )
                                 else MetroIcon(glyph = "app", color = Color.White, size = 24.dp)
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -634,14 +692,16 @@ fun AllAppsScreen(
                                     selectedAppForAction = null
                                 },
                             )
-                            MetroActionButton(
-                                glyph = "power",
-                                label = "Uninstall",
-                                onClick = {
-                                    onUninstallApp(currentApp.packageName)
-                                    selectedAppForAction = null
-                                },
-                            )
+                            if (uninstallable) {
+                                MetroActionButton(
+                                    glyph = "power",
+                                    label = "Uninstall",
+                                    onClick = {
+                                        onUninstallApp(currentApp.packageName)
+                                        selectedAppForAction = null
+                                    },
+                                )
+                            }
                             MetroActionButton(
                                 glyph = "arrow_down",
                                 label = "Cancel",
@@ -657,6 +717,7 @@ fun AllAppsScreen(
 
 @Composable
 private fun UniversalSearchPanel(
+    query: String,
     matchingApps: List<AppInfo>,
     universalResults: List<UniversalSearchResult>,
     appsRepository: AppsRepository,
@@ -677,7 +738,8 @@ private fun UniversalSearchPanel(
                     "Apps",
                     color = WindowsColors.Magenta.toTileColor(),
                     style = WindowsTypography.titleMedium.copy(fontSize = 17.sp),
-                    modifier = Modifier.padding(vertical = 7.dp),
+                    modifier = Modifier.padding(vertical = 7.dp)
+                        .storyLaunchActor("desktop-search-apps-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false),
                 )
             }
             items(matchingApps, key = { "search-app:${it.packageName}" }) { app ->
@@ -688,6 +750,7 @@ private fun UniversalSearchPanel(
                     isNew = isNewByPackage[app.packageName] == true,
                     appTileAccent = appTileAccent,
                     useAppAccentColors = useAppAccentColors,
+                    highlightQuery = query,
                     onClick = { onAppClick(app, it) },
                     onLongClick = { onAppLongClick(app) },
                 )
@@ -699,7 +762,8 @@ private fun UniversalSearchPanel(
                     "Results",
                     color = WindowsColors.Magenta.toTileColor(),
                     style = WindowsTypography.titleMedium.copy(fontSize = 17.sp),
-                    modifier = Modifier.padding(top = 10.dp, bottom = 7.dp),
+                    modifier = Modifier.padding(top = 10.dp, bottom = 7.dp)
+                        .storyLaunchActor("desktop-search-results-heading", LaunchOrigin.ALL_APPS, sourceCandidate = false),
                 )
             }
             items(universalResults, key = { "universal:${it::class.simpleName}:${it.title}:${it.subtitle}" }) { result ->
@@ -715,6 +779,7 @@ private fun UniversalResultRow(result: UniversalSearchResult, onClick: () -> Uni
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
+            .storyLaunchActor("universal-${result.title}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
             .clickable(onClick = onClick)
             .padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -791,6 +856,12 @@ private fun AllAppsColumn(
     useAppAccentColors: Boolean,
     letterColor: Color,
     showLetterHeader: Boolean,
+    borrowedLaunchStyle: MasterLaunchAnimation? = null,
+    borrowedLaunchPackage: String? = null,
+    borrowedLaunchProgress: () -> Float = { 0f },
+    borrowedViewport: () -> Rect = { Rect.Zero },
+    borrowedDensity: Float = 1f,
+    borrowedColumnOrdinal: Int = 0,
     onLetterClick: (String) -> Unit,
     onAppClick: (app: AppInfo, bounds: Rect) -> Unit,
     onLongClick: (app: AppInfo) -> Unit,
@@ -799,9 +870,27 @@ private fun AllAppsColumn(
         modifier = Modifier.width(columnWidth).height(rowHeight * column.items.size),
         verticalArrangement = Arrangement.Top,
     ) {
-        column.items.forEach { item ->
+        column.items.forEachIndexed { index, item ->
             key(item.key) {
-                when (item) {
+                var originalBounds by remember(item.key) { mutableStateOf(Rect.Zero) }
+                Box(Modifier.fillMaxWidth()
+                    .onGloballyPositioned { originalBounds = it.boundsInWindow() }
+                    .then(if (item is AllAppsColumnItem.LetterHeader)
+                        Modifier.storyLaunchActor("desktop-row-${item.key}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+                        else Modifier)
+                    .borrowedPhoneScene(
+                        style = borrowedLaunchStyle,
+                        progress = borrowedLaunchProgress,
+                        source = { originalBounds },
+                        viewport = borrowedViewport,
+                        selected = item is AllAppsColumnItem.App &&
+                            item.app.packageName == borrowedLaunchPackage,
+                        stagger = ((index.toFloat() / maxOf(1, column.items.size)) * .65f +
+                            ((borrowedColumnOrdinal % 6).toFloat() / 6f) * .35f).coerceIn(0f, 1f),
+                        allApps = true,
+                        density = borrowedDensity,
+                    )) {
+                    when (item) {
                     is AllAppsColumnItem.LetterHeader -> LetterHeader(
                         letter = item.letter,
                         rowHeight = rowHeight,
@@ -819,6 +908,7 @@ private fun AllAppsColumn(
                         onClick = { onAppClick(item.app, it) },
                         onLongClick = { onLongClick(item.app) },
                     )
+                    }
                 }
             }
         }
@@ -1053,7 +1143,12 @@ private fun SemanticAllAppsRow(
     appTileAccent: Color,
 ) {
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
-    val tileForeground = readableAllAppsTileForeground(appTileAccent)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val tileColor = if (layered) {
+        appsRepository.getDiscoTileAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+    } else appTileAccent
+    val tileForeground = readableAllAppsTileForeground(tileColor)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1064,7 +1159,8 @@ private fun SemanticAllAppsRow(
         Box(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
-                .background(appTileAccent),
+                .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS)
+                .background(tileColor),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
@@ -1072,6 +1168,7 @@ private fun SemanticAllAppsRow(
                     bitmap = icon,
                     contentDescription = null,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                    colorFilter = null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
@@ -1113,24 +1210,37 @@ private fun AppListItem(
     isNew: Boolean,
     appTileAccent: Color,
     useAppAccentColors: Boolean,
+    highlightQuery: String = "",
     onClick: (bounds: Rect) -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val iconCoordinates = remember { TileCoordinatesHolder() }
+    val interaction = remember(app.packageName) { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val latestOnLongClick by rememberUpdatedState(onLongClick)
     val icon = rememberAllAppsIcon(appsRepository, app.packageName)
+    val layered = LauncherFeatureStore.appIconStyle(LocalContext.current) ==
+        AppIconStyle.DISCO_LAYERED
+    val effectiveColors = useAppAccentColors || layered
     val effectiveTileAccent by produceState(
-        initialValue = if (useAppAccentColors) {
-            appsRepository.getCachedAppAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
+        initialValue = if (effectiveColors) {
+            appsRepository.getDiscoTileAccentColor(app.packageName)?.toTileColor() ?: appTileAccent
         } else {
             appTileAccent
         },
         app.packageName,
         appTileAccent,
-        useAppAccentColors,
+        effectiveColors,
     ) {
-        value = if (useAppAccentColors) {
+        value = if (effectiveColors) {
             withContext(Dispatchers.IO) {
-                appsRepository.loadAppAccentColor(app.packageName).toTileColor()
+                if (layered) {
+                    appsRepository.loadDiscoAllAppsIcon(app.packageName,
+                        (40f * context.resources.displayMetrics.density).roundToInt().coerceIn(72, 160))
+                    appsRepository.getDiscoTileAccentColor(app.packageName)
+                        ?.toTileColor() ?: appTileAccent
+                } else appsRepository.loadAppAccentColor(app.packageName).toTileColor()
             }
         } else {
             appTileAccent
@@ -1142,7 +1252,31 @@ private fun AppListItem(
         modifier = Modifier
             .fillMaxWidth()
             .height(rowHeight)
+            .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS, sourceCandidate = false)
+            .background(if (pressed) Color.White.copy(alpha = .12f) else Color.Transparent)
+            .onKeyEvent { event ->
+                val key = event.nativeKeyEvent
+                if (key.action == AndroidKeyEvent.ACTION_UP &&
+                    (key.keyCode == AndroidKeyEvent.KEYCODE_MENU ||
+                        (key.isShiftPressed && key.keyCode == AndroidKeyEvent.KEYCODE_F10))) {
+                    onLongClick(); true
+                } else false
+            }
+            .pointerInput(app.packageName) {
+                awaitEachGesture {
+                    // Handle the secondary button before combinedClickable
+                    // can start a primary-click press for the same gesture.
+                    val down = awaitFirstDown(requireUnconsumed = false,
+                        pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    if (currentEvent.buttons.isSecondaryPressed) {
+                        latestOnLongClick()
+                        down.consume()
+                    }
+                }
+            }
             .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
                 onClick = {
                     val bounds = iconCoordinates.coordinates?.takeIf { it.isAttached }?.boundsInWindow() ?: Rect.Zero
                     onClick(bounds)
@@ -1155,6 +1289,7 @@ private fun AppListItem(
             modifier = Modifier
                 .size(ALL_APPS_ICON_BACKGROUND_DP.dp)
                 .onGloballyPositioned { iconCoordinates.coordinates = it }
+                .storyLaunchActor("app_${app.packageName}", LaunchOrigin.ALL_APPS)
                 .background(effectiveTileAccent),
             contentAlignment = Alignment.Center,
         ) {
@@ -1163,14 +1298,18 @@ private fun AppListItem(
                     bitmap = icon,
                     contentDescription = app.label,
                     modifier = Modifier.size(ALL_APPS_ICON_DP.dp),
+                    colorFilter = null,
                 )
             } else {
                 MetroIcon(glyph = "app", color = tileForeground, size = ALL_APPS_ICON_DP.dp)
             }
         }
         Spacer(modifier = Modifier.width(10.dp))
+        val highlightedTitle = remember(app.label, highlightQuery, StartPersonalization.accentColor) {
+            highlightedAppLabel(app.label, highlightQuery, StartPersonalization.accentColor)
+        }
         Text(
-            text = app.label,
+            text = highlightedTitle,
             style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Normal),
             color = Color.White,
             maxLines = 1,

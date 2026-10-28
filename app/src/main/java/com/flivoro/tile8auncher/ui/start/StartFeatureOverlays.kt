@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +58,7 @@ internal fun StartFolderDialog(
         Column(
             Modifier
                 .fillMaxWidth()
+                .testTag("desktop-folder-dialog")
                 .background(Color(0xF0180424))
                 .padding(18.dp),
         ) {
