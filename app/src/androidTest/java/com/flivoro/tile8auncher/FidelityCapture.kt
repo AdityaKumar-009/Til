@@ -7,11 +7,12 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 
 /** Compact, persistent render evidence; exported even when a later assertion fails. */
-internal fun ComposeContentTestRule.captureFidelity(name: String) {
-    val bitmap = onRoot().captureToImage().asAndroidBitmap()
+internal fun ComposeContentTestRule.captureFidelity(name: String, tag: String? = null) {
+    val bitmap = (if (tag == null) onRoot() else onNodeWithTag(tag)).captureToImage().asAndroidBitmap()
     val scaled = Bitmap.createScaledBitmap(bitmap, 360,
         (bitmap.height * 360f / bitmap.width).toInt(), true)
     val context = InstrumentationRegistry.getInstrumentation().targetContext

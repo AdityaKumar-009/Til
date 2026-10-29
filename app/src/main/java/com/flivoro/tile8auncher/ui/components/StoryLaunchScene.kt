@@ -472,7 +472,7 @@ internal fun StoryLaunchOverlay(
             }, contentAlignment = Alignment.Center) {
                 when {
                     destinationIcon != null -> destinationIcon(Modifier.fillMaxSize())
-                    tile.iconGlyph.isNotBlank() && tile.iconGlyph != "app" ->
+                    tile.iconGlyph.isNotBlank() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.packageName) ->
                         MetroIcon(tile.iconGlyph, color = Color.White, size = 42.dp)
                     state.appIcon != null -> Image(
                         bitmap = state.appIcon,

@@ -276,7 +276,8 @@ class MainActivity : ComponentActivity() {
                             // cached glyph instead of substituting a different
                             // Desktop/Android icon when the live snapshot is culled.
                             val phoneVisibleIcon = tile.packageName?.takeIf {
-                                layeredIcons && (origin == LaunchOrigin.ALL_APPS &&
+                                LauncherFeatureStore.customIconUri(this@MainActivity, it) == null &&
+                                    layeredIcons && (origin == LaunchOrigin.ALL_APPS &&
                                     uiMode != LauncherUiMode.DESKTOP ||
                                     uiMode == LauncherUiMode.PHONE_8)
                             }?.let(appsRepository::getCachedWp81NormalizedIcon)

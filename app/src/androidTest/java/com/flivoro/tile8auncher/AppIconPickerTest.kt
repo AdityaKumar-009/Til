@@ -121,7 +121,7 @@ class AppIconPickerTest {
         compose.setContent { MaterialTheme { AppIconPickerSheet(target, "Mosaic", onClose = { closed = true }) } }
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("app-icon-choice-original").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("app-icon-choice-original").performClick()
-        compose.captureFidelity("app-icon-picker")
+        compose.captureFidelity("app-icon-picker", "app-icon-bottom-sheet")
         assertNull(LauncherFeatureStore.customIconUri(context, target))
         compose.onNodeWithTag("app-icon-apply").performClick()
         compose.waitUntil(10_000) { closed }

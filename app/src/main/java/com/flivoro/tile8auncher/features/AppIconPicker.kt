@@ -106,12 +106,14 @@ internal fun AppIconPickerSheet(packageName: String, appName: String, onClose: (
     val accent = Color(StartPersonalization.wallpaperAccentArgb)
     val surface = if (mode == LauncherUiMode.DESKTOP) Color(0xFF180424) else Color(0xFF202020)
     val shape = RoundedCornerShape(6.dp)
+    val compact = LocalConfiguration.current.screenHeightDp < 480
     var choices by remember(packageName) { mutableStateOf<List<IconChoice>>(emptyList()) }
     var selected by rememberSaveable(packageName) { mutableStateOf(AppIconArtwork.selected(context, packageName)) }
     var customUri by rememberSaveable(packageName) {
         mutableStateOf(if (selected == AppIconArtwork.CUSTOM)
             LauncherFeatureStore.customIconUri(context, packageName) else null)
     }
+    var importRequest by rememberSaveable(packageName) { mutableIntStateOf(0) }
     var pendingImage by rememberSaveable(packageName) { mutableStateOf(false) }
     var customImage by remember(packageName) { mutableStateOf<ImageBitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -127,7 +129,7 @@ internal fun AppIconPickerSheet(packageName: String, appName: String, onClose: (
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { error = "Couldn't load icon previews. You can still choose an image." }
     }
-    LaunchedEffect(customUri) {
+    LaunchedEffect(customUri, importRequest) {
         val uri = customUri ?: return@LaunchedEffect
         importing = true
         try {
@@ -141,6 +143,7 @@ internal fun AppIconPickerSheet(packageName: String, appName: String, onClose: (
             // This also lets a recreated picker decode its saved draft after process death.
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             pendingImage = true
+            importRequest++
             customUri = uri.toString()
         }
     }
@@ -153,22 +156,22 @@ internal fun AppIconPickerSheet(packageName: String, appName: String, onClose: (
         shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
         scrimColor = Color.Black.copy(alpha = .60f),
     ) {
-        Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * .84f).dp)
+        Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * (if (compact) .94f else .84f)).dp)
             .padding(horizontal = 20.dp).testTag("app-icon-bottom-sheet")) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(72.dp).background(accent, shape).testTag("app-icon-preview"),
+                Box(Modifier.size(if (compact) 48.dp else 72.dp).background(accent, shape).testTag("app-icon-preview"),
                     contentAlignment = Alignment.Center) {
-                    if (preview != null) Image(preview, "Selected icon preview", Modifier.size(48.dp))
+                    if (preview != null) Image(preview, "Selected icon preview", Modifier.size(if (compact) 36.dp else 48.dp))
                     else MetroIcon("app", size = 42.dp)
                 }
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text("Change icon", style = WindowsTypography.displayLarge.copy(fontSize = 27.sp))
+                    Text("Change icon", style = WindowsTypography.displayLarge.copy(fontSize = if (compact) 22.sp else 27.sp))
                     Text(appName, color = Color.White.copy(alpha = .8f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
-                    Text("Start and All Apps · all modes", color = Color.White.copy(alpha = .6f), fontSize = 12.sp)
+                    if (!compact) Text("Start and All Apps · all modes", color = Color.White.copy(alpha = .6f), fontSize = 12.sp)
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(if (compact) 6.dp else 14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { runCatching { picker.launch(arrayOf("image/*")) }
                     .onFailure { error = "No image picker is available on this device." } },
