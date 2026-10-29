@@ -80,6 +80,7 @@ object LauncherFeatureRuntime {
     var launcherModeRevision by mutableIntStateOf(0)
         private set
 
+    // Updating a launch preset must not invalidate or rebuild launcher-mode surfaces.
     var masterLaunchAnimationRevision by mutableIntStateOf(0)
         private set
 
