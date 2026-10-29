@@ -97,6 +97,7 @@ import com.flivoro.tile8auncher.features.EnhancedAppInfo
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.WidgetPickerActivity
+import com.flivoro.tile8auncher.features.AppIconPickerActivity
 import com.flivoro.tile8auncher.features.MasterLaunchAnimation
 import com.flivoro.tile8auncher.features.UniversalSearchResult
 import com.flivoro.tile8auncher.features.hasUsageAccess
@@ -688,6 +689,14 @@ fun AllAppsScreen(
                                         Toast.makeText(context, "Pinned ${currentApp.label} to Start", Toast.LENGTH_SHORT).show()
                                     }
                                     selectedAppForAction = null
+                                },
+                            )
+                            MetroActionButton(
+                                glyph = "photos",
+                                label = "Change icon",
+                                onClick = {
+                                    selectedAppForAction = null
+                                    context.startActivity(AppIconPickerActivity.forApp(context, currentApp.packageName, currentApp.label))
                                 },
                             )
                             MetroActionButton(

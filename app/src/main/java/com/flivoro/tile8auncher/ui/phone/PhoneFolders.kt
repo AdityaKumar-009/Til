@@ -52,6 +52,7 @@ import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.hasCustomAppIcon
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import org.json.JSONArray
@@ -324,7 +325,7 @@ internal fun PhoneFolderPreview(
                         .background(Color(tile.colorValue)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (tile.iconGlyph.isBlank() && icon != null) {
+                    if ((tile.iconGlyph.isBlank() || hasCustomAppIcon(tile.packageName)) && icon != null) {
                         Image(bitmap = icon, contentDescription = null,
                             modifier = Modifier.size(glyphSize))
                     } else {
@@ -354,7 +355,7 @@ internal fun PhoneFolderPreview(
                             LiveTileNotificationStore.latest(context, tile.packageName)?.count ?: 0 else 0
                         Box(Modifier.padding(2.dp).size(side).background(Color(tile.colorValue)),
                             contentAlignment = Alignment.Center) {
-                            if (tile.iconGlyph.isBlank() && icon != null) {
+                            if ((tile.iconGlyph.isBlank() || hasCustomAppIcon(tile.packageName)) && icon != null) {
                                 Image(bitmap = icon, contentDescription = null,
                                     modifier = Modifier.size(side * .66f))
                             } else {

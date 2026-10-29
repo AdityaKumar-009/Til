@@ -144,7 +144,7 @@ object LauncherFeatureStore {
     private const val ICON_PACK_PACKAGE = "feature_icon_pack_package"
     private const val APP_ICON_STYLE = "feature_app_icon_style"
     private const val ALL_APPS_APP_ACCENT_COLORS = "feature_all_apps_app_accent_colors"
-    private const val CUSTOM_ICON_PREFIX = "feature_custom_icon_uri_"
+    internal const val CUSTOM_ICON_PREFIX = "feature_custom_icon_uri_"
     private const val DOUBLE_TAP_ACTION = "feature_start_double_tap_action"
     private const val START_GROUP_HEADINGS = "feature_start_group_headings"
     private const val FOLDERS_JSON = "feature_folders_json"
@@ -467,6 +467,7 @@ object LauncherFeatureStore {
 
     fun setCustomIconUri(context: Context, packageName: String, uri: String?) {
         prefs(context).edit {
+            remove(AppIconArtwork.CHOICE_PREFIX + packageName)
             if (uri.isNullOrBlank()) remove(CUSTOM_ICON_PREFIX + packageName)
             else putString(CUSTOM_ICON_PREFIX + packageName, uri)
         }
