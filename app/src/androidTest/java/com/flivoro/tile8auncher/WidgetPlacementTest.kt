@@ -52,6 +52,7 @@ class WidgetPlacementTest {
         val intent = WidgetPickerActivity.forApp(context, fixture).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         ActivityScenario.launch<WidgetPickerActivity>(intent).use {
             compose.onNodeWithTag("app-widget-bottom-sheet").assertIsDisplayed()
+            compose.captureFidelity("widget-app-sheet", tag = "app-widget-bottom-sheet")
             compose.onNodeWithTag("widget-choice-${provider.provider.flattenToString()}")
                 .performScrollTo().performClick()
             compose.waitUntil(10_000) { AppsRepository(context).loadPinnedTiles().size == 1 }

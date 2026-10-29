@@ -188,6 +188,7 @@ private fun widgetPreviewView(
         (dimensions.height * context.resources.displayMetrics.density).toInt())
 }.apply {
     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
 
     val generated: RemoteViews? = if (Build.VERSION.SDK_INT >= 35) runCatching {
         manager.getWidgetPreview(
@@ -545,7 +546,10 @@ class WidgetPickerActivity : ComponentActivity() {
 
     private fun finishAddWidget(info: AppWidgetProviderInfo) {
         if (allocatedId == AppWidgetManager.INVALID_APPWIDGET_ID ||
-            manager.getAppWidgetInfo(allocatedId) == null) return
+            manager.getAppWidgetInfo(allocatedId) == null) {
+            resetPending("This widget is no longer available. Try another widget.")
+            return
+        }
         val repo = AppsRepository(applicationContext)
         val current = repo.loadPinnedTiles().toMutableList()
         val tileId = "widget_${allocatedId}_${System.currentTimeMillis()}"

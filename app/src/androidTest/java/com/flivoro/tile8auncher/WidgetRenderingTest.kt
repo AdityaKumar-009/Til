@@ -17,12 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -128,7 +126,25 @@ class WidgetRenderingTest {
                 assertTrue(kotlin.math.abs(expected.toInt() -
                     options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)) <= 2)
             }
-            onView(withText("Open")).perform(click())
+            var buttonCenter = Offset.Zero
+            compose.runOnIdle {
+                val viewport = WindowInspector.getGlobalWindowViews().firstNotNullOf { root ->
+                    root.findViewWithTag<ViewGroup>("widget-host-$id") }
+                val button = viewport.findViewById<View>(fixtureContext.resources.getIdentifier(
+                    "widget_test_button", "id", fixtureContext.packageName))
+                val visibleButton = android.graphics.Rect()
+                assertTrue(button.getGlobalVisibleRect(visibleButton))
+                val origin = IntArray(2)
+                viewport.getLocationOnScreen(origin)
+                buttonCenter = Offset(visibleButton.exactCenterX() - origin[0],
+                    visibleButton.exactCenterY() - origin[1])
+                assertTrue(buttonCenter.x in 0f..viewport.width.toFloat())
+                assertTrue(buttonCenter.y in 0f..viewport.height.toFloat())
+            }
+            // Espresso's 90% visibility matcher compares unscaled local dimensions
+            // with the scaled global rectangle. Send a real tap at the rendered
+            // button instead, and still require its actual PendingIntent to fire.
+            compose.onNodeWithTag("hosted-widget-$id").performTouchInput { click(buttonCenter) }
             compose.waitUntil(5_000) { taps == 1 }
             compose.runOnIdle { height = 280.dp }
             compose.waitForIdle()
