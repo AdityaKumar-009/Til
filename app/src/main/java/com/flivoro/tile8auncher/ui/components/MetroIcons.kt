@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
@@ -78,14 +79,16 @@ internal fun metroIconBitmap(context: android.content.Context, glyph: String, si
         val bitmap = android.graphics.Bitmap.createBitmap(side, side, android.graphics.Bitmap.Config.ARGB_8888)
         drawable.setBounds(0, 0, side, side)
         drawable.draw(android.graphics.Canvas(bitmap))
-        return bitmap.asImageBitmap()
+        return bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false).asImageBitmap()
     }
-    return ImageBitmap(side, side).also { image ->
+    val image = ImageBitmap(side, side).also { image ->
         CanvasDrawScope().draw(androidx.compose.ui.unit.Density(1f),
             androidx.compose.ui.unit.LayoutDirection.Ltr, Canvas(image), Size(side.toFloat(), side.toFloat())) {
             drawMetroGlyph(glyph, Color.White)
         }
     }
+    // Publish a completed immutable bitmap when crossing from the decoder thread to RenderThread.
+    return image.asAndroidBitmap().copy(android.graphics.Bitmap.Config.ARGB_8888, false).asImageBitmap()
 }
 
 // Scrolling reuses textures instead of allocating and tessellating glyph paths each frame.

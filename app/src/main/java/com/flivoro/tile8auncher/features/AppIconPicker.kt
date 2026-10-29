@@ -161,7 +161,9 @@ internal fun AppIconPickerSheet(packageName: String, appName: String, onClose: (
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(if (compact) 48.dp else 72.dp).background(accent, shape).testTag("app-icon-preview"),
                     contentAlignment = Alignment.Center) {
-                    if (preview != null) Image(preview, "Selected icon preview", Modifier.size(if (compact) 36.dp else 48.dp))
+                    if (selected.startsWith("glyph:")) MetroIcon(selected.removePrefix("glyph:"),
+                        size = if (compact) 36.dp else 48.dp)
+                    else if (preview != null) Image(preview, "Selected icon preview", Modifier.size(if (compact) 36.dp else 48.dp))
                     else MetroIcon("app", size = 42.dp)
                 }
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
@@ -201,8 +203,11 @@ internal fun AppIconPickerSheet(packageName: String, appName: String, onClose: (
                         .selectable(selected = chosen, enabled = !busy && !importing, role = Role.RadioButton,
                             onClick = { selected = choice.id; error = null })
                         .padding(8.dp).testTag("app-icon-choice-${choice.id}"), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
-                            if (choice.image != null) Image(choice.image, null, Modifier.size(38.dp))
+                        Box(Modifier.fillMaxWidth().height(48.dp).testTag("app-icon-art-${choice.id}"),
+                            contentAlignment = Alignment.Center) {
+                            // Use the same on-screen vector/glyph renderer as the launcher itself.
+                            if (choice.id.startsWith("glyph:")) MetroIcon(choice.id.removePrefix("glyph:"), size = 38.dp)
+                            else if (choice.image != null) Image(choice.image, null, Modifier.size(38.dp))
                             else MetroIcon("app", size = 38.dp)
                             if (chosen) Text("✓", color = Color.White, fontWeight = FontWeight.Bold,
                                 modifier = Modifier.align(Alignment.TopEnd))

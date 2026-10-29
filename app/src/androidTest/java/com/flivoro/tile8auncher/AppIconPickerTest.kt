@@ -129,6 +129,39 @@ class AppIconPickerTest {
         assertNotNull(LauncherFeatureStore.customIconUri(context, target))
     }
 
+    @Test fun metroSymbolsContainArtworkAndPersistAsVisibleIcons() {
+        for (glyph in listOf("wp81_phone", "wp81_messages", "mail", "camera", "photos", "music",
+            "video", "ie", "maps", "games", "folder", "settings")) {
+            val image = metroIconBitmap(context, glyph)
+            val bitmap = image.asAndroidBitmap()
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            assertTrue("$glyph must not be transparent", pixels.count { android.graphics.Color.alpha(it) > 128 } > 100)
+            AppIconArtwork.apply(context, target, "glyph:$glyph", image)
+            IconPackManager.clearCaches()
+            val restored = IconPackManager.loadCustom(context, target)!!.asAndroidBitmap()
+            val restoredPixels = IntArray(restored.width * restored.height)
+            restored.getPixels(restoredPixels, 0, restored.width, 0, 0, restored.width, restored.height)
+            assertTrue("$glyph must remain visible after saving", restoredPixels.count { android.graphics.Color.alpha(it) > 128 } > 100)
+        }
+    }
+
+    @Test fun pickerActuallyDrawsVectorAndMetroSymbolPreviews() {
+        compose.setContent { MaterialTheme { AppIconPickerSheet(target, "Mosaic", onClose = {}) } }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("app-icon-choice-original").fetchSemanticsNodes().isNotEmpty() }
+        for (glyph in listOf("wp81_phone", "camera")) {
+            compose.onNodeWithTag("app-icon-choices").performScrollToNode(hasTestTag("app-icon-choice-glyph:$glyph"))
+            val bitmap = compose.onNodeWithTag("app-icon-art-glyph:$glyph", useUnmergedTree = true)
+                .captureToImage().asAndroidBitmap()
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            assertTrue("$glyph should be visible on screen", pixels.count {
+                android.graphics.Color.red(it) > 220 && android.graphics.Color.green(it) > 220 &&
+                    android.graphics.Color.blue(it) > 220
+            } > 50)
+        }
+    }
+
     @Test fun cancelLeavesStoredIconUntouched() {
         AppIconArtwork.apply(context, target, "original", artwork())
         refresh()
