@@ -39,12 +39,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,10 +61,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.flivoro.tile8auncher.data.AppsRepository
-import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
+import kotlinx.coroutines.launch
 
 object LauncherWidgetHost {
     const val HOST_ID = 0x4D4F53 // "MOS"
@@ -280,6 +285,7 @@ private fun WidgetChoiceCard(choice: WidgetProviderChoice, onPick: (AppWidgetPro
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun WidgetProviderPicker(
     choices: List<WidgetProviderChoice>,
     appName: String?,
@@ -287,67 +293,106 @@ private fun WidgetProviderPicker(
     onCancel: () -> Unit,
 ) {
     val isAppSheet = appName != null
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (isAppSheet) Color(0xB8000000) else Color(0xFF180424))
-            .then(if (isAppSheet) Modifier.clickable(onClick = onCancel)
-                else Modifier.statusBarsPadding()),
-    ) {
-        Column(
-            Modifier
-                .then(if (isAppSheet) Modifier.align(Alignment.BottomCenter)
-                    .fillMaxWidth().fillMaxHeight(.78f)
-                    .background(Color(0xFF180424), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                    .clickable { /* consume taps within the sheet */ }
-                else Modifier.fillMaxSize())
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-                .testTag(if (isAppSheet) "app-widget-bottom-sheet" else "widget-picker"),
-        ) {
-            Text(
-                if (isAppSheet) "$appName widgets" else "Widgets",
-                color = Color.White,
-                style = WindowsTypography.displayLarge.copy(fontSize = if (isAppSheet) 27.sp else 38.sp),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                if (isAppSheet) "Choose a widget from this app to add to Start"
-                    else "Choose a widget to pin to Start",
-                color = Color.White.copy(alpha = .72f),
-                style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-            )
-            Spacer(Modifier.height(14.dp))
-
-            if (choices.isEmpty()) {
-                Text(
-                    if (isAppSheet) "This app doesn't offer any widgets."
-                        else "No Android widget providers are installed.",
-                    color = Color.White.copy(alpha = .78f),
-                    style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
-                )
-            } else {
-                LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                    items(
-                        items = choices,
-                        key = { it.info.provider.flattenToString() },
-                    ) { choice ->
-                        WidgetChoiceCard(choice, onPick)
-                    }
-                }
+    if (isAppSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val scope = rememberCoroutineScope()
+        val dismissSheet: () -> Unit = {
+            scope.launch {
+                sheetState.hide()
+                onCancel()
             }
-
-            Text(
-                "Cancel",
-                color = Color.White,
-                style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
-                modifier = Modifier
-                    .clickable(onClick = onCancel)
-                    .padding(vertical = 12.dp, horizontal = 4.dp),
+        }
+        ModalBottomSheet(
+            onDismissRequest = onCancel,
+            sheetState = sheetState,
+            shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+            containerColor = Color(0xFF180424),
+            contentColor = Color.White,
+            tonalElevation = 0.dp,
+            scrimColor = Color(0x99000000),
+            dragHandle = {
+                BottomSheetDefaults.DragHandle(color = Color(0xFF8B78A5))
+            },
+        ) {
+            WidgetPickerContent(
+                choices = choices,
+                appName = appName,
+                onPick = onPick,
+                onCancel = dismissSheet,
+                isAppSheet = true,
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(.82f),
             )
         }
+    } else {
+        Box(Modifier.fillMaxSize().background(Color(0xFF180424)).statusBarsPadding()) {
+            WidgetPickerContent(
+                choices = choices,
+                appName = null,
+                onPick = onPick,
+                onCancel = onCancel,
+                isAppSheet = false,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun WidgetPickerContent(
+    choices: List<WidgetProviderChoice>,
+    appName: String?,
+    onPick: (AppWidgetProviderInfo) -> Unit,
+    onCancel: () -> Unit,
+    isAppSheet: Boolean,
+    modifier: Modifier,
+) {
+    Column(
+        modifier.then(if (isAppSheet) Modifier else Modifier.navigationBarsPadding())
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .testTag(if (isAppSheet) "app-widget-bottom-sheet" else "widget-picker"),
+    ) {
+        Text(
+            if (isAppSheet) "$appName widgets" else "Widgets",
+            color = Color.White,
+            style = WindowsTypography.displayLarge.copy(fontSize = if (isAppSheet) 27.sp else 38.sp),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (isAppSheet) "Choose a widget from this app to add to Start"
+                else "Choose a widget to pin to Start",
+            color = Color.White.copy(alpha = .72f),
+            style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
+        )
+        Spacer(Modifier.height(14.dp))
+
+        if (choices.isEmpty()) {
+            Text(
+                if (isAppSheet) "This app doesn't offer any widgets."
+                    else "No Android widget providers are installed.",
+                color = Color.White.copy(alpha = .78f),
+                style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
+            )
+        } else {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                items(
+                    items = choices,
+                    key = { it.info.provider.flattenToString() },
+                ) { choice ->
+                    WidgetChoiceCard(choice, onPick)
+                }
+            }
+        }
+
+        Text(
+            "Cancel",
+            color = Color.White,
+            style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
+            modifier = Modifier
+                .clickable(onClick = onCancel)
+                .padding(vertical = 12.dp, horizontal = 4.dp),
+        )
     }
 }
 
@@ -365,7 +410,6 @@ class WidgetPickerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val packageFilter = intent.getStringExtra(EXTRA_PACKAGE_NAME)?.takeIf(String::isNotBlank)
-        if (packageFilter != null) setTheme(R.style.Theme_Tile8Launcher_WidgetSheet)
         super.onCreate(savedInstanceState)
         host = LauncherWidgetHost.get(this)
         manager = AppWidgetManager.getInstance(this)

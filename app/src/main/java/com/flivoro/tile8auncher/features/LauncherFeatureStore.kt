@@ -80,8 +80,15 @@ object LauncherFeatureRuntime {
     var launcherModeRevision by mutableIntStateOf(0)
         private set
 
+    var masterLaunchAnimationRevision by mutableIntStateOf(0)
+        private set
+
     fun notifyLauncherModeChanged() {
         launcherModeRevision++
+    }
+
+    fun notifyMasterLaunchAnimationChanged() {
+        masterLaunchAnimationRevision++
     }
 
     var pinnedTilesRevision by mutableIntStateOf(0)
@@ -166,7 +173,7 @@ object LauncherFeatureStore {
 
     fun setMasterLaunchAnimation(context: Context, animation: MasterLaunchAnimation) {
         prefs(context).edit { putString(MASTER_LAUNCH_ANIMATION, animation.name) }
-        LauncherFeatureRuntime.notifyLauncherModeChanged()
+        LauncherFeatureRuntime.notifyMasterLaunchAnimationChanged()
     }
 
     fun launcherUiMode(context: Context): LauncherUiMode {

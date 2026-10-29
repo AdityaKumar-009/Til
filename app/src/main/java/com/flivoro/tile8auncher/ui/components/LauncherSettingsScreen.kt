@@ -90,9 +90,10 @@ internal fun LauncherSettingsScreen(
     val context = LocalContext.current
     val repository = appsRepository ?: remember(context) { AppsRepository(context.applicationContext) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val revision = LauncherFeatureRuntime.launcherModeRevision
-    val mode = remember(revision) { LauncherFeatureStore.launcherUiMode(context) }
-    val animation = remember(revision) { LauncherFeatureStore.masterLaunchAnimation(context) }
+    val modeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val mode = remember(modeRevision) { LauncherFeatureStore.launcherUiMode(context) }
+    val animationRevision = LauncherFeatureRuntime.masterLaunchAnimationRevision
+    val animation = remember(animationRevision) { LauncherFeatureStore.masterLaunchAnimation(context) }
     var currentPage by rememberSaveable { mutableStateOf(SettingsPage.OVERVIEW) }
     // Each Settings page starts at its own top. Reusing one scroll offset across
     // pages can strand the Overview navigation rows outside the visible viewport.
