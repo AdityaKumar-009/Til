@@ -294,6 +294,7 @@ private fun WidgetProviderPicker(
 ) {
     val isAppSheet = appName != null
     if (isAppSheet) {
+        // Show the previews at full sheet height immediately; a downward swipe dismisses it.
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val scope = rememberCoroutineScope()
         val dismissSheet: () -> Unit = {
