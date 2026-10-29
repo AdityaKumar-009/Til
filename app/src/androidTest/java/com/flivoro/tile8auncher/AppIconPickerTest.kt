@@ -33,9 +33,12 @@ class AppIconPickerTest {
     private val target get() = context.packageName
     private val color = android.graphics.Color.rgb(18, 145, 73)
     private fun artwork() = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }.asImageBitmap()
-    private fun refresh() = compose.runOnIdle {
+    private fun refresh() = InstrumentationRegistry.getInstrumentation().runOnMainSync {
         IconPackManager.clearCaches()
         LauncherFeatureRuntime.notifyIconsChanged()
+        // Bitmap-only tests have no mounted composition to drain global snapshot changes.
+        // Flush them during setup/cleanup instead of waiting for a nonexistent UI frame.
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
     }
 
     @Before fun prepare() {
