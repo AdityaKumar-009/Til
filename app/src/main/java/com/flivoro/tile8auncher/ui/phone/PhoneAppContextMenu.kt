@@ -9,10 +9,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -102,6 +105,7 @@ internal fun PhoneAppContextMenu(
     viewportBoundsInWindow: Rect = Rect.Zero,
     onPinChanged: () -> Unit,
     onAddWidgets: () -> Unit,
+    onChangeIcon: () -> Unit = {},
     onAppInfo: () -> Unit,
     onUninstall: () -> Unit = {},
     onDismiss: () -> Unit,
@@ -113,9 +117,11 @@ internal fun PhoneAppContextMenu(
     val pointerFraction = (xPx / screenWidthPx).coerceIn(0f, 1f)
     // Disco uses fixed CSS pixels for commands rather than scaling them with tile size.
     val scale = 1f
-    val commandCount = if (packageName == "mosaic.launcher.settings") 3
-        else if (isUninstallable) 4 else 3
-    val classicMenuHeight = 24f + 65f * commandCount
+    val commandCount = if (packageName == "mosaic.launcher.settings") 4
+        else if (isUninstallable) 5 else 4
+    val viewportHeight = with(LocalDensity.current) { viewportBoundsInWindow.height.toDp().value }
+        .takeIf { it > 0f } ?: LocalConfiguration.current.screenHeightDp.toFloat()
+    val classicMenuHeight = (24f + 65f * commandCount).coerceAtMost(viewportHeight)
     val menuHeightPx = with(LocalDensity.current) { classicMenuHeight.dp.roundToPx() }
     val opensAbove = placeClassicAppMenu(
         rowBoundsInWindow.top.roundToInt(),
@@ -196,11 +202,13 @@ internal fun PhoneAppContextMenu(
                         }
                         .background(Color.White)
                         .clipToBounds()
+                        .verticalScroll(rememberScrollState())
                         .padding((12f * scale).dp),
                 ) {
                     // Disco disables pin when it is already present; never unpin
                     // from the All Apps context menu.
                     item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
+                    item("change icon", action = onChangeIcon)
                     item("add widgets", action = onAddWidgets)
                     if (packageName != "mosaic.launcher.settings") {
                         item("app info", action = onAppInfo)
@@ -220,12 +228,14 @@ internal fun PhoneAppContextMenu(
             }
         } else {
             Column(
-                Modifier.width(216.dp).background(Color(0xFF202020))
+                Modifier.width(216.dp).heightIn(max = viewportHeight.dp)
+                    .verticalScroll(rememberScrollState()).background(Color(0xFF202020))
                     .border(1.dp, Color(0xFF383838))
                     .padding(vertical = 6.dp)
                     .testTag("phone-lumia-app-context-menu"),
             ) {
                 item(if (alreadyPinned) "unpin from start" else "pin to start", action = onPinChanged)
+                item("change icon", action = onChangeIcon)
                 item("add widgets", action = onAddWidgets)
                 if (packageName != "mosaic.launcher.settings") {
                     item("share") {

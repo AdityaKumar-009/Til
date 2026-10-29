@@ -21,6 +21,11 @@
         android:theme="@style/Theme.Tile8Launcher">
 
         <activity
+            android:name=".features.AppIconPickerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Tile8Launcher.WidgetSheet" />
+
+        <activity
             android:name=".features.WidgetPickerActivity"
             android:exported="false"
             android:theme="@style/Theme.Tile8Launcher" />

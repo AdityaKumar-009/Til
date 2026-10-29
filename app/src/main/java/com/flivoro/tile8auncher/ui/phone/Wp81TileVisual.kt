@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
+import com.flivoro.tile8auncher.ui.components.hasCustomAppIcon
 
 /**
  * One WP8.1 source of truth for app artwork. The icon, optional painted
@@ -29,6 +30,9 @@ internal fun rememberWp81TileVisual(
     refreshInBackground: Boolean = true,
 ): Wp81TileVisual {
     val fallback = rememberAppIcon(repository, packageName)
+    if (hasCustomAppIcon(packageName)) return Wp81TileVisual(
+        fallback, null, packageName?.let(repository::getDiscoTileAccentColor),
+    )
     val cachedIcon = remember(repository, packageName, fallback, enabled) {
         if (enabled && packageName != null)
             repository.getCachedWp81NormalizedIcon(packageName)

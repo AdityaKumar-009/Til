@@ -123,6 +123,8 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.WidgetPickerActivity
+import com.flivoro.tile8auncher.features.AppIconPickerActivity
+import com.flivoro.tile8auncher.ui.components.hasCustomAppIcon
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.canRequestAppUninstall
@@ -1891,7 +1893,7 @@ fun PhoneLauncherSurface(
                                             // WP8.1 app-list plates are 52 units wide; keep an
                                             // 11-unit clear inset around the displayed 30-unit
                                             // artwork. Start tile logos retain their own sizing.
-                                            if (app.packageName == MOSAIC_SETTINGS_ID) {
+                                            if (app.packageName == MOSAIC_SETTINGS_ID && !hasCustomAppIcon(app.packageName)) {
                                                 com.flivoro.tile8auncher.ui.components.MetroIcon(
                                                     glyph = "settings", size = settingsGlyphSideDp.dp)
                                             } else if (icon != null) androidx.compose.foundation.Image(
@@ -2335,6 +2337,7 @@ fun PhoneLauncherSurface(
                         }
                     }
                 },
+                onChangeIcon = { context.startActivity(AppIconPickerActivity.forApp(context, pkg, app.label)) },
                 onAddWidgets = {
                     context.startActivity(WidgetPickerActivity.forApp(context, pkg))
                 },
@@ -3214,7 +3217,7 @@ private fun PhoneTile(
     val layered = LauncherFeatureStore.appIconStyle(context) ==
         AppIconStyle.DISCO_LAYERED
     val visual = rememberWp81TileVisual(
-        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+        repository, tile.iconPackageName, mode == LauncherUiMode.PHONE_8 && layered,
     )
     val icon = visual.icon
     val classicStockTile = tile.id.startsWith("tile_")
@@ -3544,7 +3547,7 @@ internal fun PhoneLaunchSourceFace(
     val density = LocalDensity.current.density
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val visual = rememberWp81TileVisual(
-        repository, tile.packageName,
+        repository, tile.iconPackageName,
         (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
@@ -3714,7 +3717,7 @@ internal fun PhoneLaunchDestinationIcon(
     val context = LocalContext.current
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val artwork = rememberWp81TileVisual(
-        repository, tile.packageName,
+        repository, tile.iconPackageName,
         (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
@@ -3722,7 +3725,7 @@ internal fun PhoneLaunchDestinationIcon(
         if (mode == LauncherUiMode.PHONE_8 && tile.id.startsWith("phone_app_"))
             readPhoneAppRoles(context).glyph(tile.packageName, tile.title) else null
     }
-    val glyph = stockGlyph ?: tile.iconGlyph
+    val glyph = if (hasCustomAppIcon(tile.iconPackageName)) "" else stockGlyph ?: tile.iconGlyph
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
             glyph.isNotEmpty() && glyph != "app" -> com.flivoro.tile8auncher.ui.components.MetroIcon(

@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
@@ -67,6 +69,26 @@ fun MetroIcon(
             onDrawBehind { drawImage(bitmap) }
         })
     }
+}
+
+/** The picker uses the launcher's existing glyph artwork, including the Lumia phone vector. */
+internal fun metroIconBitmap(context: android.content.Context, glyph: String, side: Int = 256): ImageBitmap {
+    if (glyph == "wp81_phone") {
+        val drawable = requireNotNull(androidx.appcompat.content.res.AppCompatResources.getDrawable(
+            context, R.drawable.wp81_lumia_phone_vector))
+        val bitmap = android.graphics.Bitmap.createBitmap(side, side, android.graphics.Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, side, side)
+        drawable.draw(android.graphics.Canvas(bitmap))
+        return bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false).asImageBitmap()
+    }
+    val image = ImageBitmap(side, side).also { image ->
+        CanvasDrawScope().draw(androidx.compose.ui.unit.Density(1f),
+            androidx.compose.ui.unit.LayoutDirection.Ltr, Canvas(image), Size(side.toFloat(), side.toFloat())) {
+            drawMetroGlyph(glyph, Color.White)
+        }
+    }
+    // Publish a completed immutable bitmap when crossing from the decoder thread to RenderThread.
+    return image.asAndroidBitmap().copy(android.graphics.Bitmap.Config.ARGB_8888, false).asImageBitmap()
 }
 
 // Scrolling reuses textures instead of allocating and tessellating glyph paths each frame.

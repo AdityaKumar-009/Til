@@ -25,6 +25,16 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
+/** Explicit per-app artwork takes priority over theme glyphs and global icon styles. */
+@Composable
+internal fun hasCustomAppIcon(packageName: String?): Boolean {
+    val context = LocalContext.current
+    val revision = LauncherFeatureRuntime.iconsRevision
+    return remember(context, packageName, revision) {
+        LauncherFeatureStore.customIconUri(context, packageName) != null
+    }
+}
+
 /**
  * Returns the already-resolved icon for the currently selected global style.
  *
@@ -38,6 +48,8 @@ fun cachedAppIconForCurrentStyle(
     packageName: String?,
 ): ImageBitmap? {
     val name = packageName ?: return null
+    if (LauncherFeatureStore.customIconUri(context, name) != null)
+        return IconPackManager.peekCustom(context, name)
     return when (LauncherFeatureStore.appIconStyle(context)) {
         AppIconStyle.DISCO_LAYERED ->
             repository.getCachedDiscoLayeredAppIcon(name)
@@ -139,6 +151,8 @@ private fun cachedAllAppsIconForStyle(
     maxPx: Int,
     iconsRevision: Int,
 ): ImageBitmap? {
+    if (LauncherFeatureStore.customIconUri(context, packageName) != null)
+        return IconPackManager.peekCustom(context, packageName, maxPx)
     ResolvedAllAppsIconCache.ensureRevision(iconsRevision)
     ResolvedAllAppsIconCache.get(packageName, style, maxPx, iconsRevision)?.let { return it }
 
@@ -209,7 +223,8 @@ private suspend fun resolveAllAppsIcon(
         iconsRevision = iconsRevision,
     )?.let { return it }
 
-    val resolved = when (style) {
+    val custom = withContext(Dispatchers.IO) { IconPackManager.loadCustom(context, packageName, maxPx) }
+    val resolved = custom ?: when (style) {
         AppIconStyle.DISCO_LAYERED -> repository.loadDiscoAllAppsIcon(packageName, maxPx)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
@@ -294,7 +309,8 @@ private suspend fun resolveStartAppIcon(
     ResolvedStartIconCache.ensureRevision(iconsRevision)
     ResolvedStartIconCache.get(packageName, style, iconsRevision)?.let { return it }
 
-    val resolved = when (style) {
+    val custom = withContext(Dispatchers.IO) { IconPackManager.loadCustom(context, packageName) }
+    val resolved = custom ?: when (style) {
         AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(packageName)
         AppIconStyle.DEFAULT -> {
             val override = withContext(Dispatchers.IO) {
@@ -343,7 +359,8 @@ suspend fun preloadStartIcons(
                             iconsRevision = iconsRevision,
                             retainForStart = retainForStart,
                         )
-                        if (normalizeWp81 && style == AppIconStyle.DISCO_LAYERED) {
+                        if (normalizeWp81 && style == AppIconStyle.DISCO_LAYERED &&
+                            LauncherFeatureStore.customIconUri(context, packageName) == null) {
                             repository.loadWp81NormalizedIcon(packageName)
                         }
                     } catch (cancelled: CancellationException) {
@@ -379,17 +396,8 @@ fun rememberStartAppIcon(
     var icon by remember(repository, packageName, iconsRevision, iconStyle) {
         mutableStateOf(
             packageName?.let { name ->
-                ResolvedStartIconCache.get(name, iconStyle, iconsRevision) ?: when (iconStyle) {
-                    AppIconStyle.DISCO_LAYERED ->
-                        repository.getCachedDiscoLayeredAppIcon(name)
-                            ?: repository.getCachedMonochromeAppIcon(name)
-                    AppIconStyle.DEFAULT ->
-                        IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
-                    AppIconStyle.ANDROID_ADAPTIVE ->
-                        repository.getCachedAppIcon(name)
-                    AppIconStyle.WHITE_MONOCHROME ->
-                        repository.getCachedMonochromeAppIcon(name) ?: repository.getCachedAppIcon(name)
-                }
+                ResolvedStartIconCache.get(name, iconStyle, iconsRevision)
+                    ?: cachedAppIconForCurrentStyle(context, repository, name)
             },
         )
     }
@@ -469,34 +477,15 @@ fun rememberAppIcon(
     var icon by remember(repository, packageName, iconsRevision, iconStyle) {
         mutableStateOf(
             packageName?.let { name ->
-                when (iconStyle) {
-                    AppIconStyle.DISCO_LAYERED ->
-                        repository.getCachedDiscoLayeredAppIcon(name)
-                            ?: repository.getCachedMonochromeAppIcon(name)
-                    AppIconStyle.DEFAULT ->
-                        IconPackManager.peekOverride(name) ?: repository.getCachedAppIcon(name)
-                    AppIconStyle.ANDROID_ADAPTIVE ->
-                        repository.getCachedAppIcon(name)
-                    AppIconStyle.WHITE_MONOCHROME ->
-                        repository.getCachedMonochromeAppIcon(name) ?: repository.getCachedAppIcon(name)
-                }
+                cachedAppIconForCurrentStyle(context, repository, name)
             },
         )
     }
 
     LaunchedEffect(repository, packageName, iconsRevision, iconStyle) {
         val name = packageName ?: return@LaunchedEffect
-        icon = when (iconStyle) {
-            AppIconStyle.DISCO_LAYERED -> repository.loadDiscoLayeredAppIcon(name)
-            AppIconStyle.DEFAULT -> {
-                val override = withContext(Dispatchers.IO) {
-                    IconPackManager.loadOverride(context.applicationContext, name)
-                }
-                override ?: repository.loadAppIcon(name)
-            }
-            AppIconStyle.ANDROID_ADAPTIVE -> repository.loadAppIcon(name)
-            AppIconStyle.WHITE_MONOCHROME -> repository.loadMonochromeAppIcon(name)
-        }
+        icon = resolveStartAppIcon(context, repository, name, iconStyle, iconsRevision,
+            retainForStart = false)
     }
 
     return icon
