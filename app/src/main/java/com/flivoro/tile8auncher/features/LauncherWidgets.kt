@@ -7,23 +7,36 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.RemoteViews
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -37,11 +50,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.flivoro.tile8auncher.data.AppsRepository
+import com.flivoro.tile8auncher.R
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
@@ -124,28 +139,183 @@ private data class WidgetProviderChoice(
     val packageLabel: String,
 )
 
+/** Package filtering is exact: a widget must belong to the long-pressed app. */
+internal fun <T> widgetChoicesForPackage(
+    choices: List<T>,
+    packageName: String?,
+    providerPackage: (T) -> String,
+): List<T> = if (packageName == null) choices else choices.filter {
+    providerPackage(it) == packageName
+}
+
+/**
+ * Preview precedence matches Android's picker: Android 15 generated RemoteViews,
+ * Android 12 previewLayout, then the provider's static previewImage. No widget
+ * IDs are allocated and no live widget callbacks run in this picker.
+ */
+private fun widgetPreviewView(
+    context: Context,
+    info: AppWidgetProviderInfo,
+    manager: AppWidgetManager,
+    onPick: () -> Unit,
+): FrameLayout = FrameLayout(context).apply {
+    setBackgroundColor(android.graphics.Color.rgb(35, 35, 42))
+
+    val generated: RemoteViews? = if (Build.VERSION.SDK_INT >= 35) runCatching {
+        manager.getWidgetPreview(
+            info.provider,
+            info.profile,
+            AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
+        )
+    }.getOrNull() else null
+    val previewLayout: RemoteViews? = if (Build.VERSION.SDK_INT >= 31 && info.previewLayout != 0) {
+        RemoteViews(info.provider.packageName, info.previewLayout)
+    } else null
+
+    val remotePreviewAdded = sequenceOf(generated, previewLayout).filterNotNull().any { remote ->
+        runCatching {
+            val preview = remote.apply(context, this)
+            addView(preview, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER,
+            ))
+        }.isSuccess
+    }
+
+    if (!remotePreviewAdded) {
+        val image = runCatching {
+            info.loadPreviewImage(context, context.resources.displayMetrics.densityDpi)
+        }.getOrNull()
+        if (image != null) {
+            addView(ImageView(context).apply {
+                setImageDrawable(image)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setPadding(8.dpPx(context), 8.dpPx(context), 8.dpPx(context), 8.dpPx(context))
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        } else {
+            // The provider supplies neither a generated, layout, nor image preview.
+            // Show its real icon, explicitly labelling this as a fallback.
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                addView(ImageView(context).apply {
+                    setImageDrawable(runCatching { info.loadIcon(context, context.resources.displayMetrics.densityDpi) }
+                        .getOrNull() ?: runCatching {
+                        context.packageManager.getApplicationIcon(info.provider.packageName)
+                    }.getOrNull())
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                }, LinearLayout.LayoutParams(52.dpPx(context), 52.dpPx(context)))
+                addView(TextView(context).apply {
+                    text = "Preview not provided by app"
+                    setTextColor(android.graphics.Color.LTGRAY)
+                    textSize = 12f
+                    gravity = Gravity.CENTER
+                    setPadding(0, 10.dpPx(context), 0, 0)
+                })
+            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+    }
+    // RemoteViews can contain PendingIntent buttons. The picker must never activate
+    // those: tapping any part of a preview only selects the widget provider.
+    addView(View(context).apply {
+        isClickable = true
+        setOnClickListener { onPick() }
+    }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+}
+
+private fun Int.dpPx(context: Context): Int =
+    (this * context.resources.displayMetrics.density + 0.5f).toInt()
+
+@Composable
+private fun WidgetChoiceCard(choice: WidgetProviderChoice, onPick: (AppWidgetProviderInfo) -> Unit) {
+    val context = LocalContext.current
+    val manager = remember(context) { AppWidgetManager.getInstance(context) }
+    val info = choice.info
+    val hasCellDimensions = Build.VERSION.SDK_INT >= 31 &&
+        info.targetCellWidth > 0 && info.targetCellHeight > 0
+    val width = if (hasCellDimensions) info.targetCellWidth else info.minWidth.coerceAtLeast(1)
+    val height = if (hasCellDimensions) info.targetCellHeight else info.minHeight.coerceAtLeast(1)
+    val aspectRatio = (width.toFloat() / height).coerceIn(.25f, 5f)
+
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .border(1.dp, Color(0xFF53465D), RoundedCornerShape(10.dp))
+            .background(Color(0xFF281333), RoundedCornerShape(10.dp))
+            .clickable { onPick(info) }
+            .padding(12.dp)
+            .testTag("widget-choice-${info.provider.flattenToString()}"),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            // Respect the widget's native shape instead of stretching every preview
+            // into the same landscape rectangle.
+            val availableWidth = maxWidth.coerceAtMost(320.dp)
+            val previewHeight = (availableWidth.value / aspectRatio).dp.coerceAtMost(220.dp)
+            val previewWidth = (previewHeight.value * aspectRatio).dp
+            Box(Modifier.fillMaxWidth().height(previewHeight.coerceAtLeast(110.dp)),
+                contentAlignment = Alignment.Center) {
+                AndroidView(
+                    factory = { widgetPreviewView(it, info, manager) { onPick(info) } },
+                    modifier = Modifier.size(previewWidth, previewHeight)
+                        .testTag("widget-preview-${info.provider.flattenToString()}"),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(choice.label, color = Color.White,
+                    style = WindowsTypography.bodyMedium.copy(fontSize = 15.sp),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(choice.packageLabel, color = Color.White.copy(alpha = .65f),
+                    style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text("Add +", color = Color.White,
+                style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
+                modifier = Modifier.padding(start = 12.dp))
+        }
+    }
+}
+
 @Composable
 private fun WidgetProviderPicker(
     choices: List<WidgetProviderChoice>,
+    appName: String?,
     onPick: (AppWidgetProviderInfo) -> Unit,
     onCancel: () -> Unit,
 ) {
+    val isAppSheet = appName != null
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF180424))
-            .statusBarsPadding()
-            .navigationBarsPadding(),
+            .background(if (isAppSheet) Color(0xB8000000) else Color(0xFF180424))
+            .then(if (isAppSheet) Modifier.clickable(onClick = onCancel)
+                else Modifier.statusBarsPadding()),
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Column(
+            Modifier
+                .then(if (isAppSheet) Modifier.align(Alignment.BottomCenter)
+                    .fillMaxWidth().fillMaxHeight(.78f)
+                    .background(Color(0xFF180424), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+                    .clickable { /* consume taps within the sheet */ }
+                else Modifier.fillMaxSize())
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .testTag(if (isAppSheet) "app-widget-bottom-sheet" else "widget-picker"),
+        ) {
             Text(
-                "Widgets",
+                if (isAppSheet) "$appName widgets" else "Widgets",
                 color = Color.White,
-                style = WindowsTypography.displayLarge.copy(fontSize = 38.sp),
+                style = WindowsTypography.displayLarge.copy(fontSize = if (isAppSheet) 27.sp else 38.sp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Choose a widget to pin to Start",
+                if (isAppSheet) "Choose a widget from this app to add to Start"
+                    else "Choose a widget to pin to Start",
                 color = Color.White.copy(alpha = .72f),
                 style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
             )
@@ -153,7 +323,8 @@ private fun WidgetProviderPicker(
 
             if (choices.isEmpty()) {
                 Text(
-                    "No Android widget providers are installed.",
+                    if (isAppSheet) "This app doesn't offer any widgets."
+                        else "No Android widget providers are installed.",
                     color = Color.White.copy(alpha = .78f),
                     style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
                 )
@@ -163,43 +334,7 @@ private fun WidgetProviderPicker(
                         items = choices,
                         key = { it.info.provider.flattenToString() },
                     ) { choice ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(choice.info) }
-                                .padding(vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(42.dp)
-                                    .background(Color(0xFF5133AB)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    choice.label.take(1).uppercase(),
-                                    color = Color.White,
-                                    style = WindowsTypography.titleMedium.copy(fontSize = 18.sp),
-                                )
-                            }
-                            Spacer(Modifier.size(11.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    choice.label,
-                                    color = Color.White,
-                                    style = WindowsTypography.bodyMedium.copy(fontSize = 14.sp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    choice.packageLabel,
-                                    color = Color.White.copy(alpha = .58f),
-                                    style = WindowsTypography.labelSmall.copy(fontSize = 10.sp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
+                        WidgetChoiceCard(choice, onPick)
                     }
                 }
             }
@@ -229,6 +364,8 @@ class WidgetPickerActivity : ComponentActivity() {
     private var pendingProvider: ComponentName? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val packageFilter = intent.getStringExtra(EXTRA_PACKAGE_NAME)?.takeIf(String::isNotBlank)
+        if (packageFilter != null) setTheme(R.style.Theme_Tile8Launcher_WidgetSheet)
         super.onCreate(savedInstanceState)
         host = LauncherWidgetHost.get(this)
         manager = AppWidgetManager.getInstance(this)
@@ -239,7 +376,9 @@ class WidgetPickerActivity : ComponentActivity() {
         pendingProvider = savedInstanceState?.getString(STATE_PROVIDER)
             ?.let(ComponentName::unflattenFromString)
 
-        val choices = manager.installedProviders
+        val choices = widgetChoicesForPackage(manager.installedProviders, packageFilter) {
+            it.provider.packageName
+        }
             .map { info ->
                 val label = runCatching { info.loadLabel(packageManager) }
                     .getOrNull()
@@ -253,9 +392,16 @@ class WidgetPickerActivity : ComponentActivity() {
             }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
 
+        val appName = packageFilter?.let { pkg ->
+            runCatching { packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(pkg, 0),
+            ).toString() }.getOrDefault(pkg)
+        }
+
         setContent {
             WidgetProviderPicker(
                 choices = choices,
+                appName = appName,
                 onPick = ::beginBind,
                 onCancel = ::cancelAndFinish,
             )
@@ -393,6 +539,11 @@ class WidgetPickerActivity : ComponentActivity() {
     }
 
     companion object {
+        const val EXTRA_PACKAGE_NAME = "com.flivoro.tile8auncher.extra.WIDGET_PACKAGE_NAME"
+
+        fun forApp(context: Context, packageName: String): Intent =
+            Intent(context, WidgetPickerActivity::class.java).putExtra(EXTRA_PACKAGE_NAME, packageName)
+
         private const val REQUEST_BIND = 7200
         private const val REQUEST_CONFIGURE = 7202
         private const val STATE_WIDGET_ID = "widget_id"

@@ -2,6 +2,14 @@
     <!-- Base application theme for Tile8 Launcher -->
     <style name="Theme.Tile8Launcher" parent="Theme.Tile8Launcher.Base" />
 
+    <!-- The per-app widget picker is a genuine bottom panel above the launcher. -->
+    <style name="Theme.Tile8Launcher.WidgetSheet" parent="Theme.Tile8Launcher.Base">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
     <style name="Theme.Tile8Launcher.Base" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Never expose Material's light window background while Compose is preparing/resuming. -->
         <item name="android:windowBackground">@color/launcher_window_background</item>

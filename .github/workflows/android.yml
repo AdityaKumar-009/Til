@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
   pull_request:
-    branches: [main, feature/windows-phone-launcher-modes]
+    branches: [main, feature/windows-phone-launcher-modes, feature/widget-previews-and-app-sheets]
   push:
     branches:
       - main
