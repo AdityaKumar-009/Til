@@ -276,7 +276,7 @@ fun FlipLaunchOverlay(
                 } else if (destinationIcon != null) {
                     destinationIcon(Modifier.size(iconSize))
                 } else if (!sharedLogo) when {
-                    tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.packageName) -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
+                    tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.iconPackageName) -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
                     state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.size(iconSize))
                     else -> MetroIcon("app", color = Color.White, size = iconSize)
                 }
@@ -294,7 +294,7 @@ fun FlipLaunchOverlay(
                         quad = { current -> WindowsLaunchMotion.logoQuad(current, source,
                             width, height, sourceLogo ?: Rect.Zero, logoSizePx) })) {
                     when {
-                        tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.packageName) -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
+                        tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.iconPackageName) -> MetroIcon(tile.iconGlyph, color = Color.White, size = iconSize)
                         state.appIcon != null -> Image(state.appIcon, tile.title, Modifier.fillMaxSize())
                         else -> MetroIcon("app", color = Color.White, size = iconSize)
                     }

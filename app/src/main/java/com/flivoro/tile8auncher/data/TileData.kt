@@ -54,7 +54,11 @@ data class TileModel(
     val startRow: Int? = null,
     /** Stable Windows Start group identity; the visible [groupName] may be empty or duplicated. */
     val groupId: String = "",
-)
+) {
+    /** Native Settings has its own drawer identity even when a legacy tile stores Android Settings. */
+    val iconPackageName: String?
+        get() = if (tileType == TileType.SETTINGS) "mosaic.launcher.settings" else packageName
+}
 
 @Immutable
 data class AppInfo(

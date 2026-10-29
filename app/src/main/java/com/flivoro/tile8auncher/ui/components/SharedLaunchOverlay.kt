@@ -213,7 +213,7 @@ internal fun SharedLaunchOverlay(
                 destinationContent()
             } else {
                 when {
-                    tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.packageName) -> MetroIcon(
+                    tile.iconGlyph.isNotEmpty() && tile.iconGlyph != "app" && !hasCustomAppIcon(tile.iconPackageName) -> MetroIcon(
                         tile.iconGlyph, color = androidx.compose.ui.graphics.Color.White, size = 78.dp)
                     state.appIcon != null -> Image(
                         state.appIcon, tile.title, Modifier.size(78.dp))

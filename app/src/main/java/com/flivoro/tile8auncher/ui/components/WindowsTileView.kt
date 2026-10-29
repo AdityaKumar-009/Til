@@ -239,7 +239,7 @@ private fun DefaultTileContent(
     }
 
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
-    if (hasCustomAppIcon(tile.packageName) && appIcon != null) {
+    if (hasCustomAppIcon(tile.iconPackageName) && appIcon != null) {
         StaticAppTileContent(tile = tile, appIcon = appIcon, logoModifier = logoModifier)
         return
     }
@@ -277,7 +277,7 @@ private fun SmallTileContent(
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
-    val customIcon = hasCustomAppIcon(tile.packageName)
+    val customIcon = hasCustomAppIcon(tile.iconPackageName)
     val tintMonochrome = !customIcon && iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 
     if (customIcon && appIcon != null) {
@@ -778,7 +778,7 @@ private fun LiveTileAppIcon(
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
-    val customIcon = hasCustomAppIcon(tile.packageName)
+    val customIcon = hasCustomAppIcon(tile.iconPackageName)
     val tintMonochrome = !customIcon &&
         iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 

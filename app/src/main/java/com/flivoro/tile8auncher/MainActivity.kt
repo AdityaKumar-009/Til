@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity() {
                             // draw normalized layered glyphs. Capture the same
                             // cached glyph instead of substituting a different
                             // Desktop/Android icon when the live snapshot is culled.
-                            val phoneVisibleIcon = tile.packageName?.takeIf {
+                            val phoneVisibleIcon = tile.iconPackageName?.takeIf {
                                 LauncherFeatureStore.customIconUri(this@MainActivity, it) == null &&
                                     layeredIcons && (origin == LaunchOrigin.ALL_APPS &&
                                     uiMode != LauncherUiMode.DESKTOP ||
@@ -285,17 +285,17 @@ class MainActivity : ComponentActivity() {
                                 cachedAllAppsIconForCurrentStyle(
                                     context = this@MainActivity,
                                     repository = appsRepository,
-                                    packageName = tile.packageName,
+                                    packageName = tile.iconPackageName,
                                 ) ?: cachedAppIconForCurrentStyle(
                                     context = this@MainActivity,
                                     repository = appsRepository,
-                                    packageName = tile.packageName,
+                                    packageName = tile.iconPackageName,
                                 )
                             } else {
                                 cachedAppIconForCurrentStyle(
                                     context = this@MainActivity,
                                     repository = appsRepository,
-                                    packageName = tile.packageName,
+                                    packageName = tile.iconPackageName,
                                 )
                             }
                             val isPhone = uiMode != LauncherUiMode.DESKTOP

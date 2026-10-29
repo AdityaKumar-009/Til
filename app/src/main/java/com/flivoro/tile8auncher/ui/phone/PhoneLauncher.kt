@@ -3217,7 +3217,7 @@ private fun PhoneTile(
     val layered = LauncherFeatureStore.appIconStyle(context) ==
         AppIconStyle.DISCO_LAYERED
     val visual = rememberWp81TileVisual(
-        repository, tile.packageName, mode == LauncherUiMode.PHONE_8 && layered,
+        repository, tile.iconPackageName, mode == LauncherUiMode.PHONE_8 && layered,
     )
     val icon = visual.icon
     val classicStockTile = tile.id.startsWith("tile_")
@@ -3547,7 +3547,7 @@ internal fun PhoneLaunchSourceFace(
     val density = LocalDensity.current.density
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val visual = rememberWp81TileVisual(
-        repository, tile.packageName,
+        repository, tile.iconPackageName,
         (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
@@ -3717,7 +3717,7 @@ internal fun PhoneLaunchDestinationIcon(
     val context = LocalContext.current
     val layered = LauncherFeatureStore.appIconStyle(context) == AppIconStyle.DISCO_LAYERED
     val artwork = rememberWp81TileVisual(
-        repository, tile.packageName,
+        repository, tile.iconPackageName,
         (mode == LauncherUiMode.PHONE_8 || sourceOrigin == LaunchOrigin.ALL_APPS) && layered,
         refreshInBackground = false,
     )
@@ -3725,7 +3725,7 @@ internal fun PhoneLaunchDestinationIcon(
         if (mode == LauncherUiMode.PHONE_8 && tile.id.startsWith("phone_app_"))
             readPhoneAppRoles(context).glyph(tile.packageName, tile.title) else null
     }
-    val glyph = if (hasCustomAppIcon(tile.packageName)) "" else stockGlyph ?: tile.iconGlyph
+    val glyph = if (hasCustomAppIcon(tile.iconPackageName)) "" else stockGlyph ?: tile.iconGlyph
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
             glyph.isNotEmpty() && glyph != "app" -> com.flivoro.tile8auncher.ui.components.MetroIcon(
