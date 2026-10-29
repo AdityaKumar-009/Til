@@ -112,6 +112,28 @@ class WidgetRenderingTest {
             compose.setContent { MaterialTheme { HostedWidgetTile(listOf(id), Modifier.size(200.dp, height)) } }
             compose.onNodeWithTag("hosted-widget-$id").assertIsDisplayed()
             compose.waitForIdle()
+            var buttonCenter = Offset.Zero
+            // A bound ID and host container exist before the provider's RemoteViews
+            // arrive. Require the real button, rather than inspecting a placeholder.
+            compose.waitUntil(10_000) {
+                var found = false
+                instrumentation.runOnMainSync {
+                    val viewport = WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull { root ->
+                        root.findViewWithTag<ViewGroup>("widget-host-$id") } ?: return@runOnMainSync
+                    val button = viewport.findViewById<View>(fixtureContext.resources.getIdentifier(
+                        "widget_test_button", "id", fixtureContext.packageName))
+                    val visibleButton = android.graphics.Rect()
+                    if (button != null && button.getGlobalVisibleRect(visibleButton) &&
+                        visibleButton.width() > 0 && visibleButton.height() > 0) {
+                        val origin = IntArray(2)
+                        viewport.getLocationOnScreen(origin)
+                        buttonCenter = Offset(visibleButton.exactCenterX() - origin[0],
+                            visibleButton.exactCenterY() - origin[1])
+                        found = true
+                    }
+                }
+                found
+            }
             compose.runOnIdle {
                 val viewport = WindowInspector.getGlobalWindowViews().firstNotNullOf { root ->
                     root.findViewWithTag<ViewGroup>("widget-host-$id") }
@@ -126,18 +148,9 @@ class WidgetRenderingTest {
                 assertTrue(kotlin.math.abs(expected.toInt() -
                     options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)) <= 2)
             }
-            var buttonCenter = Offset.Zero
             compose.runOnIdle {
                 val viewport = WindowInspector.getGlobalWindowViews().firstNotNullOf { root ->
                     root.findViewWithTag<ViewGroup>("widget-host-$id") }
-                val button = viewport.findViewById<View>(fixtureContext.resources.getIdentifier(
-                    "widget_test_button", "id", fixtureContext.packageName))
-                val visibleButton = android.graphics.Rect()
-                assertTrue(button.getGlobalVisibleRect(visibleButton))
-                val origin = IntArray(2)
-                viewport.getLocationOnScreen(origin)
-                buttonCenter = Offset(visibleButton.exactCenterX() - origin[0],
-                    visibleButton.exactCenterY() - origin[1])
                 assertTrue(buttonCenter.x in 0f..viewport.width.toFloat())
                 assertTrue(buttonCenter.y in 0f..viewport.height.toFloat())
             }
