@@ -123,6 +123,7 @@ import com.flivoro.tile8auncher.features.LiveTileRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureRuntime
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.WidgetPickerActivity
+import com.flivoro.tile8auncher.features.HostedWidgetTile
 import com.flivoro.tile8auncher.features.PhoneBackgroundStyle
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.features.canRequestAppUninstall
@@ -349,7 +350,8 @@ internal object PhoneLayoutStore {
         migrateIfNeeded(context, mode, "size_${tile.id}")
         val name = prefs(context).getString(key(mode, "size_${tile.id}"), tile.size.name)
         val chosen = TileSize.entries.firstOrNull { it.name == name } ?: tile.size
-        return if (chosen == TileSize.LARGE) TileSize.WIDE else chosen
+        return if (chosen == TileSize.LARGE &&
+            LauncherFeatureStore.widgetStackIds(context, tile.id).isEmpty()) TileSize.WIDE else chosen
     }
 
     fun saveSize(context: Context, mode: LauncherUiMode, tileId: String, size: TileSize) {
@@ -1101,7 +1103,13 @@ fun PhoneLauncherSurface(
                             expandedFolder = expandedFolder,
                             onResizeTile = { id ->
                                 tileFor(id)?.let { tile ->
-                                    val size = if (isClassicPhone) {
+                                    val size = if (LauncherFeatureStore.widgetStackIds(context, tile.id).isNotEmpty()) {
+                                        when (tile.size) {
+                                            TileSize.SMALL, TileSize.MEDIUM -> TileSize.WIDE
+                                            TileSize.WIDE -> TileSize.LARGE
+                                            TileSize.LARGE -> TileSize.MEDIUM
+                                        }
+                                    } else if (isClassicPhone) {
                                         // Disco wTileMenu.previousSize cycles the
                                         // supported sizes in reverse, not forward.
                                         when (tile.size) {
@@ -3254,6 +3262,7 @@ private fun PhoneTile(
     val brandedBackground = if (allowClassicBrandColor &&
         !userChoseColor && tilePictureContent == null && layered)
         visual.richBackground else null
+    val widgetIds = LauncherFeatureStore.widgetStackIds(context, tile.id)
 
     fun currentMotion(): PhoneStartMotionFrame = if (exiting &&
         launchMotionMode == LauncherUiMode.MOBILE_10 ||
@@ -3341,7 +3350,19 @@ private fun PhoneTile(
     WindowsTileFace(
         tile = faceTile,
         appIcon = icon,
-        contentOverride = if (folderChildren.isNotEmpty()) ({
+        contentOverride = if (widgetIds.isNotEmpty()) ({
+            Box(Modifier.fillMaxSize()) {
+                HostedWidgetTile(widgetIds, Modifier.fillMaxSize())
+                // Keep a clear editing target without intercepting widget buttons,
+                // list scrolling or links with the ordinary tile launch recognizer.
+                Text("⋮", color = Color.White, fontSize = 20.sp,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .background(Color(0xCC180424))
+                        .clickable(enabled = interactionEnabled && !exiting, onClick = onLongClick)
+                        .semantics { contentDescription = "Edit widget" }
+                        .padding(horizontal = 12.dp, vertical = 8.dp))
+            }
+        }) else if (folderChildren.isNotEmpty()) ({
             Box(Modifier.fillMaxSize()) {
                 val previewAlpha = if (mode == LauncherUiMode.PHONE_8)
                     ClassicPhoneFolderMotion.previewOpacity(folderOpenProgress)
@@ -3498,7 +3519,7 @@ private fun PhoneTile(
             .then(if (hideOriginalForDesktopFlip) Modifier.graphicsLayer {
                 alpha = 0f
             } else Modifier)
-            .phoneToolkitTilePress(
+            .then(if (widgetIds.isEmpty()) Modifier.phoneToolkitTilePress(
                 enabled = interactionEnabled && !exiting,
                 onClick = { bounds -> onClick(faceTile, bounds) },
                 onLongClick = onLongClick,
@@ -3508,7 +3529,7 @@ private fun PhoneTile(
                 // 200ms, which clashes with quick taps and reverse openings.
                 tiltEnabled = tiltEnabled &&
                     !(mode == LauncherUiMode.MOBILE_10 && folderChildren.isNotEmpty()),
-            ),
+            ) else Modifier),
     )
 }
 
@@ -3780,3 +3801,4 @@ internal fun PhoneNavGlyph(key: PhoneNavKey, modifier: Modifier = Modifier) {
         }
     }
 }
+

@@ -19,10 +19,14 @@ import android.widget.RemoteViews
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -31,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -40,6 +45,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -47,15 +55,24 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
@@ -100,11 +117,14 @@ fun HostedWidgetTile(
         val id = validIds.getOrNull(activeIndex)
         val info = id?.let(manager::getAppWidgetInfo)
         if (id != null && info != null) {
-            AndroidView(
-                factory = { host.createView(it, id, info).apply { setAppWidget(id, info) } },
-                update = { view -> view.setAppWidget(id, info) },
-                modifier = Modifier.fillMaxSize(),
-            )
+            // A stack page owns a distinct host view. Rebinding an existing host view
+            // loses its RemoteViews and can leave the previous widget's content behind.
+            key(id) {
+                AndroidView(
+                    factory = { WidgetHostViewport(it, host.createView(it, id, info), info) },
+                    modifier = Modifier.fillMaxSize().testTag("hosted-widget-$id"),
+                )
+            }
         } else {
             Column(
                 modifier = Modifier.align(Alignment.Center).padding(8.dp),
@@ -122,7 +142,7 @@ fun HostedWidgetTile(
         if (validIds.size > 1) {
             Row(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.BottomEnd)
                     .background(Color(0xAA000000))
                     .clickable { activeIndex = (activeIndex + 1) % validIds.size }
                     .padding(horizontal = 7.dp, vertical = 5.dp),
@@ -138,7 +158,7 @@ fun HostedWidgetTile(
     }
 }
 
-private data class WidgetProviderChoice(
+internal data class WidgetProviderChoice(
     val info: AppWidgetProviderInfo,
     val label: String,
     val packageLabel: String,
@@ -162,9 +182,12 @@ private fun widgetPreviewView(
     context: Context,
     info: AppWidgetProviderInfo,
     manager: AppWidgetManager,
-    onPick: () -> Unit,
-): FrameLayout = FrameLayout(context).apply {
-    setBackgroundColor(android.graphics.Color.rgb(35, 35, 42))
+): FrameLayout = providerDimensions(context, info).let { dimensions ->
+    WidgetPreviewViewport(context,
+        (dimensions.width * context.resources.displayMetrics.density).toInt(),
+        (dimensions.height * context.resources.displayMetrics.density).toInt())
+}.apply {
+    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
 
     val generated: RemoteViews? = if (Build.VERSION.SDK_INT >= 35) runCatching {
         manager.getWidgetPreview(
@@ -210,61 +233,76 @@ private fun widgetPreviewView(
                         context.packageManager.getApplicationIcon(info.provider.packageName)
                     }.getOrNull())
                     scaleType = ImageView.ScaleType.FIT_CENTER
-                }, LinearLayout.LayoutParams(52.dpPx(context), 52.dpPx(context)))
+                }, LinearLayout.LayoutParams(28.dpPx(context), 28.dpPx(context)))
                 addView(TextView(context).apply {
-                    text = "Preview not provided by app"
+                    text = "Preview unavailable"
                     setTextColor(android.graphics.Color.LTGRAY)
-                    textSize = 12f
+                    textSize = 10f
                     gravity = Gravity.CENTER
-                    setPadding(0, 10.dpPx(context), 0, 0)
+                    setPadding(0, 4.dpPx(context), 0, 0)
                 })
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
     }
-    // RemoteViews can contain PendingIntent buttons. The picker must never activate
-    // those: tapping any part of a preview only selects the widget provider.
-    addView(View(context).apply {
-        isClickable = true
-        setOnClickListener { onPick() }
-    }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 }
 
 private fun Int.dpPx(context: Context): Int =
     (this * context.resources.displayMetrics.density + 0.5f).toInt()
 
+internal fun providerDimensions(context: Context, info: AppWidgetProviderInfo): WidgetDimensions =
+    widgetDimensions(info.minWidth, info.minHeight, context.resources.displayMetrics.density,
+        if (Build.VERSION.SDK_INT >= 31) info.targetCellWidth else 0,
+        if (Build.VERSION.SDK_INT >= 31) info.targetCellHeight else 0)
+
 @Composable
-private fun WidgetChoiceCard(choice: WidgetProviderChoice, onPick: (AppWidgetProviderInfo) -> Unit) {
+internal fun WidgetChoiceCard(
+    choice: WidgetProviderChoice,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onPick: (AppWidgetProviderInfo) -> Unit,
+) {
     val context = LocalContext.current
     val manager = remember(context) { AppWidgetManager.getInstance(context) }
     val info = choice.info
-    val hasCellDimensions = Build.VERSION.SDK_INT >= 31 &&
-        info.targetCellWidth > 0 && info.targetCellHeight > 0
-    val width = if (hasCellDimensions) info.targetCellWidth else info.minWidth.coerceAtLeast(1)
-    val height = if (hasCellDimensions) info.targetCellHeight else info.minHeight.coerceAtLeast(1)
-    val aspectRatio = (width.toFloat() / height).coerceIn(.25f, 5f)
+    val dimensions = remember(context, info) { providerDimensions(context, info) }
+    val sizeLabel = if (Build.VERSION.SDK_INT >= 31 &&
+        info.targetCellWidth > 0 && info.targetCellHeight > 0)
+        "${info.targetCellWidth} × ${info.targetCellHeight} cells"
+    else "${dimensions.width.toInt()} × ${dimensions.height.toInt()} dp"
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) .985f else 1f, label = "widget-card-press")
+    val shape = RoundedCornerShape(10.dp)
 
     Column(
         Modifier.fillMaxWidth()
-            .padding(bottom = 12.dp)
-            .border(1.dp, Color(0xFF53465D), RoundedCornerShape(10.dp))
-            .background(Color(0xFF281333), RoundedCornerShape(10.dp))
-            .clickable { onPick(info) }
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(shape)
+            .background(if (selected) Color(0xFF45285C) else Color(0xFF281333))
+            .border(if (selected) 2.dp else 1.dp,
+                if (selected) Color(0xFFC6A4FF) else Color(0xFF53465D), shape)
+            .clickable(enabled = enabled, interactionSource = interactions,
+                indication = androidx.compose.material3.ripple(), role = Role.Button) { onPick(info) }
+            .semantics {
+                stateDescription = if (selected) "Adding widget" else "Add to Start, $sizeLabel"
+                if (selected) liveRegion = LiveRegionMode.Polite
+            }
             .padding(12.dp)
             .testTag("widget-choice-${info.provider.flattenToString()}"),
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            // Respect the widget's native shape instead of stretching every preview
-            // into the same landscape rectangle.
-            val availableWidth = maxWidth.coerceAtMost(320.dp)
-            val previewHeight = (availableWidth.value / aspectRatio).dp.coerceAtMost(220.dp)
-            val previewWidth = (previewHeight.value * aspectRatio).dp
-            Box(Modifier.fillMaxWidth().height(previewHeight.coerceAtLeast(110.dp)),
+            val preview = fitWidgetPreview(dimensions, maxWidth.value.coerceAtMost(280f))
+            // Use native dp dimensions and shrink only when necessary. A 1×1 clock
+            // must not be inflated into the same huge frame as a 4×4 calendar.
+            Box(Modifier.fillMaxWidth().height(preview.height.dp.coerceAtLeast(64.dp)),
                 contentAlignment = Alignment.Center) {
-                AndroidView(
-                    factory = { widgetPreviewView(it, info, manager) { onPick(info) } },
-                    modifier = Modifier.size(previewWidth, previewHeight)
-                        .testTag("widget-preview-${info.provider.flattenToString()}"),
-                )
+                key(info.provider) {
+                    AndroidView(
+                        factory = { widgetPreviewView(it, info, manager) },
+                        modifier = Modifier.size(preview.width.dp, preview.height.dp)
+                            .testTag("widget-preview-${info.provider.flattenToString()}"),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -273,11 +311,15 @@ private fun WidgetChoiceCard(choice: WidgetProviderChoice, onPick: (AppWidgetPro
                 Text(choice.label, color = Color.White,
                     style = WindowsTypography.bodyMedium.copy(fontSize = 15.sp),
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(choice.packageLabel, color = Color.White.copy(alpha = .65f),
+                Text("${choice.packageLabel} · $sizeLabel", color = Color.White.copy(alpha = .65f),
                     style = WindowsTypography.labelSmall.copy(fontSize = 11.sp),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Text("Add +", color = Color.White,
+            if (selected) {
+                CircularProgressIndicator(Modifier.padding(start = 12.dp).size(16.dp),
+                    color = Color(0xFFC6A4FF), strokeWidth = 2.dp)
+            }
+            Text(if (selected) "Adding…" else "Add +", color = Color.White,
                 style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
                 modifier = Modifier.padding(start = 12.dp))
         }
@@ -286,114 +328,67 @@ private fun WidgetChoiceCard(choice: WidgetProviderChoice, onPick: (AppWidgetPro
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun WidgetProviderPicker(
+internal fun WidgetProviderPicker(
     choices: List<WidgetProviderChoice>,
     appName: String?,
+    pendingProvider: ComponentName?,
+    errorMessage: String?,
     onPick: (AppWidgetProviderInfo) -> Unit,
     onCancel: () -> Unit,
 ) {
-    val isAppSheet = appName != null
-    if (isAppSheet) {
-        // Show the previews at full sheet height immediately; a downward swipe dismisses it.
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val scope = rememberCoroutineScope()
-        val dismissSheet: () -> Unit = {
-            scope.launch {
-                sheetState.hide()
-                onCancel()
-            }
-        }
-        ModalBottomSheet(
-            onDismissRequest = onCancel,
-            sheetState = sheetState,
-            shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-            containerColor = Color(0xFF180424),
-            contentColor = Color.White,
-            tonalElevation = 0.dp,
-            scrimColor = Color(0x99000000),
-            dragHandle = {
-                BottomSheetDefaults.DragHandle(color = Color(0xFF8B78A5))
-            },
-        ) {
-            WidgetPickerContent(
-                choices = choices,
-                appName = appName,
-                onPick = onPick,
-                onCancel = dismissSheet,
-                isAppSheet = true,
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(.82f),
-            )
-        }
-    } else {
-        Box(Modifier.fillMaxSize().background(Color(0xFF180424)).statusBarsPadding()) {
-            WidgetPickerContent(
-                choices = choices,
-                appName = null,
-                onPick = onPick,
-                onCancel = onCancel,
-                isAppSheet = false,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val dismissSheet: () -> Unit = {
+        scope.launch { sheetState.hide(); onCancel() }
     }
-}
-
-@Composable
-private fun WidgetPickerContent(
-    choices: List<WidgetProviderChoice>,
-    appName: String?,
-    onPick: (AppWidgetProviderInfo) -> Unit,
-    onCancel: () -> Unit,
-    isAppSheet: Boolean,
-    modifier: Modifier,
-) {
-    Column(
-        modifier.then(if (isAppSheet) Modifier else Modifier.navigationBarsPadding())
-            .padding(horizontal = 20.dp, vertical = 16.dp)
-            .testTag(if (isAppSheet) "app-widget-bottom-sheet" else "widget-picker"),
+    ModalBottomSheet(
+        onDismissRequest = onCancel,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+        containerColor = Color(0xFF180424),
+        contentColor = Color.White,
+        tonalElevation = 0.dp,
+        scrimColor = Color(0x99000000),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0xFF8B78A5)) },
     ) {
-        Text(
-            if (isAppSheet) "$appName widgets" else "Widgets",
-            color = Color.White,
-            style = WindowsTypography.displayLarge.copy(fontSize = if (isAppSheet) 27.sp else 38.sp),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (isAppSheet) "Choose a widget from this app to add to Start"
-                else "Choose a widget to pin to Start",
-            color = Color.White.copy(alpha = .72f),
-            style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp),
-        )
-        Spacer(Modifier.height(14.dp))
-
-        if (choices.isEmpty()) {
-            Text(
-                if (isAppSheet) "This app doesn't offer any widgets."
-                    else "No Android widget providers are installed.",
-                color = Color.White.copy(alpha = .78f),
-                style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
-            )
-        } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                items(
-                    items = choices,
-                    key = { it.info.provider.flattenToString() },
-                ) { choice ->
-                    WidgetChoiceCard(choice, onPick)
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.85f)
+            .padding(horizontal = 20.dp)
+            .testTag(if (appName != null) "app-widget-bottom-sheet" else "widget-picker")) {
+            Text(if (appName != null) "$appName widgets" else "Widgets",
+                color = Color.White,
+                style = WindowsTypography.displayLarge.copy(fontSize = 27.sp),
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            Text("Tap a widget to add it to Start", color = Color.White.copy(alpha = .72f),
+                style = WindowsTypography.bodyMedium.copy(fontSize = 12.sp))
+            Spacer(Modifier.height(14.dp))
+            if (errorMessage != null) {
+                Text(errorMessage, color = Color(0xFFFFC6C6),
+                    style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite })
+            }
+            if (choices.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Text(if (appName != null) "This app doesn't offer any widgets."
+                        else "No Android widget providers are installed.",
+                        color = Color.White.copy(alpha = .78f),
+                        style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp))
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+                    items(choices, key = { it.info.provider.flattenToString() }) { choice ->
+                        WidgetChoiceCard(choice, selected = pendingProvider == choice.info.provider,
+                            enabled = pendingProvider == null, onPick = onPick)
+                    }
                 }
             }
+            Text("Cancel", color = Color.White,
+                style = WindowsTypography.bodyMedium.copy(fontSize = 14.sp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .clickable(onClick = dismissSheet).padding(vertical = 14.dp, horizontal = 4.dp))
         }
-
-        Text(
-            "Cancel",
-            color = Color.White,
-            style = WindowsTypography.bodyMedium.copy(fontSize = 13.sp),
-            modifier = Modifier
-                .clickable(onClick = onCancel)
-                .padding(vertical = 12.dp, horizontal = 4.dp),
-        )
     }
 }
 
@@ -407,7 +402,8 @@ class WidgetPickerActivity : ComponentActivity() {
     private lateinit var host: AppWidgetHost
     private lateinit var manager: AppWidgetManager
     private var allocatedId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
-    private var pendingProvider: ComponentName? = null
+    private var pendingProvider by mutableStateOf<ComponentName?>(null)
+    private var errorMessage by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val packageFilter = intent.getStringExtra(EXTRA_PACKAGE_NAME)?.takeIf(String::isNotBlank)
@@ -444,12 +440,17 @@ class WidgetPickerActivity : ComponentActivity() {
         }
 
         setContent {
-            WidgetProviderPicker(
-                choices = choices,
-                appName = appName,
-                onPick = ::beginBind,
-                onCancel = ::cancelAndFinish,
-            )
+            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFC6A4FF))) {
+                BackHandler(onBack = ::cancelAndFinish)
+                WidgetProviderPicker(
+                    choices = choices,
+                    appName = appName,
+                    pendingProvider = pendingProvider,
+                    errorMessage = errorMessage,
+                    onPick = ::beginBind,
+                    onCancel = ::cancelAndFinish,
+                )
+            }
         }
     }
 
@@ -460,14 +461,26 @@ class WidgetPickerActivity : ComponentActivity() {
     }
 
     private fun beginBind(info: AppWidgetProviderInfo) {
-        if (allocatedId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-            runCatching { host.deleteAppWidgetId(allocatedId) }
+        // Rapid taps must not delete an ID while Android is binding/configuring it.
+        if (pendingProvider != null || allocatedId != AppWidgetManager.INVALID_APPWIDGET_ID) return
+        errorMessage = null
+        allocatedId = runCatching { host.allocateAppWidgetId() }.getOrElse {
+            errorMessage = "Android couldn't prepare this widget. Please try again."
+            return
         }
-        allocatedId = host.allocateAppWidgetId()
         pendingProvider = info.provider
+        val dimensions = providerDimensions(this, info)
+        val options = Bundle().apply {
+            putInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY,
+                AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN)
+            putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, dimensions.width.toInt())
+            putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, dimensions.width.toInt())
+            putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, dimensions.height.toInt())
+            putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, dimensions.height.toInt())
+        }
 
         val alreadyAllowed = runCatching {
-            manager.bindAppWidgetIdIfAllowed(allocatedId, info.provider)
+            manager.bindAppWidgetIdIfAllowed(allocatedId, info.profile, info.provider, options)
         }.getOrDefault(false)
 
         if (alreadyAllowed) {
@@ -478,6 +491,8 @@ class WidgetPickerActivity : ComponentActivity() {
         val bindIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, allocatedId)
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, info.profile)
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_OPTIONS, options)
         }
         val launched = runCatching {
             @Suppress("DEPRECATION")
@@ -485,12 +500,7 @@ class WidgetPickerActivity : ComponentActivity() {
         }.isSuccess
 
         if (!launched) {
-            Toast.makeText(
-                this,
-                "Android could not open widget permission for this provider.",
-                Toast.LENGTH_LONG,
-            ).show()
-            cancelAndFinish()
+            resetPending("Android couldn't open this widget's permission screen. Try another widget.")
         }
     }
 
@@ -499,21 +509,19 @@ class WidgetPickerActivity : ComponentActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         when (requestCode) {
             REQUEST_BIND -> {
-                if (resultCode != Activity.RESULT_OK) return cancelAndFinish()
+                if (resultCode != Activity.RESULT_OK) return resetPending("Widget permission was cancelled. Nothing was added.")
                 val id = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, allocatedId)
                     ?: allocatedId
-                allocatedId = id
+                if (id != allocatedId) return resetPending("Android returned a different widget. Please try again.")
                 val info = manager.getAppWidgetInfo(id)
-                    ?: manager.installedProviders.firstOrNull { it.provider == pendingProvider }
-                    ?: return cancelAndFinish()
+                    ?: return resetPending("This widget could not be connected. Please try again.")
                 configureOrFinish(info)
             }
 
             REQUEST_CONFIGURE -> {
-                if (resultCode != Activity.RESULT_OK) return cancelAndFinish()
+                if (resultCode != Activity.RESULT_OK) return resetPending("Widget setup was cancelled. Nothing was added.")
                 val info = manager.getAppWidgetInfo(allocatedId)
-                    ?: manager.installedProviders.firstOrNull { it.provider == pendingProvider }
-                    ?: return cancelAndFinish()
+                    ?: return resetPending("This widget is no longer available. Try another widget.")
                 finishAddWidget(info)
             }
         }
@@ -526,26 +534,18 @@ class WidgetPickerActivity : ComponentActivity() {
             return
         }
 
-        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
-            component = configure
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, allocatedId)
-        }
         val launched = runCatching {
-            @Suppress("DEPRECATION")
-            startActivityForResult(intent, REQUEST_CONFIGURE)
+            host.startAppWidgetConfigureActivityForResult(this, allocatedId, 0, REQUEST_CONFIGURE, null)
         }.isSuccess
 
         if (!launched) {
-            Toast.makeText(
-                this,
-                "This widget's configuration screen is unavailable.",
-                Toast.LENGTH_LONG,
-            ).show()
-            cancelAndFinish()
+            resetPending("This widget's setup screen is unavailable. Try another widget.")
         }
     }
 
     private fun finishAddWidget(info: AppWidgetProviderInfo) {
+        if (allocatedId == AppWidgetManager.INVALID_APPWIDGET_ID ||
+            manager.getAppWidgetInfo(allocatedId) == null) return
         val repo = AppsRepository(applicationContext)
         val current = repo.loadPinnedTiles().toMutableList()
         val tileId = "widget_${allocatedId}_${System.currentTimeMillis()}"
@@ -556,7 +556,7 @@ class WidgetPickerActivity : ComponentActivity() {
             id = tileId,
             title = title,
             packageName = null,
-            size = TileSize.WIDE,
+            size = widgetTileSize(providerDimensions(this, info)),
             colorValue = 0xFF202020,
             iconGlyph = "app",
             groupName = "Widgets",
@@ -564,6 +564,7 @@ class WidgetPickerActivity : ComponentActivity() {
         )
         repo.savePinnedTiles(current)
         LauncherFeatureRuntime.notifyPinnedTilesChanged()
+        Toast.makeText(this, "$title added to Start", Toast.LENGTH_SHORT).show()
         setResult(
             Activity.RESULT_OK,
             Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, allocatedId),
@@ -573,14 +574,26 @@ class WidgetPickerActivity : ComponentActivity() {
         finish()
     }
 
-    private fun cancelAndFinish() {
+    private fun resetPending(message: String? = null) {
         if (allocatedId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             runCatching { host.deleteAppWidgetId(allocatedId) }
             allocatedId = AppWidgetManager.INVALID_APPWIDGET_ID
         }
         pendingProvider = null
+        errorMessage = message
+    }
+
+    private fun cancelAndFinish() {
+        resetPending()
         setResult(Activity.RESULT_CANCELED)
         finish()
+    }
+
+    override fun onDestroy() {
+        // Back/dismiss must release allocations, while rotation and an external
+        // configuration screen must retain the ID restored from saved state.
+        if (isFinishing) resetPending()
+        super.onDestroy()
     }
 
     companion object {
@@ -595,3 +608,4 @@ class WidgetPickerActivity : ComponentActivity() {
         private const val STATE_PROVIDER = "widget_provider"
     }
 }
+
