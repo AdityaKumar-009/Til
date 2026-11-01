@@ -108,7 +108,8 @@ fun HostedWidgetTile(
     }
 
     Box(modifier = modifier.background(Color(0xFF202020))) {
-        val current = widgets.getOrNull(activeIndex) ?: widgets.firstOrNull()
+        val selectedIndex = activeIndex.takeIf { it in widgets.indices } ?: 0
+        val current = widgets.getOrNull(selectedIndex)
         if (current != null) {
             val (id, info) = current
             // A stack page owns a distinct host view. Rebinding an existing host view
@@ -139,12 +140,12 @@ fun HostedWidgetTile(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .background(Color(0xAA000000))
-                    .clickable { activeIndex = (activeIndex + 1) % widgets.size }
+                    .clickable { activeIndex = (selectedIndex + 1) % widgets.size }
                     .padding(horizontal = 7.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${widgets.indexOf(current) + 1}/${widgets.size}",
+                    text = "${selectedIndex + 1}/${widgets.size}",
                     color = Color.White,
                     style = WindowsTypography.labelSmall.copy(fontSize = 9.sp),
                 )
