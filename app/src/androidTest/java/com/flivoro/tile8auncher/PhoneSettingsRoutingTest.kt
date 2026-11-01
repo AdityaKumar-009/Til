@@ -20,13 +20,15 @@ class PhoneSettingsRoutingTest {
 
     @Test fun animationPickerOpensSelectsAndReopensInEveryMode() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val previousMode = LauncherFeatureStore.launcherUiMode(context)
+        val previousAnimation = LauncherFeatureStore.masterLaunchAnimation(context)
         var mode by mutableStateOf(LauncherUiMode.DESKTOP)
         val repository = AppsRepository(context)
         compose.setContent { MaterialTheme { key(mode) {
             WindowsAppView(TileModel(id = "tile_settings", title = "TIL Settings", tileType = TileType.SETTINGS),
                 appsRepository = repository, onClose = {})
         } } }
-        for (nextMode in LauncherUiMode.entries) {
+        try { for (nextMode in LauncherUiMode.entries) {
             compose.runOnIdle {
                 LauncherFeatureStore.setLauncherUiMode(context, nextMode)
                 mode = nextMode
@@ -40,6 +42,11 @@ class PhoneSettingsRoutingTest {
                 compose.runOnIdle {
                     org.junit.Assert.assertEquals(choice, LauncherFeatureStore.masterLaunchAnimation(context))
                 }
+            }
+        } } finally {
+            compose.runOnIdle {
+                LauncherFeatureStore.setLauncherUiMode(context, previousMode)
+                LauncherFeatureStore.setMasterLaunchAnimation(context, previousAnimation)
             }
         }
     }

@@ -124,6 +124,7 @@ rm -f "$mode_pref_file"
 
 # Unlike debug-only frame fixtures, this calls every new motion compositor
 # after R8 optimization and verifies internal Settings returns on the device.
+python3 .github/scripts/verify-animation-picker.py
 python3 .github/scripts/verify-story-launch.py
 
 ./gradlew connectedDebugAndroidTest --stacktrace

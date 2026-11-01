@@ -1,6 +1,5 @@
 package com.flivoro.tile8auncher.features
 
-import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context

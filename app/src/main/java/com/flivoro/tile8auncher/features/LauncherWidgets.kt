@@ -113,7 +113,7 @@ fun HostedWidgetTile(
             val (id, info) = current
             // A stack page owns a distinct host view. Rebinding an existing host view
             // loses its RemoteViews and can leave the previous widget's content behind.
-            key(id) {
+            key(id, packageRevision, providerRevision) {
                 AndroidView(
                     factory = { WidgetHostViewport(it, LauncherWidgetHost.view(it, id, info), info) },
                     onRelease = { it.releaseWidget() },
