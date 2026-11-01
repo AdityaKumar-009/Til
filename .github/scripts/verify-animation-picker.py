@@ -88,8 +88,11 @@ for mode in ("DESKTOP", "PHONE_8", "MOBILE_10"):
             tap("Open charms")
             tap("Settings")
             tap("Change PC settings")
+        elif mode == "MOBILE_10":
+            # W10M's trigger is at the right edge; WP8.1's strip spans the top.
+            tap("⌄")
+            tap("All settings")
         else:
-            # Same public Action Center entry used by the optimized story smoke.
             adb("shell", "input", "tap", "540", "108")
             tap("All settings")
         tap("Start & motion", scroll=True)
