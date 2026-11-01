@@ -509,9 +509,20 @@ object LauncherFeatureStore {
         writeStringArrayMap(context, FOLDERS_JSON, tileId, emptyList())
     }
 
-    fun widgetStackIds(context: Context, tileId: String): List<Int> =
-        readStringArrayMap(context, WIDGET_STACKS_JSON, tileId)
-            .mapNotNull(String::toIntOrNull)
+    private var cachedWidgetStacksJson: String? = null
+    private var cachedWidgetStacks = emptyMap<String, List<Int>>()
+
+    @Synchronized fun widgetStackIds(context: Context, tileId: String): List<Int> {
+        val raw = prefs(context).getString(WIDGET_STACKS_JSON, "{}") ?: "{}"
+        if (raw != cachedWidgetStacksJson) {
+            val root = runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
+            cachedWidgetStacks = root.keys().asSequence().associateWith { key ->
+                parseArray(root.optJSONArray(key)).mapNotNull(String::toIntOrNull)
+            }
+            cachedWidgetStacksJson = raw
+        }
+        return cachedWidgetStacks[tileId] ?: emptyList()
+    }
 
     fun setWidgetStackIds(context: Context, tileId: String, ids: List<Int>) {
         writeStringArrayMap(context, WIDGET_STACKS_JSON, tileId, ids.distinct().map(Int::toString))

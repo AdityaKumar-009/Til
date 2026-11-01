@@ -11,13 +11,16 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -211,6 +214,45 @@ class WidgetRenderingTest {
         compose.onNodeWithTag("hosted-widget-$first").assertDoesNotExist()
         compose.onNodeWithText("2/2").performClick()
         compose.onNodeWithTag("hosted-widget-$first").assertIsDisplayed()
+    }
+
+    @Test fun scrollingOutAndBackReusesTheLiveViewAndReceivesProviderUpdates() {
+        val id = allocate(tall = true)
+        compose.setContent { MaterialTheme {
+            LazyColumn(Modifier.fillMaxSize().testTag("widget-scroller")) {
+                items(20, key = { it }) { index ->
+                    if (index == 0) HostedWidgetTile(listOf(id), Modifier.size(280.dp, 180.dp))
+                    else Box(Modifier.size(280.dp, 250.dp))
+                }
+            }
+        } }
+        fun hostView(): View? = WindowInspector.getGlobalWindowViews().firstNotNullOfOrNull { root ->
+            root.findViewWithTag<ViewGroup>("widget-host-$id")?.getChildAt(0)
+        }
+        var original: View? = null
+        compose.waitUntil(10_000) {
+            instrumentation.runOnMainSync { original = hostView() }
+            original != null
+        }
+        repeat(3) {
+            compose.onNodeWithTag("widget-scroller").performScrollToIndex(12)
+            compose.onNodeWithTag("hosted-widget-$id").assertDoesNotExist()
+            val remote = FixtureWidgetProvider.content(fixtureContext, id, context)
+            remote.setTextViewText(fixtureContext.resources.getIdentifier(
+                "widget_test_title", "id", fixtureContext.packageName), "Updated offscreen $it")
+            manager.updateAppWidget(id, remote)
+            compose.onNodeWithTag("widget-scroller").performScrollToIndex(0)
+            compose.waitUntil(10_000) {
+                var updated = false
+                instrumentation.runOnMainSync {
+                    val current = hostView()
+                    assertSame("Scrolling must retain the provider View", original, current)
+                    updated = current != null && widgetTree(current).contains("Updated offscreen $it")
+                }
+                updated
+            }
+        }
+        compose.captureFidelity("widget-scrolled-back-live")
     }
 
     @Test fun bothPhoneModesMountRealWidgetsAndKeepTheLargeWidgetFootprint() {

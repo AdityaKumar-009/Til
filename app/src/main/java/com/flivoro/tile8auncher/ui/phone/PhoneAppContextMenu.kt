@@ -42,6 +42,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.PopupPositionProvider
 import kotlin.math.roundToInt
 import com.flivoro.tile8auncher.features.LauncherUiMode
+import com.flivoro.tile8auncher.features.rememberAppHasWidgets
 
 /** Window coordinates throughout, including cutouts and oversized text/menu content. */
 internal fun placeMobileAppMenu(row: IntRect, viewport: IntRect, menu: IntSize): IntOffset {
@@ -107,14 +108,15 @@ internal fun PhoneAppContextMenu(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val hasWidgets = rememberAppHasWidgets(packageName)
     val classic = mode == LauncherUiMode.PHONE_8
     val screenWidth = LocalConfiguration.current.screenWidthDp
     val screenWidthPx = with(LocalDensity.current) { screenWidth.dp.toPx() }.coerceAtLeast(1f)
     val pointerFraction = (xPx / screenWidthPx).coerceIn(0f, 1f)
     // Disco uses fixed CSS pixels for commands rather than scaling them with tile size.
     val scale = 1f
-    val commandCount = if (packageName == "mosaic.launcher.settings") 3
-        else if (isUninstallable) 4 else 3
+    val commandCount = 2 + (if (hasWidgets) 1 else 0) +
+        (if (packageName != "mosaic.launcher.settings" && isUninstallable) 1 else 0)
     val classicMenuHeight = 24f + 65f * commandCount
     val menuHeightPx = with(LocalDensity.current) { classicMenuHeight.dp.roundToPx() }
     val opensAbove = placeClassicAppMenu(
@@ -126,7 +128,7 @@ internal fun PhoneAppContextMenu(
     ).opensAbove
     // Compose Popup(alignment, offset) uses an anchor-relative offset, whereas
     // our source row coordinates are in the window. Position absolutely.
-    val classicPositionProvider = remember(rowBoundsInWindow, viewportBoundsInWindow) {
+    val classicPositionProvider = remember(rowBoundsInWindow, viewportBoundsInWindow, hasWidgets) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
@@ -201,7 +203,7 @@ internal fun PhoneAppContextMenu(
                     // Disco disables pin when it is already present; never unpin
                     // from the All Apps context menu.
                     item("pin to start", enabled = !alreadyPinned, action = onPinChanged)
-                    item("add widgets", action = onAddWidgets)
+                    if (hasWidgets) item("add widgets", action = onAddWidgets)
                     if (packageName != "mosaic.launcher.settings") {
                         item("app info", action = onAppInfo)
                         if (isUninstallable) item("uninstall", action = onUninstall)
@@ -226,7 +228,7 @@ internal fun PhoneAppContextMenu(
                     .testTag("phone-lumia-app-context-menu"),
             ) {
                 item(if (alreadyPinned) "unpin from start" else "pin to start", action = onPinChanged)
-                item("add widgets", action = onAddWidgets)
+                if (hasWidgets) item("add widgets", action = onAddWidgets)
                 if (packageName != "mosaic.launcher.settings") {
                     item("share") {
                         val send = Intent(Intent.ACTION_SEND).apply {

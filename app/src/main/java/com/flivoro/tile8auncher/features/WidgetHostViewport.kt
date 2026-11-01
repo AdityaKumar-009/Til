@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.widget.FrameLayout
 
 /**
@@ -17,17 +18,21 @@ import android.widget.FrameLayout
  */
 internal class WidgetHostViewport(
     context: Context,
-    private val widget: AppWidgetHostView,
+    private val widget: RetainedWidgetView,
     private val provider: AppWidgetProviderInfo,
 ) : FrameLayout(context) {
     private var geometry = WidgetHostGeometry(1, 1, 1f)
-    private var reportedSize: Pair<Int, Int>? = null
 
     init {
         clipChildren = true
         clipToPadding = true
+        (widget.parent as? ViewGroup)?.removeView(widget)
         addView(widget)
         tag = "widget-host-${widget.appWidgetId}"
+    }
+
+    fun releaseWidget() {
+        if (widget.parent === this) removeView(widget)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -53,8 +58,7 @@ internal class WidgetHostViewport(
 
         // Update only when measured dimensions change, never on every recomposition/frame.
         val size = width to height
-        if (reportedSize != size) {
-            reportedSize = size
+        if (widget.reportedSize != size) {
             val density = resources.displayMetrics.density
             val options = Bundle().apply {
                 putInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY,
@@ -69,6 +73,7 @@ internal class WidgetHostViewport(
                     widget.updateAppWidgetSize(options, (width / density).toInt(),
                         (height / density).toInt(), (width / density).toInt(), (height / density).toInt())
                 }
+                widget.reportedSize = size
             }
         }
     }

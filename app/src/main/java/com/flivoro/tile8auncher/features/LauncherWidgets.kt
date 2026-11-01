@@ -77,22 +77,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.flivoro.tile8auncher.PackageCatalogUpdates
 import com.flivoro.tile8auncher.data.AppsRepository
 import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.data.TileSize
 import com.flivoro.tile8auncher.ui.theme.WindowsTypography
 import kotlinx.coroutines.launch
-
-object LauncherWidgetHost {
-    const val HOST_ID = 0x4D4F53 // "MOS"
-
-    @Volatile
-    private var host: AppWidgetHost? = null
-
-    fun get(context: Context): AppWidgetHost = synchronized(this) {
-        host ?: AppWidgetHost(context.applicationContext, HOST_ID).also { host = it }
-    }
-}
 
 @Composable
 fun HostedWidgetTile(
@@ -100,28 +91,32 @@ fun HostedWidgetTile(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val manager = remember(context) { AppWidgetManager.getInstance(context) }
     val host = remember(context) { LauncherWidgetHost.get(context) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val packageRevision = PackageCatalogUpdates.revision
+    val providerRevision = LauncherWidgetHost.providersRevision
     var activeIndex by remember(widgetIds) { mutableIntStateOf(0) }
-    val validIds = remember(widgetIds) {
-        widgetIds.filter { id -> runCatching { manager.getAppWidgetInfo(id) }.getOrNull() != null }
+    val widgets = remember(widgetIds, packageRevision, providerRevision) {
+        widgetIds.mapNotNull { id ->
+            LauncherWidgetHost.provider(context, id)?.let { id to it }
+        }
     }
-    if (activeIndex !in validIds.indices) activeIndex = 0
-
-    DisposableEffect(host) {
-        runCatching { host.startListening() }
-        onDispose { /* shared host intentionally keeps listening across visible widget tiles */ }
+    DisposableEffect(host, lifecycle) {
+        LauncherWidgetHost.observe(context, lifecycle)
+        // Observation belongs to the Activity, including when all widgets are scrolled away.
+        onDispose { }
     }
 
     Box(modifier = modifier.background(Color(0xFF202020))) {
-        val id = validIds.getOrNull(activeIndex)
-        val info = id?.let(manager::getAppWidgetInfo)
-        if (id != null && info != null) {
+        val current = widgets.getOrNull(activeIndex) ?: widgets.firstOrNull()
+        if (current != null) {
+            val (id, info) = current
             // A stack page owns a distinct host view. Rebinding an existing host view
             // loses its RemoteViews and can leave the previous widget's content behind.
             key(id) {
                 AndroidView(
-                    factory = { WidgetHostViewport(it, host.createView(it, id, info), info) },
+                    factory = { WidgetHostViewport(it, LauncherWidgetHost.view(it, id, info), info) },
+                    onRelease = { it.releaseWidget() },
                     modifier = Modifier.fillMaxSize().testTag("hosted-widget-$id"),
                 )
             }
@@ -139,17 +134,17 @@ fun HostedWidgetTile(
             }
         }
 
-        if (validIds.size > 1) {
+        if (widgets.size > 1) {
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .background(Color(0xAA000000))
-                    .clickable { activeIndex = (activeIndex + 1) % validIds.size }
+                    .clickable { activeIndex = (activeIndex + 1) % widgets.size }
                     .padding(horizontal = 7.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${activeIndex + 1}/${validIds.size}",
+                    text = "${widgets.indexOf(current) + 1}/${widgets.size}",
                     color = Color.White,
                     style = WindowsTypography.labelSmall.copy(fontSize = 9.sp),
                 )
