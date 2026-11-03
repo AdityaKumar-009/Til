@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher.features
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ImageDecoder
 import android.graphics.drawable.BitmapDrawable
@@ -33,24 +34,26 @@ object IconPackManager {
     fun peekOverride(targetPackage: String, maxPx: Int = 256): ImageBitmap? =
         bitmapCache["target:$targetPackage:$maxPx"]
 
+    fun peekCustom(context: Context, targetPackage: String, maxPx: Int = 256): ImageBitmap? {
+        val uri = LauncherFeatureStore.customIconUri(context, targetPackage) ?: return null
+        return bitmapCache["uri:$uri:$maxPx"]
+    }
+
+    fun loadCustom(context: Context, targetPackage: String, maxPx: Int = 256): ImageBitmap? {
+        val uri = LauncherFeatureStore.customIconUri(context, targetPackage) ?: return null
+        val key = "uri:$uri:$maxPx"
+        return bitmapCache[key] ?: decodeUri(context, Uri.parse(uri), maxPx)?.also { bitmapCache[key] = it }
+    }
+
     fun loadOverride(context: Context, targetPackage: String, maxPx: Int = 256): ImageBitmap? {
         val targetKey = "target:$targetPackage:$maxPx"
+        loadCustom(context, targetPackage, maxPx)?.let { return it }
         bitmapCache[targetKey]?.let { return it }
 
-        val customUri = LauncherFeatureStore.customIconUri(context, targetPackage)
-        if (!customUri.isNullOrBlank()) {
-            val key = "uri:$customUri:$maxPx"
-            bitmapCache[key]?.let {
-                bitmapCache[targetKey] = it
-                return it
-            }
-            decodeUri(context, Uri.parse(customUri), maxPx)?.let {
-                bitmapCache[key] = it
-                bitmapCache[targetKey] = it
-                return it
-            }
-        }
+        return loadPackIcon(context, targetPackage, maxPx)?.also { bitmapCache[targetKey] = it }
+    }
 
+    internal fun loadPackIcon(context: Context, targetPackage: String, maxPx: Int = 256): ImageBitmap? {
         val packPackage = LauncherFeatureStore.selectedIconPack(context) ?: return null
         val component = context.packageManager.getLaunchIntentForPackage(targetPackage)?.component
         val componentKey = component?.flattenToString()
@@ -66,7 +69,6 @@ object IconPackManager {
 
         val cacheKey = "pack:$packPackage:$drawableName:$maxPx"
         bitmapCache[cacheKey]?.let {
-            bitmapCache[targetKey] = it
             return it
         }
         val resources = runCatching { context.packageManager.getResourcesForApplication(packPackage) }.getOrNull()
@@ -78,7 +80,6 @@ object IconPackManager {
         val drawable = runCatching { resources.getDrawable(id, null) }.getOrNull() ?: return null
         return drawableToImageBitmap(drawable, maxPx)?.also {
             bitmapCache[cacheKey] = it
-            bitmapCache[targetKey] = it
         }
     }
 
@@ -141,10 +142,11 @@ object IconPackManager {
         return ParsedPack(packPackage, map).also { parsedPack = it }
     }
 
-    private fun decodeUri(context: Context, uri: Uri, maxPx: Int): ImageBitmap? = runCatching {
+    internal fun decodeUri(context: Context, uri: Uri, maxPx: Int): ImageBitmap? = runCatching {
         val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val source = ImageDecoder.createSource(context.contentResolver, uri)
             ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                 val longest = maxOf(info.size.width, info.size.height).coerceAtLeast(1)
                 if (longest > maxPx) {
                     val scale = maxPx.toFloat() / longest
@@ -155,8 +157,15 @@ object IconPackManager {
                 }
             }
         } else {
-            @Suppress("DEPRECATION")
-            android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            require(options.outWidth > 0 && options.outHeight > 0)
+            options.inJustDecodeBounds = false
+            while (maxOf(options.outWidth, options.outHeight) / options.inSampleSize.coerceAtLeast(1) > maxPx * 2) {
+                options.inSampleSize = options.inSampleSize.coerceAtLeast(1) * 2
+            }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                ?: return@runCatching null
         }
         val safe = if (maxOf(bitmap.width, bitmap.height) > maxPx) {
             val scale = maxPx.toFloat() / maxOf(bitmap.width, bitmap.height)

@@ -239,6 +239,10 @@ private fun DefaultTileContent(
     }
 
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
+    if (hasCustomAppIcon(tile.iconPackageName) && appIcon != null) {
+        StaticAppTileContent(tile = tile, appIcon = appIcon, logoModifier = logoModifier)
+        return
+    }
     when (tile.tileType) {
         TileType.DESKTOP -> DesktopTileContent(title = tile.title)
         TileType.CLOCK -> ClockTileContent(
@@ -273,8 +277,15 @@ private fun SmallTileContent(
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
-    val tintMonochrome = iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
+    val customIcon = hasCustomAppIcon(tile.iconPackageName)
+    val tintMonochrome = !customIcon && iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 
+    if (customIcon && appIcon != null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Image(appIcon, tile.title, logoModifier.size(30.dp))
+        }
+        return
+    }
     when (tile.tileType) {
         TileType.CLOCK -> CompactClockTileContent(contentColor)
         TileType.WEATHER -> CompactWeatherTileContent(contentColor, logoModifier)
@@ -298,7 +309,7 @@ private fun SmallTileContent(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    builtInGlyph != null -> MetroIcon(
+                    builtInGlyph != null && !customIcon -> MetroIcon(
                         glyph = builtInGlyph,
                         color = contentColor,
                         // Phone is painted at final size instead of upscaling
@@ -659,7 +670,7 @@ private fun LargeLiveNotificationTileContent(
     }
 }
 
-private fun readableTileLabelColor(background: Color): Color {
+internal fun readableTileLabelColor(background: Color): Color {
     // Windows keeps the saturated Metro palette white, but yellow/amber and the light neutral
     // (white/very-light-gray) variants use dark branding for readable contrast.
     val maxChannel = maxOf(background.red, background.green, background.blue)
@@ -767,10 +778,11 @@ private fun LiveTileAppIcon(
     val contentColor = readableTileLabelColor(tile.colorValue.toTileColor())
     val iconsRevision = LauncherFeatureRuntime.iconsRevision
     val iconStyle = remember(iconsRevision) { LauncherFeatureStore.appIconStyle(context) }
-    val tintMonochrome =
+    val customIcon = hasCustomAppIcon(tile.iconPackageName)
+    val tintMonochrome = !customIcon &&
         iconStyle == com.flivoro.tile8auncher.features.AppIconStyle.WHITE_MONOCHROME
 
-    if (tile.iconGlyph.isNotEmpty()) {
+    if (tile.iconGlyph.isNotEmpty() && !customIcon) {
         MetroIcon(
             glyph = tile.iconGlyph,
             color = contentColor,

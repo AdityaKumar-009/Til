@@ -25,7 +25,7 @@ adb shell settings put secure immersive_mode_confirmations confirmed
 # Fail quickly on unlock recovery, folder and desktop-input interactions before the longer
 # optimized smoke/render matrix. Captures survive AGP cleanup through MediaStore.
 ./gradlew connectedDebugAndroidTest \
-    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.LauncherUnlockRecoveryTest,com.flivoro.tile8auncher.InlinePhoneFolderTest,com.flivoro.tile8auncher.DesktopInputTest \
+    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.AppIconPickerTest,com.flivoro.tile8auncher.LauncherUnlockRecoveryTest,com.flivoro.tile8auncher.InlinePhoneFolderTest,com.flivoro.tile8auncher.DesktopInputTest \
     --stacktrace
 ./gradlew assemblePerformance --stacktrace
 adb install -r app/build/outputs/apk/performance/app-performance.apk

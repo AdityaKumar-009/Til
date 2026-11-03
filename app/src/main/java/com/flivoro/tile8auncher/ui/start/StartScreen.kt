@@ -1599,7 +1599,7 @@ fun StartScreen(
                                 band.tiles.forEach { placed ->
                                     key(placed.tile.id) {
                                         val tile = placed.tile
-                                        val appIcon = tile.packageName?.let { rememberStartAppIcon(appsRepository, it) }
+                                        val appIcon = tile.iconPackageName?.let { rememberStartAppIcon(appsRepository, it) }
                                         val tileWidth = (
                                             placed.columns * metrics.cellDp +
                                                 (placed.columns - 1) * metrics.gapDp
@@ -1885,7 +1885,7 @@ fun StartScreen(
                             val ghostTop = packedBounds.top - tileViewportBounds.top
                             val ghostWidth = with(density) { packedBounds.width.toDp() }
                             val ghostHeight = with(density) { packedBounds.height.toDp() }
-                            val ghostIcon = draggedTile.packageName?.let {
+                            val ghostIcon = draggedTile.iconPackageName?.let {
                                 rememberStartAppIcon(appsRepository, it)
                             }
 
@@ -1932,7 +1932,7 @@ fun StartScreen(
                                 span.rows * metrics.cellDp +
                                     (span.rows - 1) * metrics.gapDp
                                 ).dp
-                            val dragIcon = draggedTile.packageName?.let {
+                            val dragIcon = draggedTile.iconPackageName?.let {
                                 rememberStartAppIcon(appsRepository, it)
                             }
                             val visualTopLeft = dragVisualTopLeft()
@@ -2787,7 +2787,7 @@ private fun StartSpatialSemanticZoom(
                         val leftPx = sourceLeftPx + (targetLeftPx - sourceLeftPx) * p
                         val topPx = sourceTopPx + (targetTopPx - sourceTopPx) * p
                         val scale = 1f + (semanticScale - 1f) * p
-                        val appIcon = tile.packageName?.let {
+                        val appIcon = tile.iconPackageName?.let {
                             rememberStartAppIcon(appsRepository, it)
                         }
 

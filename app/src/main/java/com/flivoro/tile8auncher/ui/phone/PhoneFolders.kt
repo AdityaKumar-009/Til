@@ -52,6 +52,7 @@ import com.flivoro.tile8auncher.data.TileModel
 import com.flivoro.tile8auncher.features.LauncherFeatureStore
 import com.flivoro.tile8auncher.features.LauncherUiMode
 import com.flivoro.tile8auncher.ui.components.MetroIcon
+import com.flivoro.tile8auncher.ui.components.hasCustomAppIcon
 import com.flivoro.tile8auncher.ui.components.rememberAppIcon
 import com.flivoro.tile8auncher.ui.components.StartPersonalization
 import org.json.JSONArray
@@ -310,7 +311,7 @@ internal fun PhoneFolderPreview(
             }
             preview.forEachIndexed { index, tile ->
                 val placement = bounds[index]
-                val icon = rememberAppIcon(repository, tile.packageName)
+                val icon = rememberAppIcon(repository, tile.iconPackageName)
                 val count = if (LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName))
                     LiveTileNotificationStore.latest(context, tile.packageName)?.count ?: 0 else 0
                 val tileWidth = placement.width.dp
@@ -324,7 +325,7 @@ internal fun PhoneFolderPreview(
                         .background(Color(tile.colorValue)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (tile.iconGlyph.isBlank() && icon != null) {
+                    if ((tile.iconGlyph.isBlank() || hasCustomAppIcon(tile.iconPackageName)) && icon != null) {
                         Image(bitmap = icon, contentDescription = null,
                             modifier = Modifier.size(glyphSize))
                     } else {
@@ -349,12 +350,12 @@ internal fun PhoneFolderPreview(
             children.take(4).chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     row.forEach { tile ->
-                        val icon = rememberAppIcon(repository, tile.packageName)
+                        val icon = rememberAppIcon(repository, tile.iconPackageName)
                         val liveCount = if (LauncherFeatureStore.isLiveTileEnabled(context, tile.packageName))
                             LiveTileNotificationStore.latest(context, tile.packageName)?.count ?: 0 else 0
                         Box(Modifier.padding(2.dp).size(side).background(Color(tile.colorValue)),
                             contentAlignment = Alignment.Center) {
-                            if (tile.iconGlyph.isBlank() && icon != null) {
+                            if ((tile.iconGlyph.isBlank() || hasCustomAppIcon(tile.iconPackageName)) && icon != null) {
                                 Image(bitmap = icon, contentDescription = null,
                                     modifier = Modifier.size(side * .66f))
                             } else {
