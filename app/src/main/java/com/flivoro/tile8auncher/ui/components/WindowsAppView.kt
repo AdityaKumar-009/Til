@@ -417,7 +417,8 @@ private fun PCSettingsAppContent(
     val context = LocalContext.current
     var settingsPage by remember { mutableIntStateOf(0) }
     var showMasterPicker by remember { mutableStateOf(false) }
-    var selectedLaunchStyle by remember {
+    val launchAnimationRevision = LauncherFeatureRuntime.masterLaunchAnimationRevision
+    var selectedLaunchStyle by remember(launchAnimationRevision) {
         mutableStateOf(LauncherFeatureStore.masterLaunchAnimation(context))
     }
     var selectedMode by remember {

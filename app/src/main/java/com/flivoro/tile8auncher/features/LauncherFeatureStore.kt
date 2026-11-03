@@ -80,8 +80,16 @@ object LauncherFeatureRuntime {
     var launcherModeRevision by mutableIntStateOf(0)
         private set
 
+    // Updating a launch preset must not invalidate or rebuild launcher-mode surfaces.
+    var masterLaunchAnimationRevision by mutableIntStateOf(0)
+        private set
+
     fun notifyLauncherModeChanged() {
         launcherModeRevision++
+    }
+
+    fun notifyMasterLaunchAnimationChanged() {
+        masterLaunchAnimationRevision++
     }
 
     var pinnedTilesRevision by mutableIntStateOf(0)
@@ -166,7 +174,7 @@ object LauncherFeatureStore {
 
     fun setMasterLaunchAnimation(context: Context, animation: MasterLaunchAnimation) {
         prefs(context).edit { putString(MASTER_LAUNCH_ANIMATION, animation.name) }
-        LauncherFeatureRuntime.notifyLauncherModeChanged()
+        LauncherFeatureRuntime.notifyMasterLaunchAnimationChanged()
     }
 
     fun launcherUiMode(context: Context): LauncherUiMode {
@@ -501,9 +509,20 @@ object LauncherFeatureStore {
         writeStringArrayMap(context, FOLDERS_JSON, tileId, emptyList())
     }
 
-    fun widgetStackIds(context: Context, tileId: String): List<Int> =
-        readStringArrayMap(context, WIDGET_STACKS_JSON, tileId)
-            .mapNotNull(String::toIntOrNull)
+    private var cachedWidgetStacksJson: String? = null
+    private var cachedWidgetStacks = emptyMap<String, List<Int>>()
+
+    @Synchronized fun widgetStackIds(context: Context, tileId: String): List<Int> {
+        val raw = prefs(context).getString(WIDGET_STACKS_JSON, "{}") ?: "{}"
+        if (raw != cachedWidgetStacksJson) {
+            val root = runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
+            cachedWidgetStacks = root.keys().asSequence().associateWith { key ->
+                parseArray(root.optJSONArray(key)).mapNotNull(String::toIntOrNull)
+            }
+            cachedWidgetStacksJson = raw
+        }
+        return cachedWidgetStacks[tileId] ?: emptyList()
+    }
 
     fun setWidgetStackIds(context: Context, tileId: String, ids: List<Int>) {
         writeStringArrayMap(context, WIDGET_STACKS_JSON, tileId, ids.distinct().map(Int::toString))

@@ -90,9 +90,10 @@ internal fun LauncherSettingsScreen(
     val context = LocalContext.current
     val repository = appsRepository ?: remember(context) { AppsRepository(context.applicationContext) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val revision = LauncherFeatureRuntime.launcherModeRevision
-    val mode = remember(revision) { LauncherFeatureStore.launcherUiMode(context) }
-    val animation = remember(revision) { LauncherFeatureStore.masterLaunchAnimation(context) }
+    val modeRevision = LauncherFeatureRuntime.launcherModeRevision
+    val mode = remember(modeRevision) { LauncherFeatureStore.launcherUiMode(context) }
+    val animationRevision = LauncherFeatureRuntime.masterLaunchAnimationRevision
+    val animation = remember(animationRevision) { LauncherFeatureStore.masterLaunchAnimation(context) }
     var currentPage by rememberSaveable { mutableStateOf(SettingsPage.OVERVIEW) }
     // Each Settings page starts at its own top. Reusing one scroll offset across
     // pages can strand the Overview navigation rows outside the visible viewport.
@@ -310,39 +311,59 @@ internal fun LauncherSettingsScreen(
         }
     }
 
-    if (showModes) {
-        SettingsChoiceDialog("Launcher style", onDismiss = { showModes = false }) {
-            Column(Modifier.selectableGroup()) {
-                LauncherUiMode.entries.forEach { choice ->
-                    SettingsRadioRow(choice.title, mode == choice,
-                        detail = when (choice) {
-                            LauncherUiMode.DESKTOP -> "Wide, horizontal Windows Start"
-                            LauncherUiMode.PHONE_8 -> "Classic Lumia phone tiles"
-                            LauncherUiMode.MOBILE_10 -> "Modern phone Start and live tiles"
-                        },
-                        tag = "launcher-mode-${choice.name}") {
-                        showModes = false
-                        if (choice != mode) {
-                            LauncherFeatureStore.setLauncherUiMode(context, choice,
-                                phoneRenderAttempted = choice != LauncherUiMode.DESKTOP)
-                            // Show the new interface immediately and keep Settings out of
-                            // the cross-mode handoff; a second Back was previously required.
-                            onClose()
-                        }
-                    }
-                }
+    // Always call the picker entry points. Their own restart groups isolate dialog
+    // lambdas from this page's saveable scroll/state slots. The old inline conditional
+    // crashed on opening with SaveableHolder -> ComposableLambdaImpl on API 29/34.
+    LauncherModePicker(showModes, mode, onDismiss = { showModes = false }, onSelect = { choice ->
+        showModes = false
+        if (choice != mode) {
+            LauncherFeatureStore.setLauncherUiMode(context, choice,
+                phoneRenderAttempted = choice != LauncherUiMode.DESKTOP)
+            onClose()
+        }
+    })
+    AnimationStylePicker(showAnimations, animation, onDismiss = { showAnimations = false },
+        onSelect = { choice ->
+            showAnimations = false
+            LauncherFeatureStore.setMasterLaunchAnimation(context, choice)
+        })
+}
+
+@Composable
+private fun LauncherModePicker(
+    visible: Boolean,
+    selected: LauncherUiMode,
+    onDismiss: () -> Unit,
+    onSelect: (LauncherUiMode) -> Unit,
+) {
+    if (!visible) return
+    SettingsChoiceDialog("Launcher style", onDismiss) {
+        Column(Modifier.selectableGroup()) {
+            LauncherUiMode.entries.forEach { choice ->
+                SettingsRadioRow(choice.title, selected == choice,
+                    detail = when (choice) {
+                        LauncherUiMode.DESKTOP -> "Wide, horizontal Windows Start"
+                        LauncherUiMode.PHONE_8 -> "Classic Lumia phone tiles"
+                        LauncherUiMode.MOBILE_10 -> "Modern phone Start and live tiles"
+                    }, tag = "launcher-mode-${choice.name}") { onSelect(choice) }
             }
         }
     }
-    if (showAnimations) {
-        SettingsChoiceDialog("App-opening animation", onDismiss = { showAnimations = false }) {
-            Column(Modifier.selectableGroup()) {
-                MasterLaunchAnimation.selectableChoices.forEach { choice ->
-                    SettingsRadioRow(choice.title, animation == choice, choice.detail) {
-                        LauncherFeatureStore.setMasterLaunchAnimation(context, choice)
-                        showAnimations = false
-                    }
-                }
+}
+
+@Composable
+private fun AnimationStylePicker(
+    visible: Boolean,
+    selected: MasterLaunchAnimation,
+    onDismiss: () -> Unit,
+    onSelect: (MasterLaunchAnimation) -> Unit,
+) {
+    if (!visible) return
+    SettingsChoiceDialog("App-opening animation", onDismiss) {
+        Column(Modifier.selectableGroup()) {
+            MasterLaunchAnimation.selectableChoices.forEach { choice ->
+                SettingsRadioRow(choice.title, selected == choice, choice.detail,
+                    tag = "launcher-animation-${choice.name}") { onSelect(choice) }
             }
         }
     }

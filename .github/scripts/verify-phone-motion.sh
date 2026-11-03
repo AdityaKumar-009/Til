@@ -25,7 +25,7 @@ adb shell settings put secure immersive_mode_confirmations confirmed
 # Fail quickly on unlock recovery, folder and desktop-input interactions before the longer
 # optimized smoke/render matrix. Captures survive AGP cleanup through MediaStore.
 ./gradlew connectedDebugAndroidTest \
-    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.LauncherUnlockRecoveryTest,com.flivoro.tile8auncher.InlinePhoneFolderTest,com.flivoro.tile8auncher.DesktopInputTest \
+    -Pandroid.testInstrumentationRunnerArguments.class=com.flivoro.tile8auncher.PhoneSettingsRoutingTest,com.flivoro.tile8auncher.WidgetMenuAvailabilityTest,com.flivoro.tile8auncher.WidgetRenderingTest,com.flivoro.tile8auncher.WidgetPlacementTest,com.flivoro.tile8auncher.LauncherUnlockRecoveryTest,com.flivoro.tile8auncher.InlinePhoneFolderTest,com.flivoro.tile8auncher.DesktopInputTest \
     --stacktrace
 ./gradlew assemblePerformance --stacktrace
 adb install -r app/build/outputs/apk/performance/app-performance.apk
@@ -124,6 +124,7 @@ rm -f "$mode_pref_file"
 
 # Unlike debug-only frame fixtures, this calls every new motion compositor
 # after R8 optimization and verifies internal Settings returns on the device.
+python3 .github/scripts/verify-animation-picker.py
 python3 .github/scripts/verify-story-launch.py
 
 ./gradlew connectedDebugAndroidTest --stacktrace

@@ -86,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.flivoro.tile8auncher.PackageCatalogUpdates
+import com.flivoro.tile8auncher.features.rememberAppHasWidgets
 import com.flivoro.tile8auncher.data.AppInfo
 import com.flivoro.tile8auncher.data.AppSection
 import com.flivoro.tile8auncher.data.AppsRepository
@@ -635,6 +636,7 @@ fun AllAppsScreen(
         ) {
             val currentApp = selectedAppForAction
             if (currentApp != null) {
+                val hasWidgets = rememberAppHasWidgets(currentApp.packageName)
                 val isPinned = isAppPinned(currentApp.packageName)
                 val uninstallable = remember(currentApp.packageName) {
                     canRequestAppUninstall(context, currentApp.packageName)
@@ -690,7 +692,7 @@ fun AllAppsScreen(
                                     selectedAppForAction = null
                                 },
                             )
-                            MetroActionButton(
+                            if (hasWidgets) MetroActionButton(
                                 glyph = "app",
                                 label = "Add widgets",
                                 onClick = {

@@ -2,6 +2,7 @@ package com.flivoro.tile8auncher
 
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +17,39 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PhoneSettingsRoutingTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun animationPickerOpensSelectsAndReopensInEveryMode() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val previousMode = LauncherFeatureStore.launcherUiMode(context)
+        val previousAnimation = LauncherFeatureStore.masterLaunchAnimation(context)
+        var mode by mutableStateOf(LauncherUiMode.DESKTOP)
+        val repository = AppsRepository(context)
+        compose.setContent { MaterialTheme { key(mode) {
+            WindowsAppView(TileModel(id = "tile_settings", title = "TIL Settings", tileType = TileType.SETTINGS),
+                appsRepository = repository, onClose = {})
+        } } }
+        try { for (nextMode in LauncherUiMode.entries) {
+            compose.runOnIdle {
+                LauncherFeatureStore.setLauncherUiMode(context, nextMode)
+                mode = nextMode
+            }
+            compose.onNodeWithText("Start & motion").performScrollTo().performClick()
+            for (choice in MasterLaunchAnimation.selectableChoices) {
+                compose.onNodeWithText("Animation style").performScrollTo().performClick()
+                compose.onNodeWithText("App-opening animation").assertIsDisplayed()
+                compose.onNode(hasText(choice.title) and isSelectable()).performScrollTo().performClick()
+                compose.onNodeWithText("App-opening animation").assertDoesNotExist()
+                compose.runOnIdle {
+                    org.junit.Assert.assertEquals(choice, LauncherFeatureStore.masterLaunchAnimation(context))
+                }
+            }
+        } } finally {
+            compose.runOnIdle {
+                LauncherFeatureStore.setLauncherUiMode(context, previousMode)
+                LauncherFeatureStore.setMasterLaunchAnimation(context, previousAnimation)
+            }
+        }
+    }
     @Test fun phoneSettingsShowsOneHomeAndModeScreen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences(LauncherFeatureStore.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()

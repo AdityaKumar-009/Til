@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver android:name="com.flivoro.tile8auncher.FixtureSmallWidgetProvider" android:exported="true" android:label="Small clock">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_test_small" />
+        </receiver>
+        <receiver android:name="com.flivoro.tile8auncher.FixtureTallWidgetProvider" android:exported="true" android:label="Tall calendar">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_test_tall" />
+        </receiver>
+    </application>
+</manifest>
