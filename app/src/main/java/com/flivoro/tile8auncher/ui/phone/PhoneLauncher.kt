@@ -151,6 +151,11 @@ import kotlin.math.sin
 internal data class PhoneTileSlot(val column: Int, val row: Int, val columns: Int, val rows: Int)
 
 private const val MOSAIC_SETTINGS_ID = "mosaic.launcher.settings"
+private const val PANORAMA_WALLPAPER_MAX_DIM = .30f
+
+/** An additive wallpaper-only scrim, tied directly to the Start → All Apps position. */
+internal fun panoramaWallpaperDimAlpha(progress: Float): Float =
+    progress.coerceIn(0f, 1f) * PANORAMA_WALLPAPER_MAX_DIM
 
 // Preview/instrumentation can inspect an exact motion timestamp independently
 // of a device's vsync interval. Production always uses the display clock.
@@ -1013,6 +1018,11 @@ fun PhoneLauncherSurface(
         }
     }
 
+    // Use the very same drag/release/settle position as the two moving panes.
+    // The wallpaper must track the finger, including on Apps → Start swipes.
+    val panoramaProgress = if (suppressReturnPaneTransition && isClassicPhone) 0f
+        else classicDragPosition ?: classicReleasePosition ?: classicPanorama.value
+
     Box(Modifier.fillMaxSize().background(Color.Black)
         .testTag("phone-navigation-state")
         .semantics { stateDescription = motionHomeRequest.toString() }
@@ -1021,6 +1031,11 @@ fun PhoneLauncherSurface(
             Box(Modifier.fillMaxSize().graphicsLayer {
                 alpha = (if (exitUsesMobile) mobileWallpaperAlpha() else 1f) *
                     (1f - borrowedDesktopRetreat().coerceIn(0f, 1f))
+            }.drawWithContent {
+                drawContent()
+                // Draw above the wallpaper (and W10M's existing base tint),
+                // but below Start tiles, app rows, headers and other controls.
+                drawRect(Color.Black, alpha = panoramaWallpaperDimAlpha(panoramaProgress))
             }) {
                 WindowsWallpaper(wallpaperStyle = wallpaperStyle, enabled = false, scrollOffsetPx = { 0f })
                 if (isTen) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)))
@@ -1049,8 +1064,6 @@ fun PhoneLauncherSurface(
             // Keep both pages mounted and move the panorama with one shared X translation.
             // The drag position is composed immediately; only release settles
             // with the pre-existing 260/270 ms curve. Both panes translate together.
-            val panoramaProgress = if (suppressReturnPaneTransition && isClassicPhone) 0f
-                else classicDragPosition ?: classicReleasePosition ?: classicPanorama.value
             Box(
                 Modifier.weight(1f).fillMaxWidth().clipToBounds()
                     .onGloballyPositioned { paneBounds = it.boundsInWindow() }
